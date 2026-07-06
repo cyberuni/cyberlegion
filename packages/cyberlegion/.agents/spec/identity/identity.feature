@@ -66,6 +66,19 @@ Feature: identity — self-identify and discover peers
     When a session runs the top-level who command
     Then it lists alice exactly as identity who would
 
+  # ── bare invocation is a content-first status (AXI #8) ──
+
+  Scenario: bare cyberlegion prints a compact status and exits 0
+    Given a session with no identity and an empty registry
+    When it runs cyberlegion with no subcommand
+    Then it prints a compact status with self "-", unread 0, and units 0
+    And it exits 0 with a register next-step, never help-and-error
+
+  Scenario: bare status reflects this session's own identity, unread, and live units
+    Given a registered session alice holding one unread message and one live unit
+    When it runs cyberlegion with no subcommand
+    Then the status shows self alice, unread 1, and units 1
+
   # ── prune marks dead agents exited ──
 
   Scenario: prune marks an agent exited when its tmux pane is gone

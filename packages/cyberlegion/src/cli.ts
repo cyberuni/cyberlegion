@@ -79,6 +79,10 @@ program
 	.name('cyberlegion')
 	.description('Harness-agnostic agent session spawning, messaging, and dispatch over the filesystem')
 	.version(VERSION)
+	// The program carries --space/--format for the bare-status default action; the same names are
+	// declared on every leaf subcommand. Positional options keep a post-verb --space bound to the
+	// subcommand (a program option is only recognized before the subcommand token).
+	.enablePositionalOptions()
 
 // -------------------------------------------------------------------------------------------
 // identity — self-identify and discover peers
@@ -761,6 +765,25 @@ withGlobals(program.command('who'))
 	.description('list the addressable peers (alias of `identity who`)')
 	.option('--all', 'include exited agents')
 	.action(runWho)
+
+// -------------------------------------------------------------------------------------------
+// bare invocation — content-first compact status (AXI #8): this session's own identity, its
+// unread count, and how many units are live. Exit 0, never help+error. Works unregistered.
+// -------------------------------------------------------------------------------------------
+withGlobals(program).action((opts: GlobalOpts) => {
+	const ctx = ctxOf(opts)
+	touch(ctx)
+	const id = resolveSelfId(ctx)
+	const rec = id ? loadAgent(ctx.store, id) : undefined
+	const unread = id ? inbox({ store: ctx.store }, { meId: id, unread: true }).length : 0
+	const units = listAgents(ctx.store).filter((a) => a.status !== 'exited').length
+	emit(formatOf(opts), {
+		toon: toonObject({ self: rec?.handle ?? id ?? '-', harness: rec?.harness ?? '-', unread, units }),
+		json: { self: rec ? { id: rec.id, handle: rec.handle, harness: rec.harness } : null, unread, units },
+	})
+	if (!id) nextStep('cyberlegion identity register to join')
+	else if (unread > 0) nextStep('cyberlegion mail inbox --unread')
+})
 
 program.parseAsync(process.argv).catch((err: unknown) => {
 	console.error(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))

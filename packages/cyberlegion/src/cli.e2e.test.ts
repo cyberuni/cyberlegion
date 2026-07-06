@@ -55,6 +55,30 @@ describe('identity group', () => {
 	})
 })
 
+describe('bare invocation — content-first status (AXI #8)', () => {
+	it('prints a compact status and exits 0 even when unregistered (never help+error)', () => {
+		// execFileSync throws on a non-zero exit, so reaching the assertions proves exit 0.
+		const out = legion([])
+		expect(out).toContain('self: -')
+		expect(out).toContain('unread: 0')
+		expect(out).toContain('units: 0')
+	})
+
+	it('reflects this session own identity, unread count, and live-unit count', () => {
+		const env = { CYBERLEGION_AGENT_ID: 'alice1' }
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'], env)
+		legion(['mail', 'send', '--to', 'alice', '--subject', 'hi', '--body', 'yo'], env)
+		const out = legion([], env)
+		expect(out).toContain('self: alice')
+		expect(out).toContain('unread: 1')
+		expect(out).toContain('units: 1')
+	})
+
+	it('--format json emits a parseable status', () => {
+		expect(JSON.parse(legion(['--format', 'json']))).toMatchObject({ self: null, unread: 0, units: 0 })
+	})
+})
+
 describe('mail group', () => {
 	it('send + inbox + read + ack round-trip', () => {
 		const alice = JSON.parse(

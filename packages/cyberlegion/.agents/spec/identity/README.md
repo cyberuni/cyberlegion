@@ -28,6 +28,10 @@ without being told it, and discovering its live peers:
   when the registry is empty (`0 agents`, never an error); by default agents with `status: exited`
   are filtered out, `--all` includes them. A top-level `who` command is a plain alias of `identity
   who`.
+- **Bare invocation is a content-first status** — `cyberlegion` with no subcommand prints a compact
+  status (`self · harness · unread · units`) of this session's own identity, its unread count, and
+  how many units are live; exit 0 even when unregistered (`self: -`, with a register next-step) —
+  never help-and-error (AXI #8 content-first).
 - **prune marks dead agents exited** — `identity prune` scans every non-exited agent and flips
   `status` to `exited` when its tmux pane is gone (checked via `tmux has-session`/`list-panes`) or its
   `lastSeen` is older than the staleness window (15 minutes); it returns only the agents it changed,
@@ -58,6 +62,7 @@ Every scenario in [`identity.feature`](./identity.feature) maps to one of these 
 | **register records who and where** | writes record + pane pointer; hub marker stamped; idempotent per pane; fails cleanly when unwritable |
 | **whoami** | prints own record; errors when unregistered or record missing |
 | **who lists peers** | TOON list + aggregate; empty is "0 agents" not an error; `--all` includes exited; top-level alias |
+| **bare status (AXI #8)** | no-subcommand prints compact self+harness+unread+live-units; exit 0 unregistered with a register next-step, never help+error |
 | **prune** | marks dead-pane/stale agents exited; returns only changed agents |
 | **self-identity recovery** | pane pointer first; `$CYBERLEGION_AGENT_ID` only absent `$TMUX_PANE`; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
