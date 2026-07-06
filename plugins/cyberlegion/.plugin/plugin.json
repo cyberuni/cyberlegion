@@ -1,0 +1,12 @@
+{
+	"$schema": "https://raw.githubusercontent.com/cyberuni/marketplace/main/schema/claude/plugin.json",
+	"name": "cyberlegion",
+	"version": "0.0.0",
+	"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
+	"author": { "name": "unional" },
+	"homepage": "https://github.com/cyberuni/cyberplace",
+	"repository": "https://github.com/cyberuni/cyberplace",
+	"keywords": ["agent", "dispatch", "inter-agent", "multiplexer"],
+	"skills": "./skills",
+	"agents": "./agents"
+}
