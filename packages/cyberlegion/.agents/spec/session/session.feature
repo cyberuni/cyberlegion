@@ -1,0 +1,181 @@
+@frozen
+Feature: session — warm peer session lifecycle over a multiplexer
+  Spawn a new peer session in its own git worktree and session pane, then tear it back down cleanly —
+  spawn and close are a deterministic inverse pair. Sending/reading mail lives in mail; thread
+  correlation and the bounded mail await/watch live in wake; hook-based mail/brief injection lives in
+  surfacing.
+
+  # ── spawn registers as spawning before it starts ──
+
+  Scenario: spawn pre-registers the peer before the session actually launches
+    Given a caller spawning a new peer with --harness claude --task "reply to alice"
+    When session spawn runs
+    Then the peer is registered with status spawning and spawnedBy the caller's id
+    And its brief file and pane pointer are written
+
+  # ── The new worktree is always distinct from the primary checkout ──
+
+  Scenario: spawn refuses a --worktree-path that resolves onto the primary checkout
+    Given a caller running session spawn with --worktree-path set to the primary checkout's own root
+    When session spawn runs
+    Then it throws refusing to run a unit in the primary checkout
+    And no session is opened
+
+  # ── The session backend is selected by environment ──
+
+  Scenario: $TMUX selects the tmux backend
+    Given a caller with $TMUX set
+    When session spawn runs
+    Then the new pane is opened through the tmux adapter
+
+  Scenario: $HERDR_ENV with no $TMUX selects the herdr backend
+    Given a caller with $HERDR_ENV set and no $TMUX
+    When session spawn runs
+    Then the new pane is opened through the herdr adapter
+
+  Scenario: neither tmux nor herdr detected errors before opening anything
+    Given a caller with neither $TMUX nor $HERDR_ENV set
+    When session spawn runs
+    Then it throws naming tmux/herdr as the required backend
+
+  # ── Placement ──
+
+  Scenario: --at chooses where the new session opens
+    Given a caller running session spawn --at pane:down
+    When session spawn runs
+    Then the session opens at that placement
+
+  Scenario: omitting --at defaults to pane:right
+    Given a caller running session spawn with no --at
+    When session spawn runs
+    Then the session opens at pane:right
+
+  # ── The brief is delivered by file, never typed ──
+
+  Scenario: the resolved brief is written to the peer's brief file, not into the launch command
+    Given a caller running session spawn --task "do the thing"
+    When session spawn runs
+    Then the peer's brief file contains "do the thing"
+    And the typed launch command carries no brief text
+
+  # ── An unmapped harness errors before anything launches ──
+
+  Scenario: an unmapped --harness errors without opening a worktree or session
+    Given a caller running session spawn --harness grok --task t
+    When session spawn runs
+    Then it throws naming the launch map
+    And no worktree is created
+
+  # ── No brief source errors ──
+
+  Scenario: spawn with no --task, --task -, or --brief-file errors
+    Given a caller running session spawn --harness claude with no brief source at all
+    When session spawn runs
+    Then it throws asking for a brief
+
+  # ── --agent/--agent-file realizes a resolved def's launch ──
+
+  Scenario: --agent resolves a def whose harness/model/instructions compose the launch
+    Given an agent def named reviewer with harness claude and model sonnet
+    When a caller runs session spawn --agent reviewer --task t
+    Then the spawned peer's harness is claude
+    And the launch command carries that def's model and instructions
+
+  Scenario: an explicit --harness overrides the resolved def's own harness
+    Given an agent def with harness claude
+    When a caller runs session spawn --agent <name> --harness codex --task t
+    Then the spawned peer's harness is codex
+
+  # ── close tears down the worktree + session and reaps the state (spawn's inverse) ──
+
+  Scenario: close removes the worktree, tears down the session, and reaps the registry record
+    Given a registered unit with a worktree and a live session pane
+    When a caller runs session close <id>
+    Then the worktree is removed
+    And the session pane is torn down
+    And the unit's registry record, pane pointer, and stored data are gone
+
+  # ── Refuses the primary checkout even with --force ──
+
+  Scenario: close refuses a unit whose worktree is the primary checkout
+    Given a registered unit whose worktree root equals the primary checkout
+    When a caller runs session close <id>
+    Then it throws refusing the primary checkout
+    And the unit's record still exists
+
+  Scenario: --force does not override the primary-checkout refusal
+    Given a registered unit whose worktree root equals the primary checkout
+    When a caller runs session close <id> --force
+    Then it still throws refusing the primary checkout
+
+  # ── Refuses a dirty worktree unless --force ──
+
+  Scenario: close refuses a unit with uncommitted changes in its worktree
+    Given a registered unit whose worktree has uncommitted changes
+    When a caller runs session close <id>
+    Then it throws about uncommitted changes
+    And the unit's record still exists
+
+  Scenario: --force discards uncommitted changes and completes the close
+    Given a registered unit whose worktree has uncommitted changes
+    When a caller runs session close <id> --force
+    Then the worktree is removed
+    And the unit's record is gone
+
+  # ── Completes the reap when the worktree/pane is already gone ──
+
+  Scenario: close completes the reap when the worktree no longer exists on disk
+    Given a registered unit whose worktree root no longer exists on disk
+    When a caller runs session close <id>
+    Then no worktree removal is attempted
+    And the unit's record and stored data are gone
+
+  Scenario: close completes the reap when the session pane no longer exists
+    Given a registered unit whose session pane the backend can no longer find
+    When a caller runs session close <id>
+    Then the unit's record and stored data are gone regardless
+
+  # ── A genuine teardown failure aborts before any reap ──
+
+  Scenario: a genuine worktree-removal failure aborts the close and leaves the record intact
+    Given a registered unit whose worktree removal genuinely fails
+    When a caller runs session close <id>
+    Then it throws that removal failed
+    And the unit's record and stored data are left intact for a retry
+
+  # ── An unknown id errors ──
+
+  Scenario: closing an unregistered id errors and reaps nothing
+    Given no unit registered under a given id
+    When a caller runs session close <id>
+    Then it throws that no unit is registered under that id
+
+  # ── Reaps only the targeted unit ──
+
+  Scenario: close leaves another unit's state untouched
+    Given two registered units, a and b, each with their own worktree/pane/data
+    When a caller runs session close a
+    Then unit a's state is gone
+    And unit b's registry record, pane pointer, and stored data are unchanged
+
+  # ── list, focus, nudge, read ──
+
+  Scenario: list shows the live (non-exited) peer sessions
+    Given one active unit and one already-exited unit
+    When a caller runs session list
+    Then only the active unit is listed
+
+  Scenario: focus moves input focus to a peer's session
+    Given a registered peer with a live session pane
+    When a caller runs session focus <ref>
+    Then the session adapter focuses that peer's pane
+
+  Scenario: nudge rings a peer's session as a payload-free doorbell
+    Given a registered peer with a live session pane
+    When a caller runs session nudge <ref>
+    Then the session adapter sends an empty keystroke to that peer's pane
+
+  Scenario: read scrapes a peer's session screen
+    Given a registered peer with a live session pane holding some output
+    When a caller runs session read <ref> --lines 20
+    Then the captured trailing output from that pane is printed
