@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -106,6 +106,89 @@ describe('AXI fail-loud behavior', () => {
 
 	it('mail send without a caller identity fails with a structured stderr error', () => {
 		expect(() => legion(['mail', 'send', '--to', 'ghost', '--body', 'hi'])).toThrow()
+	})
+})
+
+describe('agent group', () => {
+	function agentsProject(): string {
+		const dir = mkdtempSync(join(tmpdir(), 'cl-agent-'))
+		mkdirSync(join(dir, '.agents', 'agents'), { recursive: true })
+		return dir
+	}
+
+	function writeDef(dir: string, name: string, contents: string): void {
+		writeFileSync(join(dir, '.agents', 'agents', `${name}.md`), contents)
+	}
+
+	it('list reports a definitive empty state when no defs exist', () => {
+		const dir = agentsProject()
+		const out = legion(['agent', 'list', '--dir', dir])
+		expect(out).toContain('0 agent definitions')
+	})
+
+	it('list shows name/model/harness for every def', () => {
+		const dir = agentsProject()
+		writeDef(dir, 'reviewer', '---\nmodel: sonnet\nharness: claude\n---\n\nReview it.\n')
+		writeDef(dir, 'writer', '---\nmodel: opus\n---\n\nWrite it.\n')
+		const out = legion(['agent', 'list', '--dir', dir])
+		expect(out).toContain('2 agent definitions')
+		expect(out).toContain('reviewer')
+		expect(out).toContain('writer')
+	})
+
+	it('show reports the resolved model/effort/harness/warm/interactive and truncated instructions', () => {
+		const dir = agentsProject()
+		const longBody = 'x'.repeat(300)
+		writeDef(dir, 'reviewer', `---\nmodel: sonnet\neffort: high\nharness: claude\nwarm: true\n---\n\n${longBody}\n`)
+		const out = legion(['agent', 'show', 'reviewer', '--dir', dir])
+		expect(out).toContain('model: sonnet')
+		expect(out).toContain('effort: high')
+		expect(out).toContain('harness: claude')
+		expect(out).toContain('warm: true')
+		expect(out).toContain('pass --full')
+		expect(out).not.toContain(longBody)
+	})
+
+	it('show --full prints the entire instructions body', () => {
+		const dir = agentsProject()
+		const longBody = 'y'.repeat(300)
+		writeDef(dir, 'reviewer', `---\nmodel: sonnet\n---\n\n${longBody}\n`)
+		const out = legion(['agent', 'show', 'reviewer', '--dir', dir, '--full'])
+		expect(out).toContain(longBody)
+	})
+
+	it('show reflects a missing model as a harness-default note rather than erroring', () => {
+		const dir = agentsProject()
+		writeDef(dir, 'minimal', '---\nharness: claude\n---\n\nDo it.\n')
+		const out = legion(['agent', 'show', 'minimal', '--dir', dir])
+		expect(out).toContain('(harness default)')
+	})
+
+	it('resolve --format json emits the full AgentDef payload', () => {
+		const dir = agentsProject()
+		writeDef(dir, 'reviewer', '---\nmodel: sonnet\n---\n\nReview it.\n')
+		const out = legion(['agent', 'resolve', 'reviewer', '--dir', dir, '--format', 'json'])
+		expect(JSON.parse(out)).toMatchObject({ name: 'reviewer', model: 'sonnet', instructions: 'Review it.' })
+	})
+
+	it('resolve --file reads an exact path, bypassing name search', () => {
+		const dir = agentsProject()
+		const outside = mkdtempSync(join(tmpdir(), 'cl-agent-plugin-'))
+		writeFileSync(join(outside, 'sdd-impl-judge.md'), '---\nmodel: sonnet\n---\n\nGrade it.\n')
+		const out = legion(['agent', 'resolve', '--file', join(outside, 'sdd-impl-judge.md'), '--dir', dir])
+		expect(out).toContain('sdd-impl-judge')
+	})
+
+	it('path prints the resolved def file path', () => {
+		const dir = agentsProject()
+		writeDef(dir, 'reviewer', '---\nmodel: sonnet\n---\n\nReview it.\n')
+		const out = legion(['agent', 'path', 'reviewer', '--dir', dir])
+		expect(out).toContain(join(dir, '.agents', 'agents', 'reviewer.md'))
+	})
+
+	it('a bad name fails loud with a nonzero exit and a structured stderr error', () => {
+		const dir = agentsProject()
+		expect(() => legion(['agent', 'show', 'ghost', '--dir', dir])).toThrow()
 	})
 })
 

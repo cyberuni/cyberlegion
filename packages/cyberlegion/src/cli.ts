@@ -2,6 +2,7 @@
 import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import { migrateStore } from './admin.ts'
+import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { selectSessionAdapter } from './console/index.ts'
 import { probeMultiplexer } from './console/mux-probe.ts'
 import { decommission } from './decommission.ts'
@@ -443,10 +444,102 @@ withGlobals(mail.command('hook'))
 	})
 
 // -------------------------------------------------------------------------------------------
-// dispatch / agent — registered but empty; wired in a later change request
+// dispatch — registered but empty; wired in a later change request
 // -------------------------------------------------------------------------------------------
 program.command('dispatch').description('delegate work and await a result (result-slot primitives)')
-program.command('agent').description('resolve reusable agent definitions')
+
+// -------------------------------------------------------------------------------------------
+// agent — resolve reusable agent definitions (.agents/agents/*.md)
+// -------------------------------------------------------------------------------------------
+const agent = program.command('agent').description('resolve reusable agent definitions')
+
+const INSTRUCTIONS_PREVIEW_LEN = 200
+
+function truncated(text: string, full?: boolean): string {
+	if (full || text.length <= INSTRUCTIONS_PREVIEW_LEN) return text
+	return `${text.slice(0, INSTRUCTIONS_PREVIEW_LEN)}… (${text.length} chars total, pass --full)`
+}
+
+function agentDefFields(d: AgentDef) {
+	return {
+		name: d.name,
+		description: d.description,
+		model: d.model ?? '(harness default)',
+		effort: d.effort,
+		harness: d.harness ?? '(harness default)',
+		warm: d.warm ?? false,
+		interactive: d.interactive ?? false,
+		path: d.path,
+	}
+}
+
+withGlobals(agent.command('list'))
+	.description('list resolvable agent definitions under .agents/agents/')
+	.option('--dir <path>', 'project dir to search from', process.cwd())
+	.action((opts) => {
+		const defs = listAgentDefs({ cwd: opts.dir })
+		emit(formatOf(opts), {
+			toon: toonList(
+				'defs',
+				defs,
+				[
+					{ key: 'name', get: (d: AgentDef) => d.name },
+					{ key: 'model', get: (d: AgentDef) => d.model ?? '-' },
+					{ key: 'harness', get: (d: AgentDef) => d.harness ?? '-' },
+				],
+				`${defs.length} agent definitions`,
+			),
+			json: defs,
+		})
+		if (defs.length === 0) nextStep('add a .md file under .agents/agents/ to define one')
+	})
+
+withGlobals(agent.command('show'))
+	.description('show a resolved agent definition (model/effort/harness/warm/interactive + instructions)')
+	.argument('<name>', 'agent def name (file stem under .agents/agents/)')
+	.option('--dir <path>', 'project dir to search from', process.cwd())
+	.option('--full', 'show the full instructions body (default: truncated)')
+	.action((name, opts) => {
+		let def: AgentDef
+		try {
+			def = resolveAgentDef({ name, cwd: opts.dir })
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), {
+			toon: toonObject({ ...agentDefFields(def), instructions: truncated(def.instructions, opts.full) }),
+			json: { ...def, instructions: opts.full ? def.instructions : truncated(def.instructions, opts.full) },
+		})
+	})
+
+withGlobals(agent.command('resolve'))
+	.description('emit the full machine payload for a def — for a routing caller to compose a launch/spawn from')
+	.argument('[name]', 'agent def name (omit when passing --file)')
+	.option('--file <path>', 'read an exact def file instead of resolving by name (plugin-scoped escape hatch)')
+	.option('--dir <path>', 'project dir to search from', process.cwd())
+	.action((name, opts) => {
+		let def: AgentDef
+		try {
+			def = resolveAgentDef({ name, file: opts.file, cwd: opts.dir })
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), { toon: toonObject(agentDefFields(def)), json: def })
+	})
+
+withGlobals(agent.command('path'))
+	.description('print the resolved def file path')
+	.argument('<name>', 'agent def name (file stem under .agents/agents/)')
+	.option('--dir <path>', 'project dir to search from', process.cwd())
+	.action((name, opts) => {
+		let def: AgentDef
+		try {
+			def = resolveAgentDef({ name, cwd: opts.dir })
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), { toon: toonObject({ path: def.path }), json: { path: def.path } })
+	})
 
 // -------------------------------------------------------------------------------------------
 // admin — setup and diagnostics
