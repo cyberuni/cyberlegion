@@ -178,7 +178,12 @@ describe('backend selection: herdr', () => {
 			}
 			if (cmd === 'herdr') {
 				herdrCalls.push(args)
-				if (args[1] === 'split') return 'herdr-pane-1'
+				if (args[1] === 'split') {
+					return JSON.stringify({
+						id: 'cli:pane:split',
+						result: { pane: { pane_id: 'herdr-pane-1' }, type: 'pane_info' },
+					})
+				}
 				return null
 			}
 			return null

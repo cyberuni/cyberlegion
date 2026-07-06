@@ -11,18 +11,27 @@ function fakeExec(calls: string[][], responses: Record<string, string | null> = 
 }
 
 describe('herdrSessionAdapter (mocked exec — herdr is not installed in this environment)', () => {
-	it('open() splits a pane at the given cwd via the herdr CLI and runs the launch command', () => {
+	it('open() splits a pane at the given cwd, extracts the pane id from herdr JSON, and runs the launch command', () => {
 		const calls: string[][] = []
-		const exec = fakeExec(calls, { 'pane split': 'p-1' })
+		const splitOut = JSON.stringify({
+			id: 'cli:pane:split',
+			result: { pane: { pane_id: 'w3:pB', tab_id: 'w3:t1', workspace_id: 'w3' }, type: 'pane_info' },
+		})
+		const exec = fakeExec(calls, { 'pane split': splitOut })
 		const target = herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })
-		expect(target).toEqual({ id: 'p-1' })
+		expect(target).toEqual({ id: 'w3:pB' })
 		expect(calls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', '/unit'])
-		expect(calls[1]).toEqual(['pane', 'run', 'p-1', 'claude'])
+		expect(calls[1]).toEqual(['pane', 'run', 'w3:pB', 'claude'])
 	})
 
 	it('open() throws when herdr reports no pane id', () => {
 		const exec: Exec = () => null
 		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/herdr pane split/)
+	})
+
+	it('open() throws when herdr output lacks result.pane.pane_id', () => {
+		const exec = fakeExec([], { 'pane split': JSON.stringify({ id: 'cli:pane:split', result: {} }) })
+		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/pane_id/)
 	})
 
 	it('send() runs text in the target pane', () => {
