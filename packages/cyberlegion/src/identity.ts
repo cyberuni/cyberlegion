@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import type { AgentRecord, Harness, Store } from './store/store.ts'
 
-export type { AgentRecord, AgentStatus, Harness } from './store/store.ts'
+export type { AgentRecord, Harness } from './store/store.ts'
 
 /** Runs a command synchronously; returns trimmed stdout, or null on any failure. */
 export type Exec = (cmd: string, args: string[]) => string | null
@@ -147,15 +147,6 @@ export function resolveAgent(store: Store, ref: string): AgentRecord {
 	const byBranch = agents.find((a) => a.worktree?.branch === ref)
 	if (byBranch) return byBranch
 	throw new Error(`no agent addressable as "${ref}" (tried id, handle, and worktree branch/CR)`)
-}
-
-/** Pause a unit's mission — a status marker only, not an SDD checkpoint. */
-export function pauseAgent(store: Store, id: string): AgentRecord {
-	const rec = loadAgent(store, id)
-	if (!rec) throw new Error(`no agent "${id}"`)
-	rec.status = 'paused'
-	saveAgent(store, rec)
-	return rec
 }
 
 export function bumpLastSeen(ctx: IdContext, id: string): void {

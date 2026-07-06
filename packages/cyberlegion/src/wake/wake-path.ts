@@ -17,7 +17,7 @@ import type { MuxProbe } from '../console/mux-probe.ts'
  * - **E** — hook surfacing at a turn boundary (selected by the caller directly, not by this
  *   function — it has no wait/poll shape to decide between).
  */
-export type WakePath = 'A' | 'A-loop' | 'A-prime' | 'B' | 'C' | 'D' | 'E'
+type WakePath = 'A' | 'A-loop' | 'A-prime' | 'B' | 'C' | 'D' | 'E'
 
 export interface WakePathInput {
 	/** The calling harness, e.g. 'claude' | 'cursor' | 'codex'. */

@@ -15,5 +15,3 @@ export function selectSessionAdapter(env: NodeJS.ProcessEnv, exec: Exec = realEx
 	if (probe.mux === 'herdr') return herdrSessionAdapter
 	throw new Error('spawn requires a session backend — run inside tmux ($TMUX) or herdr ($HERDR_ENV=1)')
 }
-
-export type { SessionAdapter, SessionPlacement, SessionReadOptions, SessionTarget } from './session.ts'

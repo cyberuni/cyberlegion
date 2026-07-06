@@ -1,6 +1,6 @@
 import type { Exec } from '../identity.ts'
 
-export type Mux = 'tmux' | 'herdr' | 'screen' | 'none'
+type Mux = 'tmux' | 'herdr' | 'screen' | 'none'
 
 export interface MuxProbe {
 	mux: Mux

@@ -17,7 +17,7 @@ export interface Message {
 }
 
 export type Harness = 'claude' | 'cursor' | 'codex'
-export type AgentStatus = 'spawning' | 'active' | 'idle' | 'stale' | 'exited' | 'paused'
+type AgentStatus = 'spawning' | 'active' | 'idle' | 'stale' | 'exited' | 'paused'
 
 export interface AgentRecord {
 	id: string

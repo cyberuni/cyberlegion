@@ -5,9 +5,9 @@
 
 import { readFileSync } from 'node:fs'
 
-export type VerdictPrimitive = 'string' | 'number' | 'boolean' | 'object' | 'array'
+type VerdictPrimitive = 'string' | 'number' | 'boolean' | 'object' | 'array'
 
-export interface VerdictSchema {
+interface VerdictSchema {
 	/** Top-level keys the result object must carry. */
 	required?: string[]
 	/** Primitive type check per top-level key (only checked when the key is present). */
