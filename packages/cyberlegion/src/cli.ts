@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import { migrateStore } from './admin.ts'
 import { selectSessionAdapter } from './console/index.ts'
+import { probeMultiplexer } from './console/mux-probe.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
@@ -19,12 +20,14 @@ import {
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
-import { ack, inbox, peek, resolveBody, send } from './message.ts'
+import { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
 import { spawn } from './session.ts'
 import { FileStore } from './store/file-store.ts'
+import { awaitReply } from './wake/await.ts'
+import { watchMail } from './wake/watch.ts'
 
 // cyberlegion — the CLI is pure mechanism (dumb hands a routing layer composes). Routing
 // (warm-peer vs cold-subagent vs run-inline) is never decided here. Command groups:
@@ -299,11 +302,11 @@ function defineSend(cmd: Command): Command {
 }
 defineSend(mail.command('send'))
 
-function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string }): void {
+function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?: string }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
 	const meId = requireSelf(ctx)
-	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from })
+	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from, thread: opts.thread })
 	const unreadCount = items.filter((i) => !i.read).length
 	emit(formatOf(opts), {
 		toon: toonList(
@@ -327,6 +330,7 @@ withGlobals(mail.command('inbox'))
 	.description('list your mail')
 	.option('--unread', 'only un-acked mail')
 	.option('--from <id>', 'filter by sender')
+	.option('--thread <id>', 'filter to messages carrying this thread id')
 	.action(runInbox)
 
 withGlobals(mail.command('read'))
@@ -352,6 +356,80 @@ withGlobals(mail.command('ack'))
 		const meId = requireSelf(ctx)
 		const msg = ack({ store: ctx.store }, meId, msgId)
 		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
+	})
+
+withGlobals(mail.command('delete'))
+	.description('permanently remove a message from your inbox (unread or already-acked)')
+	.argument('<msg-id>', 'message id')
+	.action((msgId, opts) => {
+		const ctx = ctxOf(opts)
+		const meId = requireSelf(ctx)
+		deleteMessage({ store: ctx.store }, meId, msgId)
+		emit(formatOf(opts), { toon: toonObject({ deleted: msgId }), json: { deleted: msgId } })
+	})
+
+withGlobals(mail.command('await'))
+	.description('block until a thread-correlated reply arrives, print it, and ack it')
+	.requiredOption('--thread <id>', 'thread id to wait on')
+	.option('--from <h>', 'only match a reply from this sender')
+	.option(
+		'--timeout <ms>',
+		'give up after this many ms with no match (0 = wait forever); exits non-zero on timeout',
+		(v) => Number.parseInt(v, 10),
+		600_000,
+	)
+	.option(
+		'--max-wait <s>',
+		'self-cap for one internal poll cycle, in seconds — returns the clean "waiting" sentinel ' +
+			'at this cap so the caller can re-arm rather than blocking past a harness tool-timeout',
+		(v) => Number.parseInt(v, 10),
+		240,
+	)
+	.addHelpText(
+		'after',
+		'\nThree outcomes:\n' +
+			'  matched      — exit 0; the message is printed on stdout and acked (moved out of the unread set).\n' +
+			'  waiting      — exit 0; a stderr "waiting" line and nothing on stdout — the per-call --max-wait\n' +
+			'                 cap was hit with no match yet; re-run the same command to keep waiting.\n' +
+			'  timed-out    — exit 1; a clear stderr message and nothing on stdout — --timeout elapsed with no match.\n',
+	)
+	.action(async (opts) => {
+		const ctx = ctxOf(opts)
+		const meId = requireSelf(ctx)
+		const outcome = await awaitReply(
+			{ store: ctx.store },
+			{ meId, thread: opts.thread, from: opts.from, timeoutMs: opts.timeout, maxWaitS: opts.maxWait },
+		)
+		if (outcome.kind === 'matched') {
+			const msg = outcome.message
+			emit(formatOf(opts), {
+				toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body }),
+				json: msg,
+			})
+			return
+		}
+		if (outcome.kind === 'waiting') {
+			console.error(
+				`waiting — no reply on thread "${opts.thread}" within --max-wait ${opts.maxWait}s; re-run to keep waiting`,
+			)
+			return
+		}
+		fail(`no reply on thread "${opts.thread}" within ${opts.timeout}ms`)
+	})
+
+withGlobals(mail.command('watch'))
+	.description('stream new matching mail as it arrives — an observer only, it never acks; Ctrl-C to stop')
+	.option('--thread <id>', 'filter to a thread')
+	.option('--from <h>', 'filter by sender')
+	.action(async (opts) => {
+		const ctx = ctxOf(opts)
+		const meId = requireSelf(ctx)
+		await watchMail({ store: ctx.store }, { meId, thread: opts.thread, from: opts.from }, (msg) => {
+			emit(formatOf(opts), {
+				toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body }),
+				json: msg,
+			})
+		})
 	})
 
 withGlobals(mail.command('hook'))
@@ -397,21 +475,22 @@ withGlobals(admin.command('install'))
 	})
 
 withGlobals(admin.command('doctor'))
-	.description('probe harness, multiplexer, hub root, and self-id')
+	.description('probe harness, multiplexer (ancestry-discovered), hub root, and self-id')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		const harness = detectHarness(undefined, ctx) ?? 'unknown'
-		let mux = 'none'
-		try {
-			mux = selectSessionAdapter(ctx.env ?? process.env).name
-		} catch {
-			// no multiplexer detected — reported as 'none'
-		}
+		const probe = probeMultiplexer(ctx.exec ?? realExec, ctx.env ?? process.env)
 		const selfId = resolveSelfId(ctx) ?? '-'
 		emit(formatOf(opts), {
-			toon: toonObject({ harness, mux, hubRoot: ctx.store.root, selfId }),
-			json: { harness, mux, hubRoot: ctx.store.root, selfId },
+			toon: toonObject({ harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId }),
+			json: { harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId },
 		})
+		if (probe.mux !== 'none') {
+			nextStep(
+				`export CYBERLEGION_MUX=${probe.mux}${probe.pane ? ` CYBERLEGION_MUX_PANE=${probe.pane}` : ''}` +
+					' — pin the fast-path, skip ancestry discovery on later calls',
+			)
+		}
 	})
 
 withGlobals(admin.command('mode'))
@@ -449,6 +528,7 @@ withGlobals(program.command('inbox'))
 	.description('list your mail (alias of `mail inbox`)')
 	.option('--unread', 'only un-acked mail')
 	.option('--from <id>', 'filter by sender')
+	.option('--thread <id>', 'filter to messages carrying this thread id')
 	.action(runInbox)
 withGlobals(program.command('who'))
 	.description('list the addressable peers (alias of `identity who`)')

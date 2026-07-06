@@ -55,6 +55,8 @@ export interface Store {
 	listInbox(id: string): InboxSnapshot
 	/** Ack a message by moving it out of the unread set; throws if it is not currently unread. */
 	ackMessage(id: string, msgId: string): Message
+	/** Permanently remove a message (unread or already-acked) from `id`'s inbox; throws if absent. */
+	removeMessage(id: string, msgId: string): void
 
 	// -- registry --
 	/** Upsert an agent record (keyed by `rec.id`). */

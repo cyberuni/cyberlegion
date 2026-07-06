@@ -54,6 +54,20 @@ export class FileStore implements Store {
 		return msg
 	}
 
+	removeMessage(id: string, msgId: string): void {
+		const unreadFile = join(paths.inboxDir(this.root, id), `${msgId}.json`)
+		if (existsSync(unreadFile)) {
+			rmSync(unreadFile)
+			return
+		}
+		const readFile = join(paths.inboxReadDir(this.root, id), `${msgId}.json`)
+		if (existsSync(readFile)) {
+			rmSync(readFile)
+			return
+		}
+		throw new Error(`"${msgId}" is not a message in this inbox`)
+	}
+
 	putAgent(rec: AgentRecord): void {
 		writeJson(paths.agentFile(this.root, rec.id), rec)
 	}

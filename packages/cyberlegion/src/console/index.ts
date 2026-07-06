@@ -1,11 +1,18 @@
+import { type Exec, realExec } from '../identity.ts'
+import { probeMultiplexer } from './mux-probe.ts'
 import { herdrSessionAdapter } from './session.herdr.ts'
 import { tmuxSessionAdapter } from './session.tmux.ts'
 import type { SessionAdapter } from './session.ts'
 
-/** Backend selection: `$TMUX` → tmux, `$HERDR_ENV` → herdr, else a clear error. */
-export function selectSessionAdapter(env: NodeJS.ProcessEnv): SessionAdapter {
-	if (env.TMUX) return tmuxSessionAdapter
-	if (env.HERDR_ENV) return herdrSessionAdapter
+/**
+ * Backend selection via the two-mode mux probe (`$CYBERLEGION_MUX` fast-path/override, else
+ * ancestry discovery from `$$` falling back to the `$TMUX`/`$HERDR_ENV` hint when the walk is
+ * inconclusive) — tmux/herdr map to their existing adapters; anything else is a clear error.
+ */
+export function selectSessionAdapter(env: NodeJS.ProcessEnv, exec: Exec = realExec): SessionAdapter {
+	const probe = probeMultiplexer(exec, env)
+	if (probe.mux === 'tmux') return tmuxSessionAdapter
+	if (probe.mux === 'herdr') return herdrSessionAdapter
 	throw new Error('spawn requires a session backend — run inside tmux ($TMUX) or herdr ($HERDR_ENV=1)')
 }
 

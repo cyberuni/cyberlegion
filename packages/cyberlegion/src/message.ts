@@ -60,6 +60,8 @@ export interface InboxQuery {
 	meId: string
 	unread?: boolean
 	from?: string
+	/** Filter to messages carrying this thread id; a message with no thread is excluded. */
+	thread?: string
 }
 
 /** List the caller's mail, chronological (lexical id sort == time order). */
@@ -69,6 +71,7 @@ export function inbox(ctx: MsgContext, q: InboxQuery): InboxItem[] {
 	const acked = q.unread ? [] : snap.read.map((m) => ({ ...m, read: true }))
 	let items = [...unread, ...acked]
 	if (q.from) items = items.filter((m) => m.from === q.from || m.fromHandle === q.from)
+	if (q.thread) items = items.filter((m) => m.thread === q.thread)
 	return items.sort((a, b) => a.id.localeCompare(b.id))
 }
 
@@ -81,4 +84,9 @@ export function peek(ctx: MsgContext, meId: string, msgId: string): Message | un
 /** Acknowledge a message by moving it out of the unread set. Errors if not currently unread. */
 export function ack(ctx: MsgContext, meId: string, msgId: string): Message {
 	return ctx.store.ackMessage(meId, msgId)
+}
+
+/** Permanently remove a message (unread or already-acked) from the caller's inbox. */
+export function deleteMessage(ctx: MsgContext, meId: string, msgId: string): void {
+	ctx.store.removeMessage(meId, msgId)
 }

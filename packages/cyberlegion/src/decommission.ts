@@ -65,7 +65,7 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 
 	if (pane) {
 		try {
-			selectSessionAdapter(env).teardown(exec, { id: pane })
+			selectSessionAdapter(env, exec).teardown(exec, { id: pane })
 		} catch {
 			// Already gone, or no session backend available — tolerated; reap proceeds regardless.
 		}

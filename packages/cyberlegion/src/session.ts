@@ -54,7 +54,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.ensureMarker()
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
-	const sessionAdapter = selectSessionAdapter(env)
+	const sessionAdapter = selectSessionAdapter(env, exec)
 
 	const harness = input.harness as Harness | undefined
 	if (!harness || !(harness in LAUNCH_MAP)) {
@@ -76,7 +76,11 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ensureMarker(join(worktree.root, '.agents', 'cyberlegion'))
 
 	const launch = LAUNCH_MAP[harness]
-	const target = sessionAdapter.open(exec, { cwd: worktree.root, launch, at: input.at })
+	const target = sessionAdapter.open(exec, {
+		cwd: worktree.root,
+		launch: `${muxEnvPrefix(sessionAdapter.name)}${launch}`,
+		at: input.at,
+	})
 
 	const ts = new Date(ctx.now?.() ?? Date.now()).toISOString()
 	const rec: AgentRecord = {
@@ -97,6 +101,19 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.writeBrief(id, brief)
 
 	return { agent: rec, pane: target.id, launch }
+}
+
+/**
+ * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
+ * multiplexer fast-path and never has to run its own ancestry discovery (`$CYBERLEGION_MUX` /
+ * `$CYBERLEGION_MUX_PANE`). `VAR=val cmd` scopes the vars to that one process (and its children)
+ * without needing `export`. tmux natively sets `$TMUX_PANE` for a pane's own processes, so the
+ * pane var is expanded by the child's own shell rather than baked in here.
+ */
+function muxEnvPrefix(muxName: string): string {
+	if (muxName === 'tmux') return 'CYBERLEGION_MUX=tmux CYBERLEGION_MUX_PANE=$TMUX_PANE '
+	if (muxName === 'herdr') return 'CYBERLEGION_MUX=herdr '
+	return ''
 }
 
 /** Resolve a spawn brief from --brief-file, --task -, or --task <text>; null if no source given. */

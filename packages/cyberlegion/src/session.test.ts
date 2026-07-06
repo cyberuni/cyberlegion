@@ -76,7 +76,15 @@ describe('per-harness launch', () => {
 	])('starts the %s pane with its own CLI', (harness, launch) => {
 		const res = spawn(ctx(), { harness, task: 't' })
 		expect(res.launch).toBe(launch)
-		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', launch, 'Enter'])
+		// The mux fast-path env is prefixed onto the typed launch command, so the spawned peer
+		// inherits it and never re-runs its own ancestry discovery.
+		expect(sent.at(-1)).toEqual([
+			'send-keys',
+			'-t',
+			'%9',
+			`CYBERLEGION_MUX=tmux CYBERLEGION_MUX_PANE=$TMUX_PANE ${launch}`,
+			'Enter',
+		])
 	})
 })
 
@@ -178,7 +186,7 @@ describe('backend selection: herdr', () => {
 		const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't' })
 		expect(res.pane).toBe('herdr-pane-1')
 		expect(herdrCalls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', res.agent.cwd])
-		expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'claude'])
+		expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBERLEGION_MUX=herdr claude'])
 		expect(loadAgent(store, res.agent.id)?.tmux).toBeNull()
 	})
 })

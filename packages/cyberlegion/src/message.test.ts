@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, register } from './identity.ts'
-import { ack, inbox, peek, resolveBody, send } from './message.ts'
+import { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -74,6 +74,50 @@ describe('inbox', () => {
 		ack({ store }, bob.id, m.id)
 		expect(inbox({ store }, { meId: bob.id, unread: true }).map((x) => x.body)).toEqual(['b'])
 		expect(inbox({ store }, { meId: bob.id, from: 'alice' })).toHaveLength(2)
+	})
+
+	it('--thread filters to messages carrying that thread; a threadless message is excluded', () => {
+		send(at(1), { fromId: alice.id, to: 'bob', body: 'no thread' })
+		send(at(2), { fromId: alice.id, to: 'bob', body: 'thread a', thread: 'cr-a' })
+		send(at(3), { fromId: alice.id, to: 'bob', body: 'thread b', thread: 'cr-b' })
+		expect(inbox({ store }, { meId: bob.id, thread: 'cr-a' }).map((x) => x.body)).toEqual(['thread a'])
+	})
+
+	it('--thread composes with --unread and --from', () => {
+		const m1 = send(at(1), { fromId: alice.id, to: 'bob', body: 'x', thread: 'cr-a' })
+		send(at(2), { fromId: alice.id, to: 'bob', body: 'y', thread: 'cr-a' })
+		ack({ store }, bob.id, m1.id)
+		expect(inbox({ store }, { meId: bob.id, thread: 'cr-a', unread: true }).map((x) => x.body)).toEqual(['y'])
+	})
+})
+
+describe('send persists thread/replyTo', () => {
+	it('carries --thread and --reply-to through to the stored message', () => {
+		const first = send(at(1), { fromId: alice.id, to: 'bob', body: 'ask' })
+		const reply = send(at(2), { fromId: alice.id, to: 'bob', body: 'answer', thread: 'cr-1', replyTo: first.id })
+		expect(reply.thread).toBe('cr-1')
+		expect(reply.replyTo).toBe(first.id)
+		const stored = inbox({ store }, { meId: bob.id }).find((m) => m.id === reply.id)
+		expect(stored).toMatchObject({ thread: 'cr-1', replyTo: first.id })
+	})
+})
+
+describe('deleteMessage', () => {
+	it('removes an unread message from the inbox entirely', () => {
+		const m = send(at(1), { fromId: alice.id, to: 'bob', body: 'gone soon' })
+		deleteMessage({ store }, bob.id, m.id)
+		expect(inbox({ store }, { meId: bob.id })).toEqual([])
+	})
+
+	it('removes an already-acked message too', () => {
+		const m = send(at(1), { fromId: alice.id, to: 'bob', body: 'acked then gone' })
+		ack({ store }, bob.id, m.id)
+		deleteMessage({ store }, bob.id, m.id)
+		expect(inbox({ store }, { meId: bob.id })).toEqual([])
+	})
+
+	it('throws on an unknown message id', () => {
+		expect(() => deleteMessage({ store }, bob.id, '9999-deadbe')).toThrow()
 	})
 })
 

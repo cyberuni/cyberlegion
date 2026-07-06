@@ -85,3 +85,22 @@ describe('mail: putMessage/listInbox/ackMessage', () => {
 		expect(readdirSync(dir)).toEqual(['m2.json'])
 	})
 })
+
+describe('mail: removeMessage', () => {
+	it('removes an unread message', () => {
+		store.putMessage('b', msg('m3'))
+		store.removeMessage('b', 'm3')
+		expect(store.listInbox('b').unread).toHaveLength(0)
+	})
+
+	it('removes an already-acked message', () => {
+		store.putMessage('b', msg('m4'))
+		store.ackMessage('b', 'm4')
+		store.removeMessage('b', 'm4')
+		expect(store.listInbox('b').read).toHaveLength(0)
+	})
+
+	it('throws on an unknown message id', () => {
+		expect(() => store.removeMessage('b', 'ghost')).toThrow(/not a message/)
+	})
+})
