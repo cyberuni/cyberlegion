@@ -92,6 +92,7 @@ export const paths = {
 	inboxReadDir: (root: string, id: string) => join(root, 'inbox', id, 'read'),
 	dataDir: (root: string, id: string) => join(root, 'data', id),
 	briefFile: (root: string, id: string) => join(root, 'data', id, 'brief.md'),
+	resultFile: (root: string, id: string) => join(root, 'data', id, 'result.json'),
 	worktreeDir: (root: string, id: string) => join(root, 'worktrees', id),
 }
 

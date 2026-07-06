@@ -2,10 +2,14 @@
 import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import { migrateStore } from './admin.ts'
+import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { selectSessionAdapter } from './console/index.ts'
 import { probeMultiplexer } from './console/mux-probe.ts'
 import { decommission } from './decommission.ts'
+import { type DispatchResult, DispatchWaitingError, channel as dispatchChannel } from './dispatch/channel.ts'
+import { collect as dispatchCollect } from './dispatch/collect.ts'
+import { type DispatchEnvelope, prep as dispatchPrep } from './dispatch/prep.ts'
 import {
 	bumpLastSeen,
 	detectHarness,
@@ -162,7 +166,9 @@ const session = program.command('session').description('warm peer session lifecy
 function defineSpawn(cmd: Command): Command {
 	return withGlobals(cmd)
 		.description('launch a new peer session in its own git worktree (tmux or herdr)')
-		.requiredOption('--harness <h>', 'claude | cursor | codex')
+		.option('--harness <h>', 'claude | cursor | codex (required unless --agent/--agent-file resolves one)')
+		.option('--agent <name>', 'resolve an agent def (.agents/agents/<name>.md) for harness/model/instructions')
+		.option('--agent-file <path>', 'read an exact agent def file instead of resolving by name')
 		.option('--task <text>', 'brief text, or - for stdin')
 		.option('--brief-file <path>', 'read the brief from a file')
 		.option('--handle <name>', 'handle for the new peer')
@@ -176,8 +182,23 @@ function defineSpawn(cmd: Command): Command {
 		.action((opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
+			let harness = opts.harness as string | undefined
+			let command: string | undefined
+			if (opts.agent || opts.agentFile) {
+				let def: AgentDef
+				try {
+					def = resolveAgentDef({ name: opts.agent, file: opts.agentFile })
+				} catch (err) {
+					fail(err instanceof Error ? err.message : String(err))
+				}
+				const realized = realizeLaunch(def, { harness: opts.harness as Harness | undefined })
+				harness = realized.harness
+				command = realized.command
+			}
+			if (!harness) fail('session spawn needs --harness, or --agent/--agent-file resolving one')
 			const res = spawn(ctx, {
-				harness: opts.harness,
+				harness,
+				command,
 				task: opts.task,
 				briefFile: opts.briefFile,
 				handle: opts.handle,
@@ -444,9 +465,122 @@ withGlobals(mail.command('hook'))
 	})
 
 // -------------------------------------------------------------------------------------------
-// dispatch — registered but empty; wired in a later change request
+// dispatch — result-slot primitives; routing (warm peer vs cold subagent) is never decided here
 // -------------------------------------------------------------------------------------------
-program.command('dispatch').description('delegate work and await a result (result-slot primitives)')
+const dispatch = program.command('dispatch').description('delegate work and await a result (result-slot primitives)')
+
+function definePrepOptions(cmd: Command): Command {
+	return withGlobals(cmd)
+		.option('--agent <name>', 'resolve an agent def to build the instruction/launch from')
+		.option('--agent-file <path>', 'read an exact agent def file instead of resolving by name')
+		.option('--role <name>', 'role label folded into the generic instruction when no agent def is given')
+		.option('--brief-text <text>', 'brief body text')
+		.option('--brief-file <path>', 'read the brief from a file, or - for stdin')
+		.option('--verdict-schema <path>', 'JSON schema file (required keys + primitive types) the result must satisfy')
+		.option('--thread <id>', 'thread id (defaults to the minted dispatch id)')
+}
+
+function dispatchResultFields(r: DispatchResult) {
+	return { id: r.id, verdict: r.verdict != null ? JSON.stringify(r.verdict) : undefined, body: r.body, ts: r.ts }
+}
+
+definePrepOptions(dispatch.command('prep'))
+	.description('allocate an id + brief + result slot and return the envelope — spawns nothing, never invokes Task')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		let envelope: DispatchEnvelope
+		try {
+			envelope = dispatchPrep(
+				{ store: ctx.store },
+				{
+					agent: opts.agent,
+					agentFile: opts.agentFile,
+					role: opts.role,
+					briefText: opts.briefText,
+					briefFile: opts.briefFile,
+					thread: opts.thread,
+				},
+			)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), { toon: toonObject({ ...envelope }), json: envelope })
+		nextStep(
+			`spawn a subagent with the instruction, then \`cyberlegion dispatch collect ${envelope.id}\` — ` +
+				`or on the channel path, \`cyberlegion mail await --thread ${envelope.thread}\``,
+		)
+	})
+
+definePrepOptions(dispatch.command('channel'))
+	.description(
+		'prep + spawn a peer session + (--wait) await the mail-thread reply — the one CLI-driven convenience ' +
+			'(needs --agent or --agent-file to realize the peer launch)',
+	)
+	.addOption(
+		new Option('--at <placement>', 'where to open the new session')
+			.choices(['pane:right', 'pane:down', 'tab', 'window'])
+			.default('pane:right'),
+	)
+	.option('--wait', 'block for the mail-thread reply and print the validated result')
+	.option(
+		'--timeout <ms>',
+		'give up after this many ms with no reply (0 = wait forever)',
+		(v) => Number.parseInt(v, 10),
+		600_000,
+	)
+	.option(
+		'--max-wait <s>',
+		'self-cap for one internal poll cycle, in seconds (re-arm by re-running with --wait)',
+		(v) => Number.parseInt(v, 10),
+		240,
+	)
+	.action(async (opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		let result: DispatchResult | DispatchEnvelope
+		try {
+			result = await dispatchChannel(ctx, {
+				agent: opts.agent,
+				agentFile: opts.agentFile,
+				role: opts.role,
+				briefText: opts.briefText,
+				briefFile: opts.briefFile,
+				verdictSchema: opts.verdictSchema,
+				thread: opts.thread,
+				at: opts.at,
+				wait: opts.wait,
+				timeoutMs: opts.timeout,
+				maxWaitS: opts.maxWait,
+			})
+		} catch (err) {
+			if (err instanceof DispatchWaitingError) {
+				console.error(err.message)
+				return
+			}
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		if ('ts' in result) {
+			emit(formatOf(opts), { toon: toonObject(dispatchResultFields(result)), json: result })
+			return
+		}
+		emit(formatOf(opts), { toon: toonObject({ ...result }), json: result })
+		nextStep(`cyberlegion mail await --thread ${result.thread} to collect the reply later`)
+	})
+
+withGlobals(dispatch.command('collect'))
+	.description("read + validate a subagent's result file (the subagent path's counterpart to mail await)")
+	.argument('<id>', 'dispatch id')
+	.option('--verdict-schema <path>', 'JSON schema file the result must satisfy')
+	.action((id, opts) => {
+		const ctx = ctxOf(opts)
+		let result: DispatchResult
+		try {
+			result = dispatchCollect({ store: ctx.store }, id, opts.verdictSchema)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), { toon: toonObject(dispatchResultFields(result)), json: result })
+	})
 
 // -------------------------------------------------------------------------------------------
 // agent — resolve reusable agent definitions (.agents/agents/*.md)

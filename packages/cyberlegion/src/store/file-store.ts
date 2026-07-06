@@ -126,4 +126,17 @@ export class FileStore implements Store {
 		const file = paths.briefFile(this.root, agentId)
 		return existsSync(file) ? readFileSync(file, 'utf8') : undefined
 	}
+
+	resultPath(id: string): string {
+		return paths.resultFile(this.root, id)
+	}
+
+	writeResult(id: string, value: unknown): void {
+		writeJson(paths.resultFile(this.root, id), value)
+	}
+
+	readResult(id: string): string | undefined {
+		const file = paths.resultFile(this.root, id)
+		return existsSync(file) ? readFileSync(file, 'utf8') : undefined
+	}
 }

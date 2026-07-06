@@ -26,6 +26,11 @@ export interface SpawnInput {
 	task?: string
 	briefFile?: string
 	handle?: string
+	/** Override the default per-harness launch command (e.g. an agent-def's `realizeLaunch` output,
+	 * carrying `--model`/`--append-system-prompt`) — composed in by callers, never by `spawn` itself
+	 * (avoids a session.ts ↔ agentdef/realize.ts import cycle, since `realizeLaunch` already reads
+	 * `LAUNCH_MAP` from here). */
+	command?: string
 	/** Branch to create the unit's worktree on; defaults to `cyberlegion/unit-<id>`. */
 	branch?: string
 	/** Where to check out the unit's worktree; defaults under `<primary>/.agents/cyberlegion/worktrees/<id>`. */
@@ -75,7 +80,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	// committed yet, so without this the freshly spawned unit wouldn't detect itself until then.
 	ensureMarker(join(worktree.root, '.agents', 'cyberlegion'))
 
-	const launch = LAUNCH_MAP[harness]
+	const launch = input.command ?? LAUNCH_MAP[harness]
 	const target = sessionAdapter.open(exec, {
 		cwd: worktree.root,
 		launch: `${muxEnvPrefix(sessionAdapter.name)}${launch}`,

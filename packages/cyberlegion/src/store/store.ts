@@ -77,4 +77,12 @@ export interface Store {
 	// -- brief (spawn-time payload handed to a new unit) --
 	writeBrief(agentId: string, text: string): void
 	readBrief(agentId: string): string | undefined
+
+	// -- result (dispatch result slot — the subagent path's file counterpart to mail's thread await) --
+	/** Path this dispatch's result file would live at (computed only — no IO; existence not implied). */
+	resultPath(id: string): string
+	/** Write a dispatch's result as JSON text. */
+	writeResult(id: string, value: unknown): void
+	/** Read a dispatch's result JSON text, or undefined if not yet written. */
+	readResult(id: string): string | undefined
 }
