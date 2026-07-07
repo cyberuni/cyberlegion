@@ -178,6 +178,7 @@ function defineSpawn(cmd: Command): Command {
 		.option('--handle <name>', 'handle for the new peer')
 		.option('--branch <name>', 'branch for the new worktree (default cyberlegion/unit-<id>)')
 		.option('--worktree-path <path>', 'where to check out the new worktree')
+		.option('--cwd <path>', 'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)')
 		.addOption(
 			new Option('--at <placement>', 'where to open the new session')
 				.choices(['pane:right', 'pane:down', 'tab', 'window'])
@@ -208,6 +209,7 @@ function defineSpawn(cmd: Command): Command {
 				handle: opts.handle,
 				branch: opts.branch,
 				worktreePath: opts.worktreePath,
+				cwd: opts.cwd,
 				at: opts.at,
 			})
 			emit(formatOf(opts), {

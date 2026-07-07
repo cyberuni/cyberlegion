@@ -11,8 +11,9 @@ tmux/herdr. Migrated from cyberfleet's `spawn` + `decommission` nodes in `legion
 
 ## Use Cases
 
-**Subject** — opening a genuine sibling peer session in its own git worktree and session pane, then
-tearing it back down cleanly — the deterministic inverse pair:
+**Subject** — opening a genuine sibling peer session — in a new git worktree it creates, or in an
+existing directory a caller supplies (`--cwd`) — and its session pane, then tearing it back down
+cleanly — the deterministic inverse pair:
 
 - **spawn opens a new peer session and registers it as spawning before it starts** — `session spawn
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
@@ -22,6 +23,14 @@ tearing it back down cleanly — the deterministic inverse pair:
   the harness — the peer's own first-turn hook is what flips it to `active` (surfacing).
   - **The new worktree is always distinct from the primary checkout** — spawn refuses (throws) a
     `--worktree-path` that resolves onto the primary checkout rather than opening a session there.
+  - **Or spawn into an existing directory without a worktree (`--cwd`)** — `session spawn --cwd <dir>`
+    opens the session in a directory that already exists, creating and removing no git worktree; the
+    peer is registered with that directory as its cwd and no created worktree. `--cwd` requires the
+    directory to already exist (cyberlegion creates no directory), refuses the primary checkout (the
+    same guard the created-worktree path enforces), and is mutually exclusive with the
+    worktree-creating flags (`--branch` / `--worktree-path`). This is the enabler that lets a caller
+    (e.g. the `cyberfleet` fleet layer) own the worktree lifecycle and hand cyberlegion a ready
+    directory to run in.
   - **The session backend is selected by environment** — tmux when `$TMUX` is set, herdr when
     `$HERDR_ENV` is set and `$TMUX` is not; an environment with neither throws asking for one.
   - **Placement defaults to pane:right** — `--at pane:right|pane:down|tab|window` chooses where the
@@ -53,6 +62,9 @@ tearing it back down cleanly — the deterministic inverse pair:
     reaped.
   - **Reaps only the targeted unit's state** — another unit's record, pane pointer, and stored data are
     left untouched.
+  - **close on a `--cwd` unit removes no worktree** — a unit spawned with `--cwd` has a recorded cwd
+    and no created worktree; close tears down its session pane and reaps its record but attempts no
+    worktree removal.
 - **list shows the live peers** — `session list` lists agents whose `status` is not `exited` as a
   TOON list (id, handle, status, pane) with a `<N> sessions` aggregate.
 - **focus moves input focus to a peer's session** — `session focus <ref>` resolves the peer (by id,
@@ -65,7 +77,8 @@ tearing it back down cleanly — the deterministic inverse pair:
 
 **Non-goals** — mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
 await`/`watch` (`wake/`), hook-based mail/brief injection into a harness turn (`surfacing/`) — this
-node only owns the session lifecycle (spawn/close/list/focus/nudge/read) and the worktree it opens.
+node only owns the session lifecycle (spawn/close/list/focus/nudge/read) and the worktree it creates
+(when it creates one — a `--cwd` spawn opens into a caller-supplied directory and owns no worktree).
 
 Every scenario in [`session.feature`](./session.feature) maps to one of these behaviors:
 
@@ -73,6 +86,7 @@ Every scenario in [`session.feature`](./session.feature) maps to one of these be
 |---|---|
 | **spawn registers as spawning before it starts** | pre-registration, brief/pane pointer written before launch |
 | **worktree distinct from primary** | refuses a `--worktree-path` resolving onto the primary checkout |
+| **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
 | **backend selected by environment** | tmux vs herdr selection; neither present errors |
 | **placement** | `--at` choices; default pane:right |
 | **brief delivered by file** | never typed into the launch command |
@@ -86,6 +100,7 @@ Every scenario in [`session.feature`](./session.feature) maps to one of these be
 | **close aborts on genuine teardown failure** | before any reap; record left intact for retry |
 | **close on unknown id errors** | nothing reaped |
 | **close reaps only the targeted unit** | other units' state untouched |
+| **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
 | **list** | live (non-exited) peers |
 | **focus** | move input focus to a peer's pane |
 | **nudge** | doorbell send-keys, no payload |

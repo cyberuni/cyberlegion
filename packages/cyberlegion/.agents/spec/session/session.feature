@@ -86,12 +86,48 @@ Feature: session — warm peer session lifecycle over a multiplexer
     When a caller runs session spawn --agent <name> --harness codex --task t
     Then the spawned peer's harness is codex
 
+  # ── Spawn into an existing dir without a worktree (--cwd) ──
+
+  Scenario: --cwd spawns a session into an existing directory and creates no worktree
+    Given a caller running session spawn --cwd <an existing directory outside the primary checkout> --harness claude --task t
+    When session spawn runs
+    Then no worktree is created
+    And the session opens in that directory
+    And the peer is registered with that directory as its cwd and no created worktree
+
+  Scenario: --cwd requires the directory to already exist
+    Given a caller running session spawn --cwd pointed at a path that does not exist
+    When session spawn runs
+    Then it throws that the --cwd directory must already exist
+    And no session is opened
+
+  Scenario: --cwd refuses the primary checkout, the same as a created worktree
+    Given a caller running session spawn --cwd set to the primary checkout's own root
+    When session spawn runs
+    Then it throws refusing to run a unit in the primary checkout
+    And no session is opened
+
+  Scenario: --cwd is mutually exclusive with the worktree-creating flags
+    Given a caller running session spawn --cwd <dir> together with --worktree-path or --branch
+    When session spawn runs
+    Then it throws that --cwd cannot combine with worktree-creating flags
+    And no session is opened
+
   # ── close tears down the worktree + session and reaps the state (spawn's inverse) ──
 
   Scenario: close removes the worktree, tears down the session, and reaps the registry record
     Given a registered unit with a worktree and a live session pane
     When a caller runs session close <id>
     Then the worktree is removed
+    And the session pane is torn down
+    And the unit's registry record, pane pointer, and stored data are gone
+
+  # ── close on a --cwd unit tears down the session but touches no worktree ──
+
+  Scenario: close on a unit spawned with --cwd removes no worktree
+    Given a registered unit spawned with --cwd (a recorded cwd and no created worktree)
+    When a caller runs session close <id>
+    Then no worktree removal is attempted
     And the session pane is torn down
     And the unit's registry record, pane pointer, and stored data are gone
 

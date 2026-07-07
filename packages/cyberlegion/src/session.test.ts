@@ -167,6 +167,67 @@ describe('refusing the primary checkout', () => {
 	})
 })
 
+describe('--cwd spawns into an existing directory, creating no worktree', () => {
+	it('opens the session in that directory and registers it with no created worktree', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		const res = spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir })
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(res.agent.cwd).toBe(resolve(existingDir))
+		expect(res.agent.worktree).toBeNull()
+		const rec = loadAgent(store, res.agent.id)
+		expect(rec?.cwd).toBe(resolve(existingDir))
+		expect(rec?.worktree).toBeNull()
+	})
+
+	it('opens the tmux pane with -c set to the given directory', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		const openCalls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				return null
+			}
+			if (args[0] === 'split-window') {
+				openCalls.push(args)
+				return '%9'
+			}
+			return null
+		}
+		spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't', cwd: existingDir })
+		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', resolve(existingDir), '-P', '-F', '#{pane_id}'])
+	})
+
+	it('throws when the --cwd directory does not exist, opening nothing', () => {
+		const missing = join(primaryRoot, 'does-not-exist')
+		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: missing })).toThrow(/must already exist/)
+		expect(sent).toHaveLength(0)
+		expect(worktreeAddCalls).toHaveLength(0)
+	})
+
+	it('refuses the primary checkout the same as a created worktree', () => {
+		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: primaryRoot })).toThrow(/primary checkout/)
+		expect(sent).toHaveLength(0)
+	})
+
+	it('is mutually exclusive with --worktree-path', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		expect(() =>
+			spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, worktreePath: join(existingDir, 'wt') }),
+		).toThrow(/cannot combine/)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(sent).toHaveLength(0)
+	})
+
+	it('is mutually exclusive with --branch', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, branch: 'some-branch' })).toThrow(
+			/cannot combine/,
+		)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(sent).toHaveLength(0)
+	})
+})
+
 describe('backend selection: herdr', () => {
 	it('spawns via the herdr adapter when $HERDR_ENV is set and no $TMUX', () => {
 		const herdrCalls: string[][] = []

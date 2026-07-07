@@ -110,6 +110,21 @@ describe('teardown worktree + session', () => {
 	})
 })
 
+describe('close on a --cwd unit removes no worktree', () => {
+	it('tears down the session pane and reaps the record without touching a worktree', () => {
+		registerUnit({ id: 'cwd1', worktree: null })
+		writePaneFile('%9', 'cwd1')
+		writeData('cwd1')
+		const { exec, calls } = makeExec()
+		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'cwd1' })
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
+		expect(store.getAgent('cwd1')).toBeUndefined()
+		expect(store.resolvePaneId('%9')).toBeUndefined()
+		expect(store.readBrief('cwd1')).toBeUndefined()
+	})
+})
+
 describe('reap the record', () => {
 	it('reaps the agent record, pane index, and data after teardown', () => {
 		registerUnit({ id: 'b1' })

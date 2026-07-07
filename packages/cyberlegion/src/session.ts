@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { selectSessionAdapter } from './console/index.ts'
 import type { SessionPlacement } from './console/session.ts'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from './console/worktree.ts'
@@ -35,6 +35,9 @@ export interface SpawnInput {
 	branch?: string
 	/** Where to check out the unit's worktree; defaults under `<primary>/.agents/cyberlegion/worktrees/<id>`. */
 	worktreePath?: string
+	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
+	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
+	cwd?: string
 	/** Placement relative to the caller; defaults to 'pane:right'. */
 	at?: SessionPlacement
 }
@@ -70,19 +73,37 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		throw new Error('spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>')
 	}
 
+	if (input.cwd && (input.branch || input.worktreePath)) {
+		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path')
+	}
+
 	const id = randomId()
 	const primaryRoot = resolvePrimaryRoot(exec)
-	const branch = input.branch ?? `cyberlegion/unit-${id}`
-	const worktreePath = input.worktreePath ?? paths.worktreeDir(join(primaryRoot, '.agents', 'cyberlegion'), id)
-	const worktree = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
-	assertDistinctFromPrimary(worktree.root, primaryRoot)
-	// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't been
-	// committed yet, so without this the freshly spawned unit wouldn't detect itself until then.
-	ensureMarker(join(worktree.root, '.agents', 'cyberlegion'))
+
+	let cwd: string
+	let worktree: { root: string; branch: string } | null
+	if (input.cwd) {
+		if (!existsSync(input.cwd)) {
+			throw new Error(`--cwd directory must already exist: ${input.cwd}`)
+		}
+		cwd = resolve(input.cwd)
+		assertDistinctFromPrimary(cwd, primaryRoot)
+		worktree = null
+	} else {
+		const branch = input.branch ?? `cyberlegion/unit-${id}`
+		const worktreePath = input.worktreePath ?? paths.worktreeDir(join(primaryRoot, '.agents', 'cyberlegion'), id)
+		const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
+		assertDistinctFromPrimary(added.root, primaryRoot)
+		// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't been
+		// committed yet, so without this the freshly spawned unit wouldn't detect itself until then.
+		ensureMarker(join(added.root, '.agents', 'cyberlegion'))
+		cwd = added.root
+		worktree = added
+	}
 
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	const target = sessionAdapter.open(exec, {
-		cwd: worktree.root,
+		cwd,
 		launch: `${muxEnvPrefix(sessionAdapter.name)}${launch}`,
 		at: input.at,
 	})
@@ -92,7 +113,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		id,
 		handle: input.handle ?? id.slice(0, 6),
 		harness,
-		cwd: worktree.root,
+		cwd,
 		worktree,
 		tmux: sessionAdapter.name === 'tmux' ? { pane: target.id } : null,
 		status: 'spawning',
