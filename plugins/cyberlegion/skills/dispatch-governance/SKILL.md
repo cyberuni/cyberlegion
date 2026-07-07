@@ -1,6 +1,6 @@
 ---
 name: dispatch-governance
-description: "Internal skill: the Legate's routing brain — given an intent to fulfill a role with a brief (and an expected verdict), resolves the agent definition's warm/interactive tags and the environment's multiplexer, picks exactly one of the subagent | channel | run-inline strategies, and executes it with the cyberlegion CLI primitives. Loaded in-session by the cyberlegion gateway on a dispatch intent, and by the legate agent headless. Not triggered by users directly."
+description: "Internal skill: the Legate's routing brain — given an intent to fulfill a role with a brief (and an expected verdict), resolves the agent definition's warm/interactive tags and the environment's multiplexer, picks exactly one of the subagent | channel | run-inline strategies, and executes it with the cyberlegion CLI primitives. Loaded in-session by the legate gateway on a dispatch intent, and by the headless-legate agent headless. Not triggered by users directly."
 user-invocable: false
 ---
 
@@ -8,8 +8,8 @@ user-invocable: false
 
 The judgment the `cyberlegion` CLI deliberately does not carry. The CLI is dumb hands — it never
 auto-routes, never picks a backend, never invokes a Task tool itself. This governance is the one
-place that judgment lives, loaded in-session by the `cyberlegion` gateway on a dispatch intent, and
-realized headless by the `legate` agent. Both loads run the exact same procedure below.
+place that judgment lives, loaded in-session by the `legate` gateway on a dispatch intent, and
+realized headless by the `headless-legate` agent. Both loads run the exact same procedure below.
 
 **Input:** an intent to fulfill role `R` with brief `B`, optionally expecting a result that
 satisfies verdict schema `V`.
@@ -93,7 +93,7 @@ Every strategy resolves to one shape the caller can handle uniformly:
 are re-armable and terminal respectively — treat them the same way `mail await`'s own three
 outcomes are treated; never silently retry past a `timed-out`. A `needsInput` result on the subagent
 path means the unit hit its own leash and returned a needs-input result rather than guessing —
-relay it up, batch it if headless (`legate`).
+relay it up, batch it if headless (`headless-legate`).
 
 ## Non-goals
 

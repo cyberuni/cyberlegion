@@ -27,11 +27,11 @@ The **Legate** is the routing brain on top of the console — the judgment the C
 - **run-inline** — no multiplexer to host a peer, so the caller does the work itself, in-session
 - **subagent** — a cold, one-shot unit realized via the caller's own Task tool (`dispatch prep` / `dispatch collect`)
 
-In an attended session the Legate runs in-session as `dispatch-governance`; with no user channel it is realized headless as the `legate` agent.
+In an attended session the Legate runs in-session as `dispatch-governance`; with no user channel it is realized headless as the `headless-legate` agent.
 
 ## The gateway
 
-The `cyberlegion` skill is the thin front door — classify the request (send mail, check inbox, spawn/close a unit, wait for a reply, dispatch work) and either run the matching CLI call directly or hand routing judgment to `dispatch-governance`. It loads no governance itself and writes no state.
+The `legate` skill is the thin front door — classify the request (send mail, check inbox, spawn/close a unit, wait for a reply, dispatch work) and either run the matching CLI call directly or hand routing judgment to `dispatch-governance`. It loads no governance itself and writes no state.
 
 ## Why no MCP
 

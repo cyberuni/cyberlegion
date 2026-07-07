@@ -1,6 +1,6 @@
-# cyberlegion (gateway)
+# legate (gateway)
 
-The front door to the Legion — a persona-free classifier skill that routes an agent-to-agent
+The Legate's front door to the Legion — a thin classifier skill that routes an agent-to-agent
 messaging or dispatch request to the matching `cyberlegion` CLI call, or to `dispatch-governance`
 when the request needs routing judgment.
 
@@ -16,7 +16,7 @@ when the request needs routing judgment.
 
 - Classifies the request against a fixed intent → CLI-call table (mail, session, identity, admin).
 - Hands any dispatch intent to `dispatch-governance` rather than guessing a strategy.
-- Spawns the `legate` agent when there is no user channel to relay through.
+- Spawns the `headless-legate` agent when there is no user channel to relay through.
 - Loads no other governance and writes no state — a front door only.
 
 Every mechanic is a `cyberlegion` CLI call — harness-agnostic, MCP-free.

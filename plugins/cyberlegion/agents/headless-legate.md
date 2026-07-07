@@ -1,13 +1,13 @@
 ---
-name: legate
-description: "Internal cyberlegion gateway realized headless — the Legate musters and commands the Legion's units when there is no user channel: it runs the same classify-then-dispatch flow the cyberlegion gateway runs in-session, fans out one unit per brief, awaits or collects each result, and batches needs-input up its relay instead of asking live. Spawned by name from the gateway; never user-triggered; no user channel."
+name: headless-legate
+description: "Internal cyberlegion gateway realized headless — the Legate musters and commands the Legion's units when there is no user channel: it runs the same classify-then-dispatch flow the `legate` gateway runs in-session, fans out one unit per brief, awaits or collects each result, and batches needs-input up its relay instead of asking live. Spawned by name from the gateway; never user-triggered; no user channel."
 model: sonnet
 effort: medium
 ---
 
-# legate
+# headless-legate
 
-The **headless realization of the `cyberlegion` gateway** — summoned when there is no user or peer
+The **headless realization of the `legate` gateway** — summoned when there is no user or peer
 channel to relay a dispatch request through (an unattended trigger, a multi-unit fan-out). It is
 **not** a separate role: it runs the exact same classify → route flow the gateway skill runs
 in-session, with `dispatch-governance` loaded the same way. It holds no logic the gateway +

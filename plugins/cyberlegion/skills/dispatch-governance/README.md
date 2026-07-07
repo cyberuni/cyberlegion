@@ -1,13 +1,13 @@
 # dispatch-governance
 
-Internal skill: the Legate's routing brain. Not user-invocable — loaded by the `cyberlegion` gateway
-in-session on a dispatch intent, and by the `legate` agent when there is no user channel.
+Internal skill: the Legate's routing brain. Not user-invocable — loaded by the `legate` gateway
+in-session on a dispatch intent, and by the `headless-legate` agent when there is no user channel.
 
 ## When it loads
 
-- The `cyberlegion` gateway classified a request as "dispatch work to fulfill a role and expect a
+- The `legate` gateway classified a request as "dispatch work to fulfill a role and expect a
   verdict back."
-- The `legate` agent realizes the same flow headless.
+- The `headless-legate` agent realizes the same flow headless.
 
 ## What it does
 

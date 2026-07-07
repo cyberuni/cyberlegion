@@ -34,8 +34,8 @@ published CLI's contract.
 
 | Folder | Type | What |
 |---|---|---|
-| [`gateway/`](./gateway/README.md) | behavioral | the `cyberlegion` skill — thin classifier front door; loads no governance, writes no state |
-| [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent, and the `subagent-backend-governance` procedure for the subagent path |
+| [`gateway/`](./gateway/README.md) | behavioral | the `legate` skill — thin classifier front door; loads no governance, writes no state |
+| [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `headless-legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent, and the `subagent-backend-governance` procedure for the subagent path |
 
 ## Placement map
 
