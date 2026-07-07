@@ -167,6 +167,16 @@ function preferStanding(matches: AgentRecord[]): AgentRecord | undefined {
 	return matches.find((a) => a.kind === 'standing') ?? matches[0]
 }
 
+/** Resolve a handle to its standing owner record's id — never falls back to a live session agent
+ * sharing that handle, so `--owner` can never be pointed at a session's inbox by mistake. */
+export function resolveStandingOwner(store: Store, handle: string): string {
+	const match = listAgents(store).find((a) => a.handle === handle && a.kind === 'standing')
+	if (!match) {
+		throw new Error(`no standing owner "${handle}" — run 'cyberlegion identity owner --handle ${handle}'`)
+	}
+	return match.id
+}
+
 /** Resolve a recipient argument (id or handle) to an agent id. */
 export function resolveRecipient(store: Store, to: string): string {
 	if (loadAgent(store, to)) return to

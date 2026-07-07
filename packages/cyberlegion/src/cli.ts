@@ -23,6 +23,7 @@ import {
 	registerStanding,
 	resolveAgent,
 	resolveSelfId,
+	resolveStandingOwner,
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
@@ -370,10 +371,10 @@ function defineSend(cmd: Command): Command {
 }
 defineSend(mail.command('send'))
 
-function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?: string }): void {
+function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
-	const meId = requireSelf(ctx)
+	const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from, thread: opts.thread })
 	const unreadCount = items.filter((i) => !i.read).length
 	emit(formatOf(opts), {
@@ -399,29 +400,32 @@ withGlobals(mail.command('inbox'))
 	.option('--unread', 'only un-acked mail')
 	.option('--from <id>', 'filter by sender')
 	.option('--thread <id>', 'filter to messages carrying this thread id')
+	.option('--owner <handle>', "target a standing owner's mailbox instead of this session's own")
 	.action(runInbox)
 
 withGlobals(mail.command('read'))
 	.description('peek at a message without acknowledging it')
 	.argument('<msg-id>', 'message id')
+	.option('--owner <handle>', "peek a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
-		const meId = requireSelf(ctx)
+		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = peek({ store: ctx.store }, meId, msgId)
 		if (!msg) fail(`"${msgId}" is not a message in this inbox`)
 		emit(formatOf(opts), {
 			toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body }),
 			json: msg,
 		})
-		nextStep(`cyberlegion mail ack ${msg.id}`)
+		nextStep(`cyberlegion mail ack ${msg.id}${opts.owner ? ` --owner ${opts.owner}` : ''}`)
 	})
 
 withGlobals(mail.command('ack'))
 	.description('acknowledge a message (moves it out of the unread set)')
 	.argument('<msg-id>', 'message id')
+	.option('--owner <handle>', "ack a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
-		const meId = requireSelf(ctx)
+		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = ack({ store: ctx.store }, meId, msgId)
 		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
 	})

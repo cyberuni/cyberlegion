@@ -77,3 +77,36 @@ Feature: surfacing — inject unread mail into a session across harnesses
     When admin install runs again for that harness
     Then the result reports "already present" rather than registering a second entry
     And the config's hook list for that event still has exactly one entry
+
+  # ── Owner mail surfaces into a root session, never into a spawned unit ──
+
+  Scenario: a root session surfaces the owner's unread mail with bodies
+    Given a standing owner homa with one unread message
+    And a registered top-level session that was not spawned by another agent
+    When the top-level session runs mail hook --event SessionStart
+    Then the payload includes homa's unread message with its body under an owner-mail heading naming homa
+    And that heading is distinct from the caller's own "Unread mail" section
+
+  Scenario: a spawned unit does not surface the owner's mail
+    Given a standing owner homa with one unread message
+    And a registered session that was spawned by another agent (its record has a spawnedBy)
+    When the spawned unit runs mail hook --event SessionStart
+    Then the payload contains no owner-mail section
+
+  Scenario: surfacing the owner's mail never acks it
+    Given a standing owner homa with one unread message and a root session
+    When the root session runs mail hook --event SessionStart twice
+    Then the owner message is surfaced on both calls
+    And it remains unread after both
+
+  Scenario: an acked owner message no longer surfaces
+    Given a standing owner homa whose only message has been acked
+    When a root session runs mail hook --event SessionStart
+    Then the payload contains no owner-mail section
+
+  Scenario: a root session with no standing owner surfaces no owner mail and does not error
+    Given no standing owner record exists
+    And a registered top-level session with no unread mail of its own
+    When it runs mail hook --event SessionStart
+    Then stdout is empty
+    And the command exits 0

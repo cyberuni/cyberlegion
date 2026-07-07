@@ -103,3 +103,37 @@ Feature: mail — durable inter-agent messaging
     Given a message id that does not exist in the caller's inbox
     When it runs mail ack <msg-id>
     Then the command errors rather than silently succeeding
+
+  # ── The standing owner mailbox is readable and ackable from any session ──
+
+  Scenario: mail send to a standing owner delivers to the owner inbox
+    Given a standing owner homa
+    When a session runs mail send --to homa --body "report"
+    Then exactly one message lands in homa's inbox
+
+  Scenario: mail inbox --owner lists the owner mailbox from any session
+    Given a standing owner homa holding two messages, and a caller with its own separate inbox
+    When the caller runs mail inbox --owner homa
+    Then it lists homa's two messages rather than the caller's own inbox
+
+  Scenario: mail read --owner peeks the owner mailbox without consuming
+    Given a standing owner homa with one unread message
+    When a session runs mail read <id> --owner homa
+    Then it prints the message body
+    And the message remains unread in homa's inbox
+
+  Scenario: mail ack --owner is the only thing that flips an owner message to read
+    Given a standing owner homa with one unread message
+    When a session runs mail ack <id> --owner homa
+    Then the message moves into homa's read set
+
+  Scenario: two concurrent acks of the same owner message — one wins
+    Given a standing owner homa with one unread message
+    When two sessions each run mail ack <id> --owner homa
+    Then one ack succeeds and the other errors
+    And the message is acked exactly once
+
+  Scenario: mail --owner on a non-standing handle errors
+    Given a handle that is a live session, not a standing owner
+    When a session runs mail inbox --owner that-handle
+    Then it errors rather than reading a session's inbox as an owner mailbox

@@ -40,6 +40,20 @@ harness's own hook mechanism, and wiring that hook up in the first place:
   `PostToolUse` is wired only where the harness supports it (claude and codex — cursor has no
   PostToolUse hook). Running install again for the same harness does not duplicate the entry
   (`already present` rather than a second registration).
+- **Owner mail surfaces into a root session, never into a spawned unit** — beyond the caller's own
+  brief and unread mail, `mail hook` also surfaces the **standing owner** inbox's unread mail (bodies
+  included) under a distinct owner-mail heading, so a human at any top-level session sees a frameless
+  agent's report inline without pulling it manually. The gate is **"is this a spawned unit?"**, not
+  "is this the human" (the human roams and can't be identified): a caller whose record has a
+  `spawnedBy` (a legion-spawned unit) surfaces **no** owner mail; a top-level session with no
+  `spawnedBy` surfaces it. Surfacing **never acks** — an unread owner message re-surfaces on every
+  hook call until it is explicitly acked (`mail ack --owner`), and once acked it no longer surfaces.
+  Showing a message in a session's context is a model printing text, not proof a human read it, so
+  read stays a deliberate act. When no standing owner record exists at all, `mail hook` surfaces no
+  owner section and still exits 0 (it never fails the harness turn). The `spawnedBy` gate suppresses
+  legion-spawned units but not a *top-level* autonomous session (a frameless cron agent also has no
+  `spawnedBy`) — such a session is still a root context, so surfacing there is accepted for now; a
+  headless opt-out is a CR-B / formation follow-up, not this node's concern.
 
 **Non-goals** — the mail primitives themselves (send/inbox/read/ack, `mail/`), the doorbell nudge
 (`session/`), thread correlation and the bounded `mail await`/`watch` (`wake/`) — this node only
@@ -55,3 +69,4 @@ Every scenario in [`surfacing.feature`](./surfacing.feature) maps to one of thes
 | **no unread + no brief injects nothing** | empty payload → nothing printed |
 | **unsupported --event rejected** | only SessionStart/PostToolUse accepted |
 | **install wires per-harness, idempotently** | SessionStart for all three; PostToolUse only where supported; re-run does not duplicate |
+| **owner mail surfaces into root sessions only** | root (no `spawnedBy`) surfaces standing-owner unread with bodies under an owner heading; spawned units don't; never acks; acked no longer surfaces |
