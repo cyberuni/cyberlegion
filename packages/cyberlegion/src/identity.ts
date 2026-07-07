@@ -173,7 +173,9 @@ export function resolveRecipient(store: Store, to: string): string {
 	const matches = listAgents(store).filter((a) => a.handle === to)
 	const match = preferStanding(matches)
 	if (!match) {
-		throw new Error(`no agent addressable as "${to}" — run 'cyberlegion identity owner --handle ${to}' to create a standing inbox`)
+		throw new Error(
+			`no agent addressable as "${to}" — run 'cyberlegion identity owner --handle ${to}' to create a standing inbox`,
+		)
 	}
 	return match.id
 }
