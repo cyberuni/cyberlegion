@@ -92,8 +92,13 @@ Every strategy resolves to one shape the caller can handle uniformly:
 `waiting` (channel path, `--max-wait` cap hit) and `timed-out` (channel path, `--timeout` elapsed)
 are re-armable and terminal respectively — treat them the same way `mail await`'s own three
 outcomes are treated; never silently retry past a `timed-out`. A `needsInput` result on the subagent
-path means the unit hit its own leash and returned a needs-input result rather than guessing —
-relay it up, batch it if headless (`headless-legate`).
+path means the unit hit its own leash and returned a needs-input result rather than guessing.
+
+**How you relay that `needsInput` (or your own) is `relay-governance`, not this skill.** Report/ask
+transport is keyed on the reporting agent's own lifecycle — a framed callee returns `needsInput` to
+its caller; a bare cron session with no frame pushes mail to the standing owner and exits. Load
+`relay-governance` for the fork; this skill owns **strategy** choice (channel / run-inline /
+subagent), relay owns how the result or an unanswerable question gets home.
 
 ## Non-goals
 

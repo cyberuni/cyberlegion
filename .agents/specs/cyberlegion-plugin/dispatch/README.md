@@ -17,6 +17,16 @@ This node also covers `subagent-backend-governance` — the concrete three-step 
 (`prep` → caller's own Task tool → `collect`) the **subagent** strategy runs once picked; it is a
 sub-procedure of this behavior, not a separate capability.
 
+It further covers `relay-governance` — the **report/ask contract** orthogonal to strategy choice:
+once a result (or an unanswerable question) exists, how it gets home is keyed on the *reporting
+agent's own lifecycle*, not on which strategy dispatched it. A framed callee (Task-spawned subagent,
+or a peer a spawner awaits) returns `needsInput` up its frame; a **bare top-level / cron** session
+with no frame pushes mail to the standing owner and exits, and the report surfaces into the human's
+next root session (the CLI's `surfacing` node). This is where the headless "batch needs-input and
+relay" behavior lives now — `dispatch-governance` and `headless-legate` load it rather than restating
+it. `relay-governance` states transport only; the standing owner identity, owner mail, and surfacing
+are the sibling `cyberlegion` CLI's mechanism.
+
 ## Use Cases
 
 **Subject** — given an intent to fulfill a role with a brief, deciding whether that role runs as a
@@ -38,3 +48,4 @@ strategy switch once one is picked.
 | **fan out N briefs (headless only)** | `headless-legate` receives a batch of briefs | resolves and runs each independently; subagent dispatches may run concurrently, channel dispatches are capped by the environment's multiplexer |
 | **report the result uniformly** | any strategy completes | returns a `DispatchResult` (`strategy`, `id`, `verdict`, `result`, `needsInput`) the caller handles the same way regardless of strategy |
 | **the `subagent \| channel` seam** | a dependent (e.g. SDD) needs a role fulfilled | the dependent states intent only (role, brief, verdict schema) — never pins a literal command name — and this node decides the mechanism |
+| **relay by lifecycle** (`relay-governance`) | a headless agent has a result or an unanswerable question | framed callee → return `needsInput`; bare top-level/cron → `mail send` to the standing owner + exit; owner report surfaces to the human, read is a deliberate `mail ack --owner` |

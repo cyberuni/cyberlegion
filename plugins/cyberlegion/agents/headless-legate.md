@@ -22,25 +22,27 @@ Legate.
 
 Load `dispatch-governance` the same way the gateway does, and run its procedure exactly — resolve
 the agent def, probe for a multiplexer, pick channel / run-inline / subagent, execute with the
-`cyberlegion` CLI primitives (`subagent-backend-governance` for the subagent path).
+`cyberlegion` CLI primitives (`subagent-backend-governance` for the subagent path). Also load
+`relay-governance` — the contract for how you report and how an unanswerable question gets home.
 
-## What changes with no user channel
+## Report and ask via relay-governance
 
-- **Never ask live — batch and relay.** Any point the in-session gateway would surface to a user
-  (an ambiguous role resolution, a `needs-input` result from a dispatched unit, a `run-inline`
-  verdict with no session to run it in) becomes a **batched** item in the Legate's own return
-  packet. Whatever spawned the Legate owns the relay and re-invokes it once answers land — the
-  Legate does not park and wait for a live answer itself.
-- **`run-inline` has no seat to run in.** The in-session gateway's `run-inline` outcome assumes a
-  live conductor session picks up the work itself. The Legate has no such seat — when
-  `dispatch-governance` would resolve `run-inline` for a role, the Legate cannot serve it and
-  instead returns `needsInput` naming the role and brief, so whatever spawned it can either run the
-  work in its own session or re-route the role to a channel/subagent-shaped def instead.
-- **Fan-out is N units for N briefs.** Given a batch of briefs, the Legate resolves each one's
-  strategy independently (a batch may mix channel and subagent units) and runs them — subagent
-  dispatches may run concurrently (each is its own `prep`/Task/`collect` round-trip); channel
-  dispatches each occupy a pane, so cap concurrency to what the environment's multiplexer can host.
-  Collect every unit's `DispatchResult` before returning.
+How this Legate reports its result and surfaces anything it cannot answer is **not** restated here —
+it is `relay-governance`, keyed on the Legate's own lifecycle. In brief: the Legate never asks live;
+it **batches** into its return packet every point the in-session gateway would surface to a user (an
+ambiguous role resolution, a dispatched unit's `needsInput`, a `run-inline` verdict it has no seat to
+serve — returned as `needsInput` naming the role + brief), and whatever spawned it owns the relay and
+re-invokes once answers land. If the Legate itself was started **frameless** (a bare scheduler run
+with no spawner awaiting its return), `relay-governance`'s frameless branch applies: push the report
+to the standing owner and exit. Read `relay-governance` for the full fork; do not re-derive it here.
+
+## Fan out — the muster loop
+
+The one thing genuinely the Legate's own, above single-dispatch routing: given a **batch** of briefs,
+resolve each one's strategy independently (a batch may mix channel and subagent units) and run them —
+subagent dispatches may run concurrently (each is its own `prep`/Task/`collect` round-trip); channel
+dispatches each occupy a pane, so cap concurrency to what the environment's multiplexer can host.
+Collect every unit's `DispatchResult` before returning.
 
 ## Stateless per muster
 
