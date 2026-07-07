@@ -1,4 +1,4 @@
-import { type IdContext, loadAgent, resolveSelfId, saveAgent } from '../identity.ts'
+import { type IdContext, listAgents, loadAgent, resolveSelfId, saveAgent } from '../identity.ts'
 import { inbox } from '../message.ts'
 
 export type HookEvent = 'SessionStart' | 'PostToolUse'
@@ -37,6 +37,25 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 			(m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ''}: ${m.body} \`(${m.id})\``,
 		)
 		parts.push(`## Unread mail (${unread.length})\n\n${lines.join('\n')}`)
+	}
+
+	// Owner mail — a top-level session (no spawnedBy: not a legion-spawned unit) also surfaces every
+	// standing owner's unread mail, read-only, so a human roaming across sessions sees a frameless
+	// agent's report inline. Defensive: any owner-side failure must never fail the harness hook.
+	if (rec && !rec.spawnedBy) {
+		try {
+			const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
+			for (const owner of standing) {
+				const ownerUnread = inbox({ store: ctx.store }, { meId: owner.id, unread: true })
+				if (ownerUnread.length === 0) continue
+				const lines = ownerUnread.map(
+					(m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ''}: ${m.body} \`(${m.id})\``,
+				)
+				parts.push(`## Owner mail — ${owner.handle} (${ownerUnread.length})\n\n${lines.join('\n')}`)
+			}
+		} catch {
+			// owner-mail surfacing is best-effort — never let a store read error fail the harness turn
+		}
 	}
 
 	if (parts.length === 0) return null

@@ -36,6 +36,15 @@ consume it, without losing or duplicating anything:
 - **ack is the consumer** — `mail ack <msg-id>` moves the message out of the unread set into the
   caller's read set; it is the only command that changes a message's read state. Acking an
   already-acked or unknown message id errors rather than silently succeeding.
+- **The standing owner mailbox is readable and ackable from any session** — `mail send --to <owner>`
+  resolves the standing record (standing-precedence, see `identity/`) and delivers into the owner
+  inbox. `mail inbox`, `mail read`, and `mail ack` take an `--owner <handle>` selector that targets a
+  **standing** record's inbox instead of the caller's own — so a human roaming across sessions manages
+  the one hub-level owner mailbox from wherever they are. `--owner` on a handle that is **not** a
+  standing record errors (it never reads a session's inbox as an owner mailbox). Read still peeks and
+  `ack` is still the only read-state change; two concurrent `mail ack --owner` of the same message
+  resolve to exactly one success and one error (the loser throws on an already-acked message), so no
+  report is double-consumed or lost.
 
 **Non-goals** — thread correlation (`send --thread/--reply-to`, `inbox --thread`), `mail delete`,
 `mail await`, and `mail watch` — all spec'd in [`wake/wake.feature`](../wake/wake.feature); this node
@@ -50,3 +59,4 @@ Every scenario in [`mail.feature`](./mail.feature) maps to one of these behavior
 | **inbox lists oldest-first with an aggregate** | TOON list + `<N> messages (<U> unread)`; empty is "0 messages" not an error; `--unread`; `--from` |
 | **read = peek, does not consume** | body printed; message stays unread; unknown id errors |
 | **ack = the consumer** | moves message to read set; already-acked/unknown message errors |
+| **owner mailbox from any session** | send-to-standing delivers to the owner inbox; `--owner <handle>` on inbox/read/ack targets a standing inbox; non-standing `--owner` errors; concurrent ack → one wins one errors |

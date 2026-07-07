@@ -22,7 +22,8 @@ type AgentStatus = 'spawning' | 'active' | 'idle' | 'stale' | 'exited' | 'paused
 export interface AgentRecord {
 	id: string
 	handle: string
-	harness: Harness
+	/** Absent for a standing record (a human/owner principal — no claude/cursor/codex harness). */
+	harness?: Harness
 	cwd: string
 	worktree?: { root: string; branch?: string } | null
 	tmux?: { pane: string; window?: string; session?: string } | null
@@ -32,6 +33,9 @@ export interface AgentRecord {
 	lastSeen: string
 	brief?: string
 	spawnedBy?: string
+	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,
+	 * prune-exempt owner inbox minted by `identity owner`. */
+	kind?: 'session' | 'standing'
 }
 
 export interface InboxSnapshot {

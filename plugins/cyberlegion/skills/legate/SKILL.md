@@ -1,11 +1,11 @@
 ---
-name: cyberlegion
+name: legate
 description: "Use this skill when you need to reach another agent session — send a message to a named peer or \"the pane on the right\", check your inbox, wait for a reply, spawn or close a peer session, or dispatch work to fulfill a role and get a verdict back."
 ---
 
-# cyberlegion
+# legate
 
-Gateway skill for the Legion — the front door to agent session spawning, messaging, and dispatch.
+The Legate — gateway skill for the Legion, the front door to agent session spawning, messaging, and dispatch.
 It **classifies** the request and either runs the matching `cyberlegion` CLI call directly or hands
 routing judgment to `dispatch-governance`. It is a **thin classifier**: it holds no production
 logic, loads no other governance, and writes no state of its own.
@@ -37,7 +37,7 @@ because a nudge already fired.
 | Sweep dead peers | `npx cyberlegion@<version> identity prune` |
 | Set up the mail-surfacing hook / diagnose the environment | `npx cyberlegion@<version> admin install` / `admin doctor` |
 | Dispatch work to fulfill a role with a brief and expect a verdict back (routing judgment needed — which strategy, which agent def, warm vs cold) | **hand off to `dispatch-governance`** — do not pick a `dispatch` subcommand yourself |
-| No user channel at all (unattended trigger, multi-unit fan-out) | **spawn the `legate` agent** by name — it realizes this same gateway + `dispatch-governance` flow headless |
+| No user channel at all (unattended trigger, multi-unit fan-out) | **spawn the `headless-legate` agent** by name — it realizes this same gateway + `dispatch-governance` flow headless |
 
 ## Load the handling skill in-session
 
@@ -46,10 +46,10 @@ spawn nothing. The one exception is a **dispatch** intent: routing which strateg
 channel, cold subagent, or run-inline) is judgment this gateway does not carry — load
 `dispatch-governance` in-session and let it decide.
 
-**Headless (no user channel): spawn `legate`.** When this gateway is reached with no live user or
-peer channel to relay through — an unattended scheduler, a multi-unit fan-out — spawn the `legate`
-agent by name. It is not a separate role: it is this same classify-then-route flow, realized
-headless, batching `needs-input` instead of asking live.
+**Headless (no user channel): spawn `headless-legate`.** When this gateway is reached with no live
+user or peer channel to relay through — an unattended scheduler, a multi-unit fan-out — spawn the
+`headless-legate` agent by name. It is not a separate role: it is this same classify-then-route flow,
+realized headless, batching `needs-input` instead of asking live.
 
 ## Boundaries
 

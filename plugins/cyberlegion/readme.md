@@ -14,7 +14,7 @@ mail, dispatch primitives, agent-definition resolution, and admin/diagnostics. I
 
 The **Legate** is the routing brain on top of the console — the judgment the CLI deliberately does
 not carry. In an attended session it runs in-session as `dispatch-governance`; with no user channel
-it is realized headless as the `legate` agent. Given an intent (fulfill a role with a brief, expect a
+it is realized headless as the `headless-legate` agent. Given an intent (fulfill a role with a brief, expect a
 verdict), it reads the target agent-definition's `warm`/`interactive` tags and the environment's
 multiplexer availability, then picks exactly one strategy:
 
@@ -25,7 +25,7 @@ multiplexer availability, then picks exactly one strategy:
 
 ## The gateway
 
-`cyberlegion` (the skill) is the thin front door — classify the request (send mail, check inbox,
+`legate` (the skill) is the thin front door — classify the request (send mail, check inbox,
 spawn/close a unit, wait for a reply, dispatch work) and either run the matching CLI call directly or
 hand routing judgment to `dispatch-governance`. It loads no governance itself and writes no state.
 

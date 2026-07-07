@@ -160,3 +160,57 @@ Feature: identity — self-identify and discover peers
     Given a session with no resolvable self id
     When touch runs
     Then it does not throw and writes nothing
+
+  # ── Standing identity (a session-independent, prune-exempt owner inbox) ──
+
+  Scenario: identity owner mints a standing record with a handle-derived stable id
+    Given an empty registry
+    When a session runs identity owner --handle homa
+    Then the hub records an agent with handle=homa and kind=standing
+    And its id is derived from the handle, not a random session id
+
+  Scenario: registering the same owner handle again is idempotent
+    Given a standing identity already registered for handle homa
+    When a session runs identity owner --handle homa again
+    Then it keeps the same id
+    And the registry still holds exactly one standing record for homa
+
+  Scenario: a standing record carries no tmux pane and is not pane-indexed
+    Given a session runs identity owner --handle homa inside a tmux pane
+    When the standing record is written
+    Then the record has no tmux pane, window, or session
+    And the current pane resolves to the caller's own session id, not the standing id
+
+  Scenario: prune never marks a standing record exited even when its last-seen is stale
+    Given a standing identity homa whose lastSeen is older than the staleness window
+    When a session runs identity prune
+    Then homa's status remains active
+    And homa is not included in the pruned list
+
+  Scenario: who lists a standing record alongside session agents
+    Given a session agent alice and a standing identity homa
+    When a session runs identity who
+    Then both alice and homa are listed
+
+  Scenario: an owner handle colliding with a live session resolves to the standing record
+    Given a live session agent and a standing identity that share the handle homa
+    When a recipient named homa is resolved
+    Then it resolves to the standing record, not the live session
+
+  Scenario: identity owner warns when a live session already claims that handle
+    Given a live session agent registered with handle homa
+    When a session runs identity owner --handle homa
+    Then a standing record for homa is created
+    And it warns that a live session already claims that handle
+
+  Scenario: a record with no kind field is treated as a session
+    Given a legacy agent record written before the kind field existed
+    When its kind is evaluated
+    Then it is treated as a session record
+    And prune considers it for staleness like any session
+
+  Scenario: bare identity owner lists the standing records
+    Given two standing identities homa and ops
+    When a session runs identity owner with no handle
+    Then both homa and ops are listed
+    And no session agents are listed

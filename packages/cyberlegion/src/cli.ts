@@ -20,8 +20,10 @@ import {
 	prune,
 	realExec,
 	register,
+	registerStanding,
 	resolveAgent,
 	resolveSelfId,
+	resolveStandingOwner,
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
@@ -97,7 +99,7 @@ withGlobals(identity.command('register'))
 		const ctx = ctxOf(opts)
 		const rec = register(ctx, { handle: opts.handle, harness: opts.harness })
 		emit(formatOf(opts), {
-			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness, status: rec.status }),
+			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
 			json: rec,
 		})
 	})
@@ -111,7 +113,43 @@ withGlobals(identity.command('whoami'))
 		const rec = loadAgent(ctx.store, id)
 		if (!rec) fail(`registered self id "${id}" has no agent record`)
 		emit(formatOf(opts), {
-			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness, status: rec.status }),
+			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
+			json: rec,
+		})
+	})
+
+withGlobals(identity.command('owner'))
+	.description('mint (or refresh) a standing, session-independent owner inbox')
+	.option('--handle <name>', 'the owner handle to claim')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		if (!opts.handle) {
+			const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
+			emit(formatOf(opts), {
+				toon: toonList(
+					'agents',
+					standing,
+					[
+						{ key: 'id', get: (a) => a.id },
+						{ key: 'handle', get: (a) => a.handle },
+						{ key: 'harness', get: (a) => a.harness ?? '-' },
+						{ key: 'status', get: (a) => a.status },
+					],
+					`${standing.length} agents`,
+				),
+				json: standing,
+			})
+			return
+		}
+		const liveClaim = listAgents(ctx.store).find(
+			(a) => a.handle === opts.handle && a.kind !== 'standing' && a.status !== 'exited',
+		)
+		const rec = registerStanding(ctx, { handle: opts.handle })
+		if (liveClaim) {
+			console.error(`a live session already claims handle "${opts.handle}"`)
+		}
+		emit(formatOf(opts), {
+			toon: toonObject({ id: rec.id, handle: rec.handle, kind: rec.kind, status: rec.status }),
 			json: rec,
 		})
 	})
@@ -127,7 +165,7 @@ function runWho(opts: GlobalOpts & { all?: boolean }): void {
 			[
 				{ key: 'id', get: (a) => a.id },
 				{ key: 'handle', get: (a) => a.handle },
-				{ key: 'harness', get: (a) => a.harness },
+				{ key: 'harness', get: (a) => a.harness ?? '-' },
 				{ key: 'status', get: (a) => a.status },
 			],
 			`${agents.length} agents`,
@@ -178,7 +216,10 @@ function defineSpawn(cmd: Command): Command {
 		.option('--handle <name>', 'handle for the new peer')
 		.option('--branch <name>', 'branch for the new worktree (default cyberlegion/unit-<id>)')
 		.option('--worktree-path <path>', 'where to check out the new worktree')
-		.option('--cwd <path>', 'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)')
+		.option(
+			'--cwd <path>',
+			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)',
+		)
 		.addOption(
 			new Option('--at <placement>', 'where to open the new session')
 				.choices(['pane:right', 'pane:down', 'tab', 'window'])
@@ -330,10 +371,10 @@ function defineSend(cmd: Command): Command {
 }
 defineSend(mail.command('send'))
 
-function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?: string }): void {
+function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
-	const meId = requireSelf(ctx)
+	const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from, thread: opts.thread })
 	const unreadCount = items.filter((i) => !i.read).length
 	emit(formatOf(opts), {
@@ -359,29 +400,32 @@ withGlobals(mail.command('inbox'))
 	.option('--unread', 'only un-acked mail')
 	.option('--from <id>', 'filter by sender')
 	.option('--thread <id>', 'filter to messages carrying this thread id')
+	.option('--owner <handle>', "target a standing owner's mailbox instead of this session's own")
 	.action(runInbox)
 
 withGlobals(mail.command('read'))
 	.description('peek at a message without acknowledging it')
 	.argument('<msg-id>', 'message id')
+	.option('--owner <handle>', "peek a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
-		const meId = requireSelf(ctx)
+		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = peek({ store: ctx.store }, meId, msgId)
 		if (!msg) fail(`"${msgId}" is not a message in this inbox`)
 		emit(formatOf(opts), {
 			toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body }),
 			json: msg,
 		})
-		nextStep(`cyberlegion mail ack ${msg.id}`)
+		nextStep(`cyberlegion mail ack ${msg.id}${opts.owner ? ` --owner ${opts.owner}` : ''}`)
 	})
 
 withGlobals(mail.command('ack'))
 	.description('acknowledge a message (moves it out of the unread set)')
 	.argument('<msg-id>', 'message id')
+	.option('--owner <handle>', "ack a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
-		const meId = requireSelf(ctx)
+		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = ack({ store: ctx.store }, meId, msgId)
 		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
 	})

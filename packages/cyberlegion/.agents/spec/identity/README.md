@@ -50,6 +50,20 @@ without being told it, and discovering its live peers:
   caller's own identity refreshes that agent's `lastSeen` to now as a side effect (`touch`), so a live
   but otherwise-idle session never goes stale under `prune`. `touch` is best-effort: a no-op, never
   throwing, when the caller isn't registered.
+- **A standing identity is a session-independent, prune-exempt owner inbox** — `identity owner
+  --handle <name>` mints a durable record for a human/owner principal so a frameless agent (a
+  cron-started session with no parent frame) can `mail send --to <owner>` and exit. A standing record
+  carries `kind: standing`, an id **derived from the handle** (stable across calls, distinct from a
+  random session id and from any pane pointer), and **no** tmux pane — it is not pane-indexed and
+  `resolveSelfId` never resolves to it. `identity owner` is idempotent per handle (same id, refresh),
+  and warns when a live session already claims that handle. `prune` **never** marks a standing record
+  exited (it has no pane and is exempt from the staleness window); `who` lists it alongside sessions.
+  When a handle is shared by a live session and a standing record, recipient resolution prefers the
+  **standing** record so an owner report never lands in a dying session's inbox. `AgentRecord.kind` is
+  optional and absent ⇒ `session`, so every record written before the field existed is a session (no
+  migration). Registration never happens implicitly — sending to an unknown recipient still throws
+  (fail-loud); it does not auto-create an owner. Bare `identity owner` (no `--handle`) lists the
+  registered standing records only, without any session agents.
 
 **Non-goals** — sending/reading mail (`mail/`), spawning/closing/nudging a peer session (`session/`),
 hook-based injection of mail into a harness turn (`surfacing/`), thread correlation and the bounded
@@ -67,3 +81,4 @@ Every scenario in [`identity.feature`](./identity.feature) maps to one of these 
 | **self-identity recovery** | pane pointer first; `$CYBERLEGION_AGENT_ID` only absent `$TMUX_PANE`; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
+| **standing identity** | `identity owner` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |

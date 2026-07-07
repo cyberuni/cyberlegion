@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,15 @@ function legion(args: string[], env: NodeJS.ProcessEnv = {}): string {
 		encoding: 'utf8',
 		env: { ...process.env, ...env },
 	})
+}
+
+/** Like `legion` but also returns stderr (for warning/next-step assertions). */
+function legionOut(args: string[], env: NodeJS.ProcessEnv = {}): { stdout: string; stderr: string } {
+	const res = spawnSync('node', [BIN, ...args, '--space', space], {
+		encoding: 'utf8',
+		env: { ...process.env, ...env },
+	})
+	return { stdout: res.stdout, stderr: res.stderr }
 }
 
 describe('identity group', () => {
@@ -52,6 +61,49 @@ describe('identity group', () => {
 	it('the top-level `who` alias behaves like `identity who`', () => {
 		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
 		expect(legion(['who'])).toContain('alice')
+	})
+})
+
+describe('standing identity — identity owner', () => {
+	it('mints a standing record for a fresh handle', () => {
+		const out = legion(['identity', 'owner', '--handle', 'homa'])
+		expect(out).toContain('handle: homa')
+		expect(out).toContain('kind: standing')
+	})
+
+	// Scenario 7: identity owner warns (stderr) when a live session already claims that handle, but
+	// still creates the standing record.
+	it('warns on stderr when a live session already claims the handle, but still creates the standing record', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'homa'])
+		const { stdout, stderr } = legionOut(['identity', 'owner', '--handle', 'homa'])
+		expect(stderr).toMatch(/live session already claims/i)
+		expect(stdout).toContain('kind: standing')
+		const who = JSON.parse(legion(['identity', 'who', '--all', '--format', 'json']))
+		expect(who.filter((a: { handle: string }) => a.handle === 'homa')).toHaveLength(2)
+	})
+
+	// Scenario 5: `identity who` lists a standing record alongside a live session agent — exercised
+	// through the real command path (past runWho's status!=='exited' membership filter).
+	it('identity who lists a standing record alongside a live session agent', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['identity', 'owner', '--handle', 'homa'])
+		const out = legion(['identity', 'who'])
+		expect(out).toContain('alice')
+		expect(out).toContain('homa')
+		expect(out).toContain('2 agents')
+	})
+
+	// Scenario (additive): bare `identity owner` (no --handle) lists only the standing records, never
+	// session agents.
+	it('bare identity owner lists the standing records and no session agents', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['identity', 'owner', '--handle', 'homa'])
+		legion(['identity', 'owner', '--handle', 'ops'])
+		const listed = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
+		const handles = listed.map((a) => a.handle)
+		expect(handles).toContain('homa')
+		expect(handles).toContain('ops')
+		expect(handles).not.toContain('alice')
 	})
 })
 
@@ -120,6 +172,70 @@ describe('mail group', () => {
 		const aliceId = who[0].id
 		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
 		expect(out.trim()).toBe('') // no brief, no unread mail — nothing injected, still exit 0
+	})
+})
+
+describe('the standing owner mailbox — mail --owner', () => {
+	it('mail send --to <owner> delivers exactly one message to the standing owner inbox', () => {
+		legion(['identity', 'owner', '--handle', 'homa'])
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'report'])
+		const out = legion(['mail', 'inbox', '--owner', 'homa'])
+		expect(out).toContain('1 messages (1 unread)')
+	})
+
+	it('mail inbox --owner lists the standing owner mailbox, not the caller own inbox', () => {
+		legion(['identity', 'owner', '--handle', 'homa'])
+		const alice = JSON.parse(
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice', '--format', 'json']),
+		)
+		legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'owner mail one'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'owner mail two'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'alice', '--body', 'callers own mail'])
+		const out = legion(['mail', 'inbox', '--owner', 'homa'], { CYBERLEGION_AGENT_ID: alice.id })
+		expect(out).toContain('2 messages (2 unread)')
+		expect(out).not.toContain('callers own mail')
+	})
+
+	it('mail read <id> --owner peeks the owner mailbox without consuming', () => {
+		legion(['identity', 'owner', '--handle', 'homa'])
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'peek me', '--format', 'json']),
+		)
+		const readOut = legion(['mail', 'read', sent.id, '--owner', 'homa'])
+		expect(readOut).toContain('peek me')
+		const afterRead = legion(['mail', 'inbox', '--owner', 'homa', '--unread'])
+		expect(afterRead).toContain('1 messages (1 unread)')
+	})
+
+	it('mail ack <id> --owner moves the owner message to the read state', () => {
+		legion(['identity', 'owner', '--handle', 'homa'])
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'ack me', '--format', 'json']),
+		)
+		const ackOut = legion(['mail', 'ack', sent.id, '--owner', 'homa'])
+		expect(ackOut).toContain(`acked: ${sent.id}`)
+		const afterAck = legion(['mail', 'inbox', '--owner', 'homa', '--unread'])
+		expect(afterAck).toContain('0 messages (0 unread)')
+	})
+
+	it('two concurrent mail ack --owner of the same message — the first succeeds, the second errors', () => {
+		legion(['identity', 'owner', '--handle', 'homa'])
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'once', '--format', 'json']),
+		)
+		legion(['mail', 'ack', sent.id, '--owner', 'homa']) // first ack succeeds
+		expect(() => legion(['mail', 'ack', sent.id, '--owner', 'homa'])).toThrow() // second ack errors
+		const read = JSON.parse(legion(['mail', 'inbox', '--owner', 'homa', '--format', 'json']))
+		expect(read.filter((m: { id: string }) => m.id === sent.id)).toHaveLength(1)
+	})
+
+	it('mail --owner on a non-standing handle errors rather than reading a session inbox', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'liveSession'])
+		expect(() => legion(['mail', 'inbox', '--owner', 'liveSession'])).toThrow()
 	})
 })
 
