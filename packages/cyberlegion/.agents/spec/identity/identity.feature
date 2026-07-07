@@ -208,3 +208,9 @@ Feature: identity — self-identify and discover peers
     When its kind is evaluated
     Then it is treated as a session record
     And prune considers it for staleness like any session
+
+  Scenario: bare identity owner lists the standing records
+    Given two standing identities homa and ops
+    When a session runs identity owner with no handle
+    Then both homa and ops are listed
+    And no session agents are listed

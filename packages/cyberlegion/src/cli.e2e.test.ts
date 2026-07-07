@@ -81,6 +81,30 @@ describe('standing identity — identity owner', () => {
 		const who = JSON.parse(legion(['identity', 'who', '--all', '--format', 'json']))
 		expect(who.filter((a: { handle: string }) => a.handle === 'homa')).toHaveLength(2)
 	})
+
+	// Scenario 5: `identity who` lists a standing record alongside a live session agent — exercised
+	// through the real command path (past runWho's status!=='exited' membership filter).
+	it('identity who lists a standing record alongside a live session agent', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['identity', 'owner', '--handle', 'homa'])
+		const out = legion(['identity', 'who'])
+		expect(out).toContain('alice')
+		expect(out).toContain('homa')
+		expect(out).toContain('2 agents')
+	})
+
+	// Scenario (additive): bare `identity owner` (no --handle) lists only the standing records, never
+	// session agents.
+	it('bare identity owner lists the standing records and no session agents', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['identity', 'owner', '--handle', 'homa'])
+		legion(['identity', 'owner', '--handle', 'ops'])
+		const listed = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
+		const handles = listed.map((a) => a.handle)
+		expect(handles).toContain('homa')
+		expect(handles).toContain('ops')
+		expect(handles).not.toContain('alice')
+	})
 })
 
 describe('bare invocation — content-first status (AXI #8)', () => {

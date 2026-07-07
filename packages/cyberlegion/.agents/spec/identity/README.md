@@ -62,7 +62,8 @@ without being told it, and discovering its live peers:
   **standing** record so an owner report never lands in a dying session's inbox. `AgentRecord.kind` is
   optional and absent ⇒ `session`, so every record written before the field existed is a session (no
   migration). Registration never happens implicitly — sending to an unknown recipient still throws
-  (fail-loud); it does not auto-create an owner.
+  (fail-loud); it does not auto-create an owner. Bare `identity owner` (no `--handle`) lists the
+  registered standing records only, without any session agents.
 
 **Non-goals** — sending/reading mail (`mail/`), spawning/closing/nudging a peer session (`session/`),
 hook-based injection of mail into a harness turn (`surfacing/`), thread correlation and the bounded
