@@ -1,9 +1,9 @@
 @frozen
 Feature: session — warm peer session lifecycle over a multiplexer
-  Spawn a new peer session in its own git worktree and session pane, then tear it back down cleanly —
-  spawn and close are a deterministic inverse pair. Sending/reading mail lives in mail; thread
-  correlation and the bounded mail await/watch live in wake; hook-based mail/brief injection lives in
-  surfacing.
+  Spawn a new peer session — in a new git worktree it creates, or in an existing directory a caller
+  supplies (--cwd) — and its session pane, then tear it back down cleanly — spawn and close are a
+  deterministic inverse pair. Sending/reading mail lives in mail; thread correlation and the bounded
+  mail await/watch live in wake; hook-based mail/brief injection lives in surfacing.
 
   # ── spawn registers as spawning before it starts ──
 
