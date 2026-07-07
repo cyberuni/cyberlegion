@@ -20,6 +20,7 @@ import {
 	prune,
 	realExec,
 	register,
+	registerStanding,
 	resolveAgent,
 	resolveSelfId,
 	touch,
@@ -97,7 +98,7 @@ withGlobals(identity.command('register'))
 		const ctx = ctxOf(opts)
 		const rec = register(ctx, { handle: opts.handle, harness: opts.harness })
 		emit(formatOf(opts), {
-			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness, status: rec.status }),
+			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
 			json: rec,
 		})
 	})
@@ -111,7 +112,43 @@ withGlobals(identity.command('whoami'))
 		const rec = loadAgent(ctx.store, id)
 		if (!rec) fail(`registered self id "${id}" has no agent record`)
 		emit(formatOf(opts), {
-			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness, status: rec.status }),
+			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
+			json: rec,
+		})
+	})
+
+withGlobals(identity.command('owner'))
+	.description('mint (or refresh) a standing, session-independent owner inbox')
+	.option('--handle <name>', 'the owner handle to claim')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		if (!opts.handle) {
+			const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
+			emit(formatOf(opts), {
+				toon: toonList(
+					'agents',
+					standing,
+					[
+						{ key: 'id', get: (a) => a.id },
+						{ key: 'handle', get: (a) => a.handle },
+						{ key: 'harness', get: (a) => a.harness ?? '-' },
+						{ key: 'status', get: (a) => a.status },
+					],
+					`${standing.length} agents`,
+				),
+				json: standing,
+			})
+			return
+		}
+		const liveClaim = listAgents(ctx.store).find(
+			(a) => a.handle === opts.handle && a.kind !== 'standing' && a.status !== 'exited',
+		)
+		const rec = registerStanding(ctx, { handle: opts.handle })
+		if (liveClaim) {
+			console.error(`a live session already claims handle "${opts.handle}"`)
+		}
+		emit(formatOf(opts), {
+			toon: toonObject({ id: rec.id, handle: rec.handle, kind: rec.kind, status: rec.status }),
 			json: rec,
 		})
 	})
@@ -127,7 +164,7 @@ function runWho(opts: GlobalOpts & { all?: boolean }): void {
 			[
 				{ key: 'id', get: (a) => a.id },
 				{ key: 'handle', get: (a) => a.handle },
-				{ key: 'harness', get: (a) => a.harness },
+				{ key: 'harness', get: (a) => a.harness ?? '-' },
 				{ key: 'status', get: (a) => a.status },
 			],
 			`${agents.length} agents`,
@@ -178,7 +215,10 @@ function defineSpawn(cmd: Command): Command {
 		.option('--handle <name>', 'handle for the new peer')
 		.option('--branch <name>', 'branch for the new worktree (default cyberlegion/unit-<id>)')
 		.option('--worktree-path <path>', 'where to check out the new worktree')
-		.option('--cwd <path>', 'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)')
+		.option(
+			'--cwd <path>',
+			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)',
+		)
 		.addOption(
 			new Option('--at <placement>', 'where to open the new session')
 				.choices(['pane:right', 'pane:down', 'tab', 'window'])

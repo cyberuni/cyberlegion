@@ -10,8 +10,11 @@ import {
 	loadAgent,
 	prune,
 	register,
+	registerStanding,
+	resolveAgent,
 	resolveRecipient,
 	resolveSelfId,
+	standingId,
 	touch,
 } from './identity.ts'
 import { FileStore } from './store/file-store.ts'
@@ -112,5 +115,76 @@ describe('resolveRecipient', () => {
 		expect(resolveRecipient(store, 'bob')).toBe(rec.id)
 		expect(resolveRecipient(store, rec.id)).toBe(rec.id)
 		expect(() => resolveRecipient(store, 'ghost')).toThrow(/ghost/)
+	})
+})
+
+describe('standing identity', () => {
+	// Scenario 1: identity owner mints a standing record with a handle-derived stable id.
+	it('registerStanding mints a standing record with a handle-derived stable id', () => {
+		const rec = registerStanding(ctx({}), { handle: 'homa' })
+		expect(rec.kind).toBe('standing')
+		expect(rec.handle).toBe('homa')
+		expect(rec.id).toBe(standingId('homa'))
+		expect(rec.id).not.toMatch(/^[0-9a-f]{16}$/)
+	})
+
+	// Scenario 2: registering the same owner handle again is idempotent.
+	it('registerStanding is idempotent per handle', () => {
+		const a = registerStanding(ctx({}), { handle: 'homa' })
+		const b = registerStanding(ctx({}), { handle: 'homa' })
+		expect(b.id).toBe(a.id)
+		expect(listAgents(store).filter((r) => r.kind === 'standing')).toHaveLength(1)
+	})
+
+	// Scenario 3: a standing record carries no tmux pane and is not pane-indexed; the caller's own
+	// pane still resolves to the caller's own session id.
+	it('a standing record has no tmux pane and is not pane-indexed', () => {
+		const e = { TMUX: 't', TMUX_PANE: '%9' }
+		const session = register(ctx(e), { handle: 'alice', harness: 'claude' })
+		const standing = registerStanding(ctx(e), { handle: 'homa' })
+		expect(standing.tmux).toBeNull()
+		expect(resolveSelfId(ctx(e))).toBe(session.id)
+		expect(store.resolvePaneId('%9')).toBe(session.id)
+	})
+
+	// Scenario 4: prune never marks a standing record exited even when its lastSeen is stale.
+	it('prune never marks a standing record exited even when stale', () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'homa' })
+		const changed = prune({ store, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
+		expect(changed).toEqual([])
+		expect(loadAgent(store, standingId('homa'))?.status).toBe('active')
+	})
+
+	// Scenario 5: who lists a standing record alongside session agents (membership only).
+	it('listAgents includes a standing record alongside session agents', () => {
+		register(ctx({ TMUX: 't', TMUX_PANE: '%1' }), { handle: 'alice', harness: 'claude' })
+		registerStanding(ctx({}), { handle: 'homa' })
+		const handles = listAgents(store).map((r) => r.handle)
+		expect(handles).toContain('alice')
+		expect(handles).toContain('homa')
+	})
+
+	// Scenario 6: a handle shared by a live session and a standing record resolves (as a recipient)
+	// to the standing record.
+	it('resolveRecipient prefers the standing record on a handle collision', () => {
+		register(ctx({ TMUX: 't', TMUX_PANE: '%2' }), { handle: 'homa', harness: 'claude' })
+		const standing = registerStanding(ctx({}), { handle: 'homa' })
+		expect(resolveRecipient(store, 'homa')).toBe(standing.id)
+	})
+
+	it('resolveAgent prefers the standing record on a handle collision', () => {
+		register(ctx({ TMUX: 't', TMUX_PANE: '%4' }), { handle: 'homa', harness: 'claude' })
+		const standing = registerStanding(ctx({}), { handle: 'homa' })
+		expect(resolveAgent(store, 'homa').id).toBe(standing.id)
+	})
+
+	// Scenario 8: a record with no kind field is treated as a session — prune considers it for
+	// staleness like any session.
+	it('a record with no kind field is treated as a session by prune', () => {
+		const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'legacy' }), { handle: 'legacy', harness: 'claude' })
+		expect(rec.kind).toBeUndefined()
+		const changed = prune({ store, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
+		expect(changed.map((r) => r.id)).toContain(rec.id)
+		expect(loadAgent(store, rec.id)?.status).toBe('exited')
 	})
 })

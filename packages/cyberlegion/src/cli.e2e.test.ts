@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,15 @@ function legion(args: string[], env: NodeJS.ProcessEnv = {}): string {
 		encoding: 'utf8',
 		env: { ...process.env, ...env },
 	})
+}
+
+/** Like `legion` but also returns stderr (for warning/next-step assertions). */
+function legionOut(args: string[], env: NodeJS.ProcessEnv = {}): { stdout: string; stderr: string } {
+	const res = spawnSync('node', [BIN, ...args, '--space', space], {
+		encoding: 'utf8',
+		env: { ...process.env, ...env },
+	})
+	return { stdout: res.stdout, stderr: res.stderr }
 }
 
 describe('identity group', () => {
@@ -52,6 +61,25 @@ describe('identity group', () => {
 	it('the top-level `who` alias behaves like `identity who`', () => {
 		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
 		expect(legion(['who'])).toContain('alice')
+	})
+})
+
+describe('standing identity — identity owner', () => {
+	it('mints a standing record for a fresh handle', () => {
+		const out = legion(['identity', 'owner', '--handle', 'homa'])
+		expect(out).toContain('handle: homa')
+		expect(out).toContain('kind: standing')
+	})
+
+	// Scenario 7: identity owner warns (stderr) when a live session already claims that handle, but
+	// still creates the standing record.
+	it('warns on stderr when a live session already claims the handle, but still creates the standing record', () => {
+		legion(['identity', 'register', '--harness', 'claude', '--handle', 'homa'])
+		const { stdout, stderr } = legionOut(['identity', 'owner', '--handle', 'homa'])
+		expect(stderr).toMatch(/live session already claims/i)
+		expect(stdout).toContain('kind: standing')
+		const who = JSON.parse(legion(['identity', 'who', '--all', '--format', 'json']))
+		expect(who.filter((a: { handle: string }) => a.handle === 'homa')).toHaveLength(2)
 	})
 })
 

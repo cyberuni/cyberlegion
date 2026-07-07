@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { sanitizePane } from './paths.ts'
 import type { AgentRecord, Harness, Store } from './store/store.ts'
 
 export type { AgentRecord, Harness } from './store/store.ts'
@@ -119,17 +120,61 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 	return rec
 }
 
+/** Derive a standing record's stable id from its handle — same slug rule as `sanitizePane`, prefixed
+ * so it reads distinct from a random 16-hex session id or a pane pointer. */
+export function standingId(handle: string): string {
+	return `standing-${sanitizePane(handle)}`
+}
+
+export interface RegisterStandingInput {
+	handle: string
+}
+
+/**
+ * Mint (or idempotently refresh) a standing identity: a session-independent, prune-exempt owner
+ * inbox keyed by handle, with no pane/tmux/harness. A SIBLING of `register`, not an overload — it
+ * skips all pane/tmux machinery and harness auto-detection entirely.
+ */
+export function registerStanding(ctx: IdContext, input: RegisterStandingInput): AgentRecord {
+	ctx.store.ensureMarker()
+	const id = standingId(input.handle)
+	const existing = loadAgent(ctx.store, id)
+	const ts = nowIso(ctx)
+	const rec: AgentRecord = {
+		id,
+		handle: input.handle,
+		kind: 'standing',
+		tmux: null,
+		harness: undefined,
+		cwd: process.cwd(),
+		status: 'active',
+		createdAt: existing?.createdAt ?? ts,
+		lastSeen: ts,
+	}
+	saveAgent(ctx.store, rec)
+	return rec
+}
+
 function gitWorktree(exec: Exec): { root: string; branch?: string } | null {
 	const root = exec('git', ['rev-parse', '--show-toplevel'])
 	if (!root) return null
 	return { root, branch: exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']) ?? undefined }
 }
 
+/** Prefer a standing record over a plain session record when both match a handle — an owner
+ * report must land in the durable standing inbox, not a dying session's. */
+function preferStanding(matches: AgentRecord[]): AgentRecord | undefined {
+	return matches.find((a) => a.kind === 'standing') ?? matches[0]
+}
+
 /** Resolve a recipient argument (id or handle) to an agent id. */
 export function resolveRecipient(store: Store, to: string): string {
 	if (loadAgent(store, to)) return to
-	const match = listAgents(store).find((a) => a.handle === to)
-	if (!match) throw new Error(`no agent addressable as "${to}"`)
+	const matches = listAgents(store).filter((a) => a.handle === to)
+	const match = preferStanding(matches)
+	if (!match) {
+		throw new Error(`no agent addressable as "${to}" — run 'cyberlegion identity owner --handle ${to}' to create a standing inbox`)
+	}
 	return match.id
 }
 
@@ -142,7 +187,7 @@ export function resolveAgent(store: Store, ref: string): AgentRecord {
 	const byId = loadAgent(store, ref)
 	if (byId) return byId
 	const agents = listAgents(store)
-	const byHandle = agents.find((a) => a.handle === ref)
+	const byHandle = preferStanding(agents.filter((a) => a.handle === ref))
 	if (byHandle) return byHandle
 	const byBranch = agents.find((a) => a.worktree?.branch === ref)
 	if (byBranch) return byBranch
@@ -170,6 +215,7 @@ export function prune(ctx: IdContext): AgentRecord[] {
 	const now = ctx.now?.() ?? Date.now()
 	const changed: AgentRecord[] = []
 	for (const rec of listAgents(ctx.store)) {
+		if (rec.kind === 'standing') continue
 		if (rec.status === 'exited') continue
 		const paneGone = rec.tmux?.pane
 			? exec('tmux', ['has-session', '-t', rec.tmux.pane]) === null &&
