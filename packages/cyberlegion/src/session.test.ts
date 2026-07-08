@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type Exec, type IdContext, loadAgent } from './identity.ts'
 import { resolveBrief, spawn } from './session.ts'
@@ -38,7 +38,8 @@ function ctx(): IdContext {
 	return { store, env: { TMUX: 't', CYBERLEGION_AGENT_ID: 'spawner' }, exec: fakeExec, now: () => 1_700_000_000_000 }
 }
 
-const expectedWorktreePath = (id: string) => resolve(join(primaryRoot, '.agents', 'cyberlegion', 'worktrees', id))
+const expectedWorktreePath = (id: string) =>
+	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, 'cyberlegion', id))
 
 describe('spawn opens a pane + pre-registers the peer', () => {
 	it('registers the peer (spawning, pane, spawnedBy) and writes its brief', () => {
@@ -101,7 +102,7 @@ describe('spawn errors', () => {
 	})
 })
 
-describe('spawn creates a real worktree unit, project-local (not the global hub)', () => {
+describe('spawn creates a real worktree unit, sibling to the primary checkout (not the global hub)', () => {
 	it('creates a git worktree distinct from the primary checkout and opens the session there', () => {
 		const res = spawn(ctx(), { harness: 'claude', task: 't' })
 		const expectedPath = expectedWorktreePath(res.agent.id)
@@ -110,6 +111,11 @@ describe('spawn creates a real worktree unit, project-local (not the global hub)
 		// git worktree add ran against the primary root, not the unit path
 		const addCall = worktreeAddCalls[0]!
 		expect(addCall).toEqual(expect.arrayContaining(['-C', primaryRoot, 'worktree', 'add']))
+	})
+
+	it("never nests the default worktree inside the primary checkout's own tree", () => {
+		const res = spawn(ctx(), { harness: 'claude', task: 't' })
+		expect(res.agent.worktree?.root.startsWith(`${resolve(primaryRoot)}/`)).toBe(false)
 	})
 
 	it('opens the tmux pane with -c set to the new worktree root, not the caller cwd', () => {
