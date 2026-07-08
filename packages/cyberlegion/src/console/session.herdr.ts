@@ -77,6 +77,13 @@ export const herdrSessionAdapter: SessionAdapter = {
 	teardown(exec, target) {
 		exec('herdr', ['pane', 'close', target.id])
 	},
+
+	paneExists(exec, target) {
+		// `pane read` returns the pane's content for a live pane (empty string when the pane is empty),
+		// and fails — Exec yields null — when the pane id no longer names a pane. A live pane is exactly
+		// the non-null case; an empty live pane ('') must NOT read as gone.
+		return exec('herdr', ['pane', 'read', target.id, '--source', 'visible']) !== null
+	},
 }
 
 /**

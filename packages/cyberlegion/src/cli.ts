@@ -65,7 +65,7 @@ function requireSelf(ctx: IdContext): string {
 
 function resolveTarget(ctx: IdContext, ref: string): { id: string } {
 	const agent = resolveAgent(ctx.store, ref)
-	const pane = agent.tmux?.pane ?? ctx.store.findPaneByAgentId(agent.id)
+	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
 	if (!pane) fail(`unit "${ref}" has no known session pane`)
 	return { id: pane }
 }
@@ -297,7 +297,7 @@ withGlobals(session.command('list'))
 					{ key: 'id', get: (a) => a.id },
 					{ key: 'handle', get: (a) => a.handle },
 					{ key: 'status', get: (a) => a.status },
-					{ key: 'pane', get: (a) => a.tmux?.pane ?? '-' },
+					{ key: 'pane', get: (a) => a.pane?.id ?? '-' },
 				],
 				`${agents.length} sessions`,
 			),

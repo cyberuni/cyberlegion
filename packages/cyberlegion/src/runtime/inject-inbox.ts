@@ -1,4 +1,5 @@
-import { type IdContext, listAgents, loadAgent, resolveSelfId, saveAgent } from '../identity.ts'
+import { currentPane } from '../console/mux-probe.ts'
+import { type IdContext, listAgents, loadAgent, register, resolveSelfId, saveAgent } from '../identity.ts'
 import { inbox } from '../message.ts'
 
 export type HookEvent = 'SessionStart' | 'PostToolUse'
@@ -17,8 +18,21 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 	if (!EVENTS.includes(event as HookEvent)) {
 		throw new Error(`unsupported --event "${event}" (expected ${EVENTS.join(' | ')})`)
 	}
-	const meId = resolveSelfId(ctx)
-	if (!meId) return null // unregistered caller — inject nothing, don't error the hook
+	let meId = resolveSelfId(ctx)
+	if (!meId) {
+		// No identity yet. If the session IS in a live multiplexer pane, self-register it here so a
+		// human who never ran `identity register` still gets a first-class hub presence. Best-effort:
+		// a register failure (e.g. no detectable harness) must never fail the harness turn.
+		if (currentPane(ctx.env ?? process.env)) {
+			try {
+				register(ctx, {})
+				meId = resolveSelfId(ctx)
+			} catch {
+				return null
+			}
+		}
+		if (!meId) return null // still no id (no pane, or auto-register failed) — inject nothing, no error
+	}
 
 	const parts: string[] = []
 	const rec = loadAgent(ctx.store, meId)

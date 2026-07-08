@@ -1,5 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { currentPane, type PaneMux } from './console/mux-probe.ts'
+import { herdrSessionAdapter } from './console/session.herdr.ts'
+import { tmuxSessionAdapter } from './console/session.tmux.ts'
 import { sanitizePane } from './paths.ts'
 import type { AgentRecord, Harness, Store } from './store/store.ts'
 
@@ -62,15 +65,16 @@ export function detectHarness(explicit: string | undefined, ctx: IdContext): Har
 }
 
 /**
- * Recover the calling agent's own id. In tmux the pane index is authoritative — a pane with no
- * pane entry is simply unregistered and must NOT adopt `$CYBERLEGION_AGENT_ID` (that env fallback
- * applies only when there is no `$TMUX_PANE`). There is no shared bare "self" file — self-id is
- * always pane-keyed or explicit via the env var.
+ * Recover the calling agent's own id, mux-agnostically. Inside any multiplexer pane (tmux or herdr)
+ * the pane index is authoritative — a pane with no pane entry is simply unregistered and must NOT
+ * adopt `$CYBERLEGION_AGENT_ID` (that env fallback applies ONLY when the session is in no
+ * multiplexer pane at all). There is no shared bare "self" file — self-id is always pane-keyed or
+ * explicit via the env var.
  */
 export function resolveSelfId(ctx: IdContext): string | undefined {
 	const env = ctx.env ?? process.env
-	const pane = env.TMUX_PANE
-	if (pane) return ctx.store.resolvePaneId(pane)
+	const cur = currentPane(env)
+	if (cur) return ctx.store.resolvePaneId(cur.pane)
 	return env.CYBERLEGION_AGENT_ID || undefined
 }
 
@@ -93,7 +97,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 	// only mint a fresh id when nothing self-identifies (a fresh tmux pane).
 	const id = existing?.id ?? existingId ?? randomId()
 	const ts = nowIso(ctx)
-	const pane = env.TMUX_PANE
+	const cur = currentPane(env)
 	const exec = ctx.exec ?? realExec
 
 	const rec: AgentRecord = {
@@ -102,13 +106,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 		harness,
 		cwd: process.cwd(),
 		worktree: existing?.worktree ?? gitWorktree(exec),
-		tmux: pane
-			? {
-					pane,
-					window: exec('tmux', ['display-message', '-p', '-t', pane, '#{window_id}']) ?? undefined,
-					session: env.TMUX?.split(',')[0],
-				}
-			: null,
+		pane: cur ? paneLocator(cur, exec, env) : null,
 		status: 'active',
 		createdAt: existing?.createdAt ?? ts,
 		lastSeen: ts,
@@ -116,8 +114,26 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 		...(existing?.spawnedBy ? { spawnedBy: existing.spawnedBy } : {}),
 	}
 	saveAgent(ctx.store, rec)
-	if (pane) ctx.store.putPaneIndex(pane, id)
+	if (cur) ctx.store.putPaneIndex(cur.pane, id)
 	return rec
+}
+
+/** Build the record's pane locator. `window`/`session` are tmux-only (herdr's pane id is
+ * self-contained and its CLI needs nothing more to address a pane). */
+function paneLocator(
+	cur: { mux: PaneMux; pane: string },
+	exec: Exec,
+	env: NodeJS.ProcessEnv,
+): NonNullable<AgentRecord['pane']> {
+	if (cur.mux === 'tmux') {
+		return {
+			mux: 'tmux',
+			id: cur.pane,
+			window: exec('tmux', ['display-message', '-p', '-t', cur.pane, '#{window_id}']) ?? undefined,
+			session: env.TMUX?.split(',')[0],
+		}
+	}
+	return { mux: cur.mux, id: cur.pane }
 }
 
 /** Derive a standing record's stable id from its handle — same slug rule as `sanitizePane`, prefixed
@@ -144,7 +160,7 @@ export function registerStanding(ctx: IdContext, input: RegisterStandingInput): 
 		id,
 		handle: input.handle,
 		kind: 'standing',
-		tmux: null,
+		pane: null,
 		harness: undefined,
 		cwd: process.cwd(),
 		status: 'active',
@@ -221,6 +237,10 @@ export function touch(ctx: IdContext): void {
 
 const STALE_MS = 15 * 60 * 1000
 
+/** The per-mux session adapters `prune` consults for pane liveness — each answers with its own
+ * backend primitive so a herdr pane is never probed with a tmux query, and vice versa. */
+const PANE_ADAPTERS = { tmux: tmuxSessionAdapter, herdr: herdrSessionAdapter } as const
+
 /** Mark agents whose pane is gone or whose last-seen is stale as exited. */
 export function prune(ctx: IdContext): AgentRecord[] {
 	const exec = ctx.exec ?? realExec
@@ -229,10 +249,7 @@ export function prune(ctx: IdContext): AgentRecord[] {
 	for (const rec of listAgents(ctx.store)) {
 		if (rec.kind === 'standing') continue
 		if (rec.status === 'exited') continue
-		const paneGone = rec.tmux?.pane
-			? exec('tmux', ['has-session', '-t', rec.tmux.pane]) === null &&
-				!(exec('tmux', ['list-panes', '-a', '-F', '#{pane_id}']) ?? '').split('\n').includes(rec.tmux.pane)
-			: false
+		const paneGone = rec.pane ? !PANE_ADAPTERS[rec.pane.mux].paneExists(exec, { id: rec.pane.id }) : false
 		const stale = now - new Date(rec.lastSeen).getTime() > STALE_MS
 		if (paneGone || stale) {
 			rec.status = 'exited'

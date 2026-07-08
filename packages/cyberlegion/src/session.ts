@@ -130,13 +130,15 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	}
 
 	const ts = new Date(ctx.now?.() ?? Date.now()).toISOString()
+	const muxName = sessionAdapter.name
 	const rec: AgentRecord = {
 		id,
 		handle: input.handle ?? id.slice(0, 6),
 		harness,
 		cwd,
 		worktree,
-		tmux: sessionAdapter.name === 'tmux' ? { pane: target.id } : null,
+		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
+		pane: muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null,
 		status: 'spawning',
 		createdAt: ts,
 		lastSeen: ts,

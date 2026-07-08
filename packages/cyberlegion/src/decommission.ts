@@ -48,7 +48,7 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 		throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`)
 	}
 
-	const pane = rec.tmux?.pane ?? ctx.store.findPaneByAgentId(input.id)
+	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id)
 
 	if (worktreeExists) {
 		try {

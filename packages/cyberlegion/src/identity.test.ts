@@ -42,6 +42,14 @@ describe('register records who and where', () => {
 		expect(store.resolvePaneId('%3')).toBe(rec.id)
 	})
 
+	it('writes the agent record and a pane pointer in a herdr pane', () => {
+		const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }), { handle: 'alice', harness: 'claude' })
+		expect(loadAgent(store, rec.id)?.handle).toBe('alice')
+		expect(loadAgent(store, rec.id)?.harness).toBe('claude')
+		expect(loadAgent(store, rec.id)?.pane).toEqual({ mux: 'herdr', id: 'w3:p4' })
+		expect(store.resolvePaneId('w3:p4')).toBe(rec.id)
+	})
+
 	it('stamps the hub root with the tracked config.json marker', () => {
 		register(ctx({ TMUX: '/tmp/x,1,0', TMUX_PANE: '%3' }), { handle: 'alice', harness: 'claude' })
 		expect(existsSync(join(store.root, 'config.json'))).toBe(true)
@@ -74,16 +82,84 @@ describe('harness auto-detect', () => {
 })
 
 describe('pane-keyed self-recall', () => {
-	it('recovers the id from the pane index', () => {
-		const e = { TMUX: 't', TMUX_PANE: '%7' }
+	// Scenario Outline: the current multiplexer pane keys self-identity — tmux ($TMUX_PANE) and
+	// herdr ($HERDR_PANE_ID) both resolve self via the pane pointer with no explicit id.
+	it.each([
+		['tmux', { TMUX: 't', TMUX_PANE: '%7' }],
+		['herdr', { HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }],
+	] as const)('recovers the id from the %s pane index', (_mux, e) => {
 		const rec = register(ctx(e), { handle: 'a', harness: 'claude' })
 		expect(resolveSelfId(ctx(e))).toBe(rec.id)
 	})
-	it('$CYBERLEGION_AGENT_ID resolves self-id when there is no $TMUX_PANE (no shared self file)', () => {
+
+	it('$CYBERLEGION_AGENT_ID resolves self-id only when in no multiplexer pane (no $TMUX_PANE, no $HERDR_PANE_ID)', () => {
 		expect(resolveSelfId(ctx({ CYBERLEGION_AGENT_ID: 'envid' }))).toBe('envid')
 	})
-	it('an unregistered pane does not fall back to $CYBERLEGION_AGENT_ID', () => {
-		expect(resolveSelfId(ctx({ TMUX_PANE: '%unknown', CYBERLEGION_AGENT_ID: 'envid' }))).toBeUndefined()
+
+	// Scenario Outline: an unregistered multiplexer pane does not fall back to $CYBERLEGION_AGENT_ID —
+	// for tmux and herdr alike, an unmapped pane resolves to undefined (never the env id).
+	it.each([
+		['tmux', { TMUX_PANE: '%unknown', CYBERLEGION_AGENT_ID: 'envid' }],
+		['herdr', { HERDR_PANE_ID: 'w9:pX', CYBERLEGION_AGENT_ID: 'envid' }],
+	] as const)('an unregistered %s pane does not fall back to $CYBERLEGION_AGENT_ID', (_mux, e) => {
+		expect(resolveSelfId(ctx(e))).toBeUndefined()
+	})
+})
+
+describe('prune liveness per mux', () => {
+	const FRESH = 1_700_000_000_000
+	// paneExists(tmux): live iff `has-session` succeeds OR the pane id is in `list-panes -a`.
+	const tmuxExec =
+		(livePanes: string[]): Exec =>
+		(cmd, args) => {
+			if (cmd !== 'tmux') return null
+			if (args[0] === 'has-session') return null // never a session name in these fixtures
+			if (args[0] === 'list-panes') return livePanes.join('\n')
+			if (args[0] === 'display-message') return '@1' // window id lookup during register
+			return null
+		}
+	// paneExists(herdr): live iff `herdr pane read` returns non-null (dead panes fail → null).
+	const herdrExec =
+		(livePanes: string[]): Exec =>
+		(cmd, args) => {
+			if (cmd !== 'herdr') return null
+			if (args[0] === 'pane' && args[1] === 'read') return livePanes.includes(args[2]!) ? '' : null
+			return null
+		}
+
+	it('marks a tmux-pane agent exited when its pane is gone', () => {
+		const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%7' }, tmuxExec([])), { handle: 'a', harness: 'claude' })
+		const changed = prune({ store, exec: tmuxExec([]), now: () => FRESH })
+		expect(changed.map((r) => r.id)).toContain(rec.id)
+		expect(loadAgent(store, rec.id)?.status).toBe('exited')
+	})
+
+	it('marks a herdr-pane agent exited when its pane is gone', () => {
+		const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }), { handle: 'a', harness: 'claude' })
+		const changed = prune({ store, exec: herdrExec([]), now: () => FRESH })
+		expect(changed.map((r) => r.id)).toContain(rec.id)
+		expect(loadAgent(store, rec.id)?.status).toBe('exited')
+	})
+
+	it('leaves a live herdr-pane agent with a fresh lastSeen untouched, and never probes it with tmux', () => {
+		const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }), { handle: 'a', harness: 'claude' })
+		const calls: string[] = []
+		const exec: Exec = (cmd, args) => {
+			calls.push(cmd)
+			if (cmd === 'herdr' && args[0] === 'pane' && args[1] === 'read') return '' // pane is live (empty content)
+			return null
+		}
+		const changed = prune({ store, exec, now: () => FRESH })
+		expect(changed).toEqual([])
+		expect(loadAgent(store, rec.id)?.status).toBe('active')
+		expect(calls).not.toContain('tmux') // a herdr pane is never liveness-checked via tmux
+	})
+
+	it('leaves a live tmux-pane agent (pane still in list-panes) untouched', () => {
+		const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%7' }, tmuxExec(['%7'])), { handle: 'a', harness: 'claude' })
+		const changed = prune({ store, exec: tmuxExec(['%7']), now: () => FRESH })
+		expect(changed).toEqual([])
+		expect(loadAgent(store, rec.id)?.status).toBe('active')
 	})
 })
 
@@ -142,7 +218,7 @@ describe('standing identity', () => {
 		const e = { TMUX: 't', TMUX_PANE: '%9' }
 		const session = register(ctx(e), { handle: 'alice', harness: 'claude' })
 		const standing = registerStanding(ctx(e), { handle: 'homa' })
-		expect(standing.tmux).toBeNull()
+		expect(standing.pane).toBeNull()
 		expect(resolveSelfId(ctx(e))).toBe(session.id)
 		expect(store.resolvePaneId('%9')).toBe(session.id)
 	})

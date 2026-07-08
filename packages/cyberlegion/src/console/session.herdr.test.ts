@@ -154,4 +154,13 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		herdrSessionAdapter.teardown(exec, { id: 'p-1' })
 		expect(calls[0]).toEqual(['pane', 'close', 'p-1'])
 	})
+
+	it('paneExists() is true for a live pane (read returns content, even empty) and false for a gone one', () => {
+		// live pane with content
+		expect(herdrSessionAdapter.paneExists(fakeExec([], { 'pane read': 'some output' }), { id: 'w3:p4' })).toBe(true)
+		// live but empty pane — '' is non-null, so still exists
+		expect(herdrSessionAdapter.paneExists(fakeExec([], { 'pane read': '' }), { id: 'w3:p4' })).toBe(true)
+		// gone pane — read fails (Exec yields null)
+		expect(herdrSessionAdapter.paneExists((): string | null => null, { id: 'w3:p4' })).toBe(false)
+	})
 })

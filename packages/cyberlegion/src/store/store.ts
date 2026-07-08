@@ -26,7 +26,9 @@ export interface AgentRecord {
 	harness?: Harness
 	cwd: string
 	worktree?: { root: string; branch?: string } | null
-	tmux?: { pane: string; window?: string; session?: string } | null
+	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
+	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
+	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null
 	pid?: number
 	status: AgentStatus
 	createdAt: string

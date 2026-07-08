@@ -74,4 +74,11 @@ describe('tmuxSessionAdapter', () => {
 		tmuxSessionAdapter.teardown(exec, { id: '%3' })
 		expect(calls[0]).toEqual(['kill-pane', '-t', '%3'])
 	})
+
+	it('paneExists() is true when list-panes includes the id, false when it is gone', () => {
+		// has-session misses (not a session name); list-panes lists the pane → exists
+		expect(tmuxSessionAdapter.paneExists(fakeExec([], { 'list-panes': '%1\n%3\n%7' }), { id: '%3' })).toBe(true)
+		// list-panes omits it → gone
+		expect(tmuxSessionAdapter.paneExists(fakeExec([], { 'list-panes': '%1\n%7' }), { id: '%3' })).toBe(false)
+	})
 })

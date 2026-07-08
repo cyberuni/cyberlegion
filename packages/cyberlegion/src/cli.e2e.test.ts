@@ -14,12 +14,22 @@ beforeEach(() => {
 	space = join(mkdtempSync(join(tmpdir(), 'cl-e2e-')), 'hub')
 })
 
+// Strip any ambient multiplexer signal from the inherited env: these tests drive identity through
+// fresh registration or an explicit $CYBERLEGION_AGENT_ID, so a real tmux/herdr pane in the host
+// env (this suite may itself run inside one) must not key or override the caller's self-identity.
+const MUX_ENV_KEYS = ['TMUX', 'TMUX_PANE', 'HERDR_ENV', 'HERDR_PANE_ID', 'CYBERLEGION_MUX', 'CYBERLEGION_MUX_PANE']
+function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const merged = { ...process.env, ...env }
+	for (const k of MUX_ENV_KEYS) if (!(k in env)) delete merged[k]
+	return merged
+}
+
 function legion(args: string[], env: NodeJS.ProcessEnv = {}): string {
 	// --space is defined on each leaf subcommand, not the root program, so it must follow the
 	// group/verb tokens rather than precede them.
 	return execFileSync('node', [BIN, ...args, '--space', space], {
 		encoding: 'utf8',
-		env: { ...process.env, ...env },
+		env: baseEnv(env),
 	})
 }
 
@@ -27,7 +37,7 @@ function legion(args: string[], env: NodeJS.ProcessEnv = {}): string {
 function legionOut(args: string[], env: NodeJS.ProcessEnv = {}): { stdout: string; stderr: string } {
 	const res = spawnSync('node', [BIN, ...args, '--space', space], {
 		encoding: 'utf8',
-		env: { ...process.env, ...env },
+		env: baseEnv(env),
 	})
 	return { stdout: res.stdout, stderr: res.stderr }
 }
