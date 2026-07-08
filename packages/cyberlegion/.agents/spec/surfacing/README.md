@@ -27,8 +27,12 @@ harness's own hook mechanism, and wiring that hook up in the first place:
     unread mail to inject.
 - **The dedicated hook command is used, not a generic exec** — the injection payload is produced only
   by `mail hook`; no other CLI path emits `hookSpecificOutput`.
-- **An unregistered caller injects nothing rather than erroring** — when the calling session has no
-  resolvable self id, `mail hook` prints nothing and exits 0; it never fails the harness turn.
+- **A live-pane caller with no identity auto-registers; an unregistered non-pane caller injects
+  nothing** — when the calling session has no resolvable self id but is in a live multiplexer pane,
+  `mail hook` registers it first (best-effort: the same mux-agnostic `register` the CLI runs, so the
+  session's pane resolves to a fresh agent id and later calls recover it) before surfacing. When the
+  session has no self id **and** is in no resolvable pane — or when auto-register cannot determine the
+  harness — `mail hook` prints nothing and exits 0. Either way it never fails the harness turn.
 - **No unread mail and no pending brief injects nothing** — a registered, active caller with an empty
   inbox and no brief pending produces no stdout output at all, still exit 0.
 - **An unsupported --event is rejected** — only `SessionStart` and `PostToolUse` are recognized;
@@ -65,7 +69,7 @@ Every scenario in [`surfacing.feature`](./surfacing.feature) maps to one of thes
 |---|---|
 | **hook emits brief + unread mail** | first-run brief inject + status flip; unread mail listing every call |
 | **dedicated hook command** | the injection payload is produced only by `mail hook` |
-| **unregistered caller injects nothing** | no self id → nothing printed, exit 0 |
+| **live-pane caller auto-registers; non-pane caller injects nothing** | no self id but in a live mux pane → best-effort auto-register (pane resolves to a fresh id) then surface; no self id and no pane (or harness undetectable) → nothing printed; either way exit 0, never fails the turn |
 | **no unread + no brief injects nothing** | empty payload → nothing printed |
 | **unsupported --event rejected** | only SessionStart/PostToolUse accepted |
 | **install wires per-harness, idempotently** | SessionStart for all three; PostToolUse only where supported; re-run does not duplicate |

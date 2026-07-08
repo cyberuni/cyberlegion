@@ -38,8 +38,21 @@ Feature: surfacing — inject unread mail into a session across harnesses
 
   # ── An unregistered caller injects nothing rather than erroring ──
 
-  Scenario: an unregistered caller gets no output and no error
-    Given a session with no resolvable self id
+  Scenario: a caller with no identity and in no multiplexer pane gets no output and no error
+    Given a session with no resolvable self id and in no multiplexer pane
+    When it runs mail hook --event SessionStart
+    Then stdout is empty
+    And the command exits 0
+
+  Scenario: a SessionStart hook auto-registers a live-pane session that has no identity yet
+    Given a session in a multiplexer pane with no identity registered yet, no unread mail, and no brief
+    When it runs mail hook --event SessionStart
+    Then the session is registered and its pane resolves to a new agent id
+    And stdout is empty
+    And the command exits 0
+
+  Scenario: auto-register in the hook is best-effort and never fails the turn
+    Given a session in a multiplexer pane with no identity and no detectable harness
     When it runs mail hook --event SessionStart
     Then stdout is empty
     And the command exits 0
