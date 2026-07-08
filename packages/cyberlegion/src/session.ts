@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { selectSessionAdapter } from './console/index.ts'
-import type { SessionPlacement } from './console/session.ts'
+import type { SessionPlacement, SessionTarget } from './console/session.ts'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from './console/worktree.ts'
 import {
 	type AgentRecord,
@@ -82,9 +82,12 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 
 	const id = randomId()
 	const primaryRoot = resolvePrimaryRoot(exec)
+	const launch = input.command ?? LAUNCH_MAP[harness]
+	const fullLaunch = `${muxEnvPrefix(sessionAdapter.name)}${launch}`
 
 	let cwd: string
 	let worktree: { root: string; branch: string } | null
+	let target: SessionTarget
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) {
 			throw new Error(`--cwd directory must already exist: ${input.cwd}`)
@@ -92,26 +95,39 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		cwd = resolve(input.cwd)
 		assertDistinctFromPrimary(cwd, primaryRoot)
 		worktree = null
+		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at })
 	} else {
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
 		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
 		// the directory name lines up with what's already shown to the caller.
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
-		const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
-		assertDistinctFromPrimary(added.root, primaryRoot)
-		// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't been
-		// committed yet, so without this the freshly spawned unit wouldn't detect itself until then.
-		ensureMarker(join(added.root, '.agents', 'cyberlegion'))
-		cwd = added.root
-		worktree = added
+		if (input.at === 'workspace' && sessionAdapter.openInNewWorktree) {
+			// The backend can create the worktree and open its new workspace in one atomic call —
+			// a real organizational improvement (herdr nests the worktree under its source workspace)
+			// over a separate worktree-add followed by a disconnected open().
+			const opened = sessionAdapter.openInNewWorktree(exec, {
+				primaryRoot,
+				branch,
+				path: worktreePath,
+				launch: fullLaunch,
+			})
+			assertDistinctFromPrimary(opened.worktree.root, primaryRoot)
+			ensureMarker(join(opened.worktree.root, '.agents', 'cyberlegion'))
+			cwd = opened.worktree.root
+			worktree = opened.worktree
+			target = opened.target
+		} else {
+			const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
+			assertDistinctFromPrimary(added.root, primaryRoot)
+			// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't
+			// been committed yet, so without this the freshly spawned unit wouldn't detect itself
+			// until then.
+			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
+			cwd = added.root
+			worktree = added
+			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at })
+		}
 	}
-
-	const launch = input.command ?? LAUNCH_MAP[harness]
-	const target = sessionAdapter.open(exec, {
-		cwd,
-		launch: `${muxEnvPrefix(sessionAdapter.name)}${launch}`,
-		at: input.at,
-	})
 
 	const ts = new Date(ctx.now?.() ?? Date.now()).toISOString()
 	const rec: AgentRecord = {

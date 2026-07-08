@@ -1,4 +1,6 @@
-import type { SessionAdapter, SessionReadOptions, SessionTarget } from './session.ts'
+import { resolve } from 'node:path'
+import type { OpenInNewWorktreeOptions, SessionAdapter, SessionReadOptions, SessionTarget } from './session.ts'
+import type { Worktree } from './worktree.ts'
 
 /**
  * herdr backend — detected via `$HERDR_ENV`. herdr (https://herdr.dev) is an agent-aware terminal
@@ -32,6 +34,30 @@ export const herdrSessionAdapter: SessionAdapter = {
 		// send-text + send-keys Enter for launching a command.
 		exec('herdr', ['pane', 'run', id, opts.launch])
 		return target
+	},
+
+	openInNewWorktree(exec, opts: OpenInNewWorktreeOptions) {
+		// `herdr worktree create` both creates the git worktree AND opens it in a new workspace,
+		// nested under the source workspace in herdr's own sidebar — one call instead of a plain
+		// `git worktree add` followed by a disconnected `workspace create`. `--cwd` pins the source
+		// repo explicitly rather than relying on the caller's ambient process cwd (matches how the
+		// plain git adapter always passes `-C primaryRoot`); `--no-focus` avoids stealing focus.
+		const out = exec('herdr', [
+			'worktree',
+			'create',
+			'--cwd',
+			opts.primaryRoot,
+			'--branch',
+			opts.branch,
+			'--path',
+			opts.path,
+			'--no-focus',
+		])
+		if (!out) throw new Error('herdr worktree create failed')
+		const { paneId, worktree } = parseWorktreeCreate(out)
+		const target: SessionTarget = { id: paneId }
+		exec('herdr', ['pane', 'run', paneId, opts.launch])
+		return { target, worktree }
 	},
 
 	send(exec, target, text) {
@@ -87,4 +113,30 @@ function parseWorkspaceRootPaneId(out: string): string {
 		throw new Error(`herdr workspace create output had no result.root_pane.pane_id: ${out.slice(0, 200)}`)
 	}
 	return paneId
+}
+
+/**
+ * `herdr worktree create` emits the same `.result.root_pane.pane_id` shape as `workspace create`,
+ * plus the created worktree's own checkout at `.result.worktree.{path,branch}`.
+ */
+function parseWorktreeCreate(out: string): { paneId: string; worktree: Worktree } {
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(out)
+	} catch {
+		throw new Error(`herdr worktree create returned unparseable output: ${out.slice(0, 200)}`)
+	}
+	const result = (parsed as { result?: unknown })?.result as
+		| { root_pane?: { pane_id?: unknown }; worktree?: { path?: unknown; branch?: unknown } }
+		| undefined
+	const paneId = result?.root_pane?.pane_id
+	const path = result?.worktree?.path
+	const branch = result?.worktree?.branch
+	if (typeof paneId !== 'string' || paneId === '') {
+		throw new Error(`herdr worktree create output had no result.root_pane.pane_id: ${out.slice(0, 200)}`)
+	}
+	if (typeof path !== 'string' || path === '' || typeof branch !== 'string' || branch === '') {
+		throw new Error(`herdr worktree create output had no result.worktree.{path,branch}: ${out.slice(0, 200)}`)
+	}
+	return { paneId, worktree: { root: resolve(path), branch } }
 }

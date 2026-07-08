@@ -269,4 +269,38 @@ describe('backend selection: herdr', () => {
 		expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBERLEGION_MUX=herdr claude'])
 		expect(loadAgent(store, res.agent.id)?.tmux).toBeNull()
 	})
+
+	it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", () => {
+		const gitWorktreeCalls: string[][] = []
+		const herdrCalls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'atomic-unit')
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) {
+					gitWorktreeCalls.push(args)
+					return ''
+				}
+				return null
+			}
+			herdrCalls.push(args)
+			if (args[0] === 'worktree' && args[1] === 'create') {
+				const branch = args[args.indexOf('--branch') + 1]
+				return JSON.stringify({
+					id: 'cli:worktree:create',
+					result: { root_pane: { pane_id: 'w9:p1' }, worktree: { branch, path: worktreeRoot } },
+				})
+			}
+			return null
+		}
+		const res = spawn(
+			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec, now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'workspace' },
+		)
+		expect(gitWorktreeCalls).toHaveLength(0)
+		expect(herdrCalls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+		expect(res.agent.worktree).toEqual({ root: resolve(worktreeRoot), branch: `cyberlegion/unit-${res.agent.id}` })
+		expect(res.agent.cwd).toBe(resolve(worktreeRoot))
+		expect(res.pane).toBe('w9:p1')
+	})
 })

@@ -12,7 +12,7 @@ interface WorktreeAddOptions {
 	branch: string
 }
 
-interface Worktree {
+export interface Worktree {
 	root: string
 	branch: string
 }

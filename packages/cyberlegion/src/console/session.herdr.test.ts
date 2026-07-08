@@ -44,6 +44,76 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		)
 	})
 
+	it('openInNewWorktree() creates the worktree and opens it in one call, extracting pane + worktree', () => {
+		const calls: string[][] = []
+		const createOut = JSON.stringify({
+			id: 'cli:worktree:create',
+			result: {
+				root_pane: { pane_id: 'w9:p1' },
+				workspace: { workspace_id: 'w9' },
+				worktree: { branch: 'cyberlegion/unit-abc123', path: '/repo.worktrees/legion-abc123' },
+			},
+		})
+		const exec = fakeExec(calls, { 'worktree create': createOut })
+		const result = herdrSessionAdapter.openInNewWorktree!(exec, {
+			primaryRoot: '/repo',
+			branch: 'cyberlegion/unit-abc123',
+			path: '/repo.worktrees/legion-abc123',
+			launch: 'claude',
+		})
+		expect(result.target).toEqual({ id: 'w9:p1' })
+		expect(result.worktree).toEqual({ root: '/repo.worktrees/legion-abc123', branch: 'cyberlegion/unit-abc123' })
+		expect(calls[0]).toEqual([
+			'worktree',
+			'create',
+			'--cwd',
+			'/repo',
+			'--branch',
+			'cyberlegion/unit-abc123',
+			'--path',
+			'/repo.worktrees/legion-abc123',
+			'--no-focus',
+		])
+		expect(calls[1]).toEqual(['pane', 'run', 'w9:p1', 'claude'])
+	})
+
+	it('openInNewWorktree() throws when herdr reports no root pane id', () => {
+		const exec = fakeExec([], { 'worktree create': JSON.stringify({ id: 'cli:worktree:create', result: {} }) })
+		expect(() =>
+			herdrSessionAdapter.openInNewWorktree!(exec, {
+				primaryRoot: '/repo',
+				branch: 'b',
+				path: '/p',
+				launch: 'claude',
+			}),
+		).toThrow(/root_pane/)
+	})
+
+	it('openInNewWorktree() throws when herdr reports no worktree path/branch', () => {
+		const out = JSON.stringify({ id: 'cli:worktree:create', result: { root_pane: { pane_id: 'w9:p1' } } })
+		const exec = fakeExec([], { 'worktree create': out })
+		expect(() =>
+			herdrSessionAdapter.openInNewWorktree!(exec, {
+				primaryRoot: '/repo',
+				branch: 'b',
+				path: '/p',
+				launch: 'claude',
+			}),
+		).toThrow(/worktree/)
+	})
+
+	it('openInNewWorktree() throws when herdr reports nothing', () => {
+		const exec: Exec = () => null
+		expect(() =>
+			herdrSessionAdapter.openInNewWorktree!(exec, {
+				primaryRoot: '/repo',
+				branch: 'b',
+				path: '/p',
+				launch: 'claude',
+			}),
+		).toThrow(/herdr worktree create/)
+	})
+
 	it('open() throws when herdr reports no pane id', () => {
 		const exec: Exec = () => null
 		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/herdr pane split/)
