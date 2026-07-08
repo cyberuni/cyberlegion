@@ -5,15 +5,21 @@ export const tmuxSessionAdapter: SessionAdapter = {
 	name: 'tmux',
 
 	open(exec, opts) {
-		// tmux has no native "tab" concept — a new window is the closest analogue.
+		// tmux has no native "tab" concept — a new window is the closest analogue. 'workspace' maps to
+		// a new detached session (`-d`, no `-t`) — genuinely separate from the caller's current
+		// session, unlike every other placement, which targets it. Omitting `-s` lets tmux assign the
+		// session name, avoiding any collision; the returned pane id is globally unique server-wide, so
+		// every other adapter method keeps working unchanged regardless of which session a pane is in.
 		const args =
-			opts.at === 'pane:down'
-				? ['split-window', '-v', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
-				: opts.at === 'tab' || opts.at === 'window'
-					? ['new-window', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
-					: ['split-window', '-h', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+			opts.at === 'workspace'
+				? ['new-session', '-d', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+				: opts.at === 'pane:down'
+					? ['split-window', '-v', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+					: opts.at === 'tab' || opts.at === 'window'
+						? ['new-window', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+						: ['split-window', '-h', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
 		const pane = exec('tmux', args)
-		if (!pane) throw new Error('tmux split-window failed')
+		if (!pane) throw new Error(`tmux ${args[0]} failed`)
 		const target: SessionTarget = { id: pane }
 		tmuxSessionAdapter.send(exec, target, opts.launch)
 		return target

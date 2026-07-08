@@ -24,6 +24,26 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		expect(calls[1]).toEqual(['pane', 'run', 'w3:pB', 'claude'])
 	})
 
+	it("open() at 'workspace' creates a separate workspace instead of splitting the current one", () => {
+		const calls: string[][] = []
+		const createOut = JSON.stringify({
+			id: 'cli:workspace:create',
+			result: { root_pane: { pane_id: 'w7:p1' }, workspace: { workspace_id: 'w7' } },
+		})
+		const exec = fakeExec(calls, { 'workspace create': createOut })
+		const target = herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'workspace' })
+		expect(target).toEqual({ id: 'w7:p1' })
+		expect(calls[0]).toEqual(['workspace', 'create', '--cwd', '/unit', '--no-focus'])
+		expect(calls[1]).toEqual(['pane', 'run', 'w7:p1', 'claude'])
+	})
+
+	it('open() throws when workspace create reports no root pane id', () => {
+		const exec = fakeExec([], { 'workspace create': JSON.stringify({ id: 'cli:workspace:create', result: {} }) })
+		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'workspace' })).toThrow(
+			/root_pane/,
+		)
+	})
+
 	it('open() throws when herdr reports no pane id', () => {
 		const exec: Exec = () => null
 		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/herdr pane split/)

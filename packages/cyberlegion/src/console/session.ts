@@ -2,8 +2,11 @@ import type { Exec } from '../identity.ts'
 
 /** Generic multiplexer seam — no legion-specific concepts, so this composes with any host. */
 
-/** Where a new pane/window/session should be placed relative to the caller's current one. */
-export type SessionPlacement = 'pane:right' | 'pane:down' | 'tab' | 'window'
+/** Where a new pane/window/session should be placed relative to the caller's current one.
+ * `'workspace'` opens a genuinely separate workspace/session (herdr: `workspace create`; tmux: a
+ * new detached session) — the caller's current workspace/session is left untouched, unlike every
+ * other placement, which adds a pane/window inside it. */
+export type SessionPlacement = 'pane:right' | 'pane:down' | 'tab' | 'window' | 'workspace'
 
 interface SessionOpenOptions {
 	/** Working directory the new pane/window/session should start in. */

@@ -222,7 +222,7 @@ function defineSpawn(cmd: Command): Command {
 		)
 		.addOption(
 			new Option('--at <placement>', 'where to open the new session')
-				.choices(['pane:right', 'pane:down', 'tab', 'window'])
+				.choices(['pane:right', 'pane:down', 'tab', 'window', 'workspace'])
 				.default('pane:right'),
 		)
 		.action((opts) => {
@@ -568,7 +568,7 @@ definePrepOptions(dispatch.command('channel'))
 	)
 	.addOption(
 		new Option('--at <placement>', 'where to open the new session')
-			.choices(['pane:right', 'pane:down', 'tab', 'window'])
+			.choices(['pane:right', 'pane:down', 'tab', 'window', 'workspace'])
 			.default('pane:right'),
 	)
 	.option('--wait', 'block for the mail-thread reply and print the validated result')

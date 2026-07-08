@@ -14,10 +14,19 @@ export const herdrSessionAdapter: SessionAdapter = {
 	name: 'herdr',
 
 	open(exec, opts) {
-		const direction = opts.at === 'pane:down' ? 'down' : 'right'
-		const out = exec('herdr', ['pane', 'split', '--current', '--direction', direction, '--cwd', opts.cwd])
-		if (!out) throw new Error('herdr pane split failed')
-		const id = parsePaneId(out)
+		let id: string
+		if (opts.at === 'workspace') {
+			// A genuinely separate workspace, not a pane inside the caller's current one — `--no-focus`
+			// so spawning doesn't steal the caller's attention/focus.
+			const out = exec('herdr', ['workspace', 'create', '--cwd', opts.cwd, '--no-focus'])
+			if (!out) throw new Error('herdr workspace create failed')
+			id = parseWorkspaceRootPaneId(out)
+		} else {
+			const direction = opts.at === 'pane:down' ? 'down' : 'right'
+			const out = exec('herdr', ['pane', 'split', '--current', '--direction', direction, '--cwd', opts.cwd])
+			if (!out) throw new Error('herdr pane split failed')
+			id = parsePaneId(out)
+		}
 		const target: SessionTarget = { id }
 		// `pane run` submits text plus Enter atomically — herdr's documented preference over
 		// send-text + send-keys Enter for launching a command.
@@ -59,6 +68,23 @@ function parsePaneId(out: string): string {
 	}
 	if (typeof paneId !== 'string' || paneId === '') {
 		throw new Error(`herdr pane split output had no result.pane.pane_id: ${out.slice(0, 200)}`)
+	}
+	return paneId
+}
+
+/**
+ * `herdr workspace create` emits its new workspace's initial pane at `.result.root_pane.pane_id`
+ * (a different path than `pane split`'s `.result.pane.pane_id`).
+ */
+function parseWorkspaceRootPaneId(out: string): string {
+	let paneId: unknown
+	try {
+		paneId = JSON.parse(out)?.result?.root_pane?.pane_id
+	} catch {
+		throw new Error(`herdr workspace create returned unparseable output: ${out.slice(0, 200)}`)
+	}
+	if (typeof paneId !== 'string' || paneId === '') {
+		throw new Error(`herdr workspace create output had no result.root_pane.pane_id: ${out.slice(0, 200)}`)
 	}
 	return paneId
 }
