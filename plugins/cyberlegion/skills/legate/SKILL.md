@@ -29,7 +29,7 @@ because a nudge already fired.
 |---|---|
 | Send a message to a named peer, "the pane on the right", a claude/cursor peer | `npx cyberlegion@<version> mail send --to <handle>` (or `session nudge <ref>` first if the peer needs waking, then `mail send`) |
 | Check inbox / read unread mail | `npx cyberlegion@<version> mail inbox` — `mail read <msg-id>` to peek, `mail ack <msg-id>` once handled |
-| Spawn a new peer session | `npx cyberlegion@<version> session spawn --agent <name> ...` |
+| Spawn a new peer session | `npx cyberlegion@<version> session spawn --agent <name> ...` — cyberlegion owns worktree creation; pass `--cwd <dir>` only when the caller already has a directory to spawn into (e.g. reusing an existing worktree) |
 | Close / tear down a peer session | `npx cyberlegion@<version> session close <id>` |
 | Wait for a threaded reply | `npx cyberlegion@<version> mail await --thread <id>` |
 | Watch mail as it streams in (observer, never acks) | `npx cyberlegion@<version> mail watch` |
