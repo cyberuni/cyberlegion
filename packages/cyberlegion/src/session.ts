@@ -34,7 +34,7 @@ export interface SpawnInput {
 	/** Branch to create the unit's worktree on; defaults to `cyberlegion/unit-<id>`. */
 	branch?: string
 	/** Where to check out the unit's worktree; defaults to a sibling of the primary checkout
-	 * (`<parent>/<repo>.worktrees/cyberlegion/<id>`) — never nested inside the primary's own tree. */
+	 * (`<parent>/<repo>.worktrees/legion-<id>`) — never nested inside the primary's own tree. */
 	worktreePath?: string
 	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
@@ -55,7 +55,7 @@ export interface SpawnResult {
  * its cwd set to that worktree, pre-register the peer, and drop its brief as a file the peer's own
  * SessionStart hook reads — never typed into its prompt.
  *
- * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/cyberlegion/<id>`),
+ * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/legion-<id>`),
  * never nested inside it, even though the registry/mailbox itself lives in the global hub — the hub
  * addresses units across project and worktree boundaries, but a unit's checkout is necessarily
  * scoped to this one project's git remote.

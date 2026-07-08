@@ -36,7 +36,7 @@ describe('resolveProjectLocalRoot', () => {
 describe('resolveUnitWorktreePath', () => {
 	it('places the worktree as a sibling of the primary checkout, never nested inside it', () => {
 		const path = resolveUnitWorktreePath('/home/user/code/cyberplace', 'unit-1')
-		expect(path).toBe('/home/user/code/cyberplace.worktrees/cyberlegion/unit-1')
+		expect(path).toBe('/home/user/code/cyberplace.worktrees/legion-unit-1')
 		expect(path.startsWith('/home/user/code/cyberplace/')).toBe(false)
 	})
 

@@ -39,7 +39,7 @@ function ctx(): IdContext {
 }
 
 const expectedWorktreePath = (id: string) =>
-	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, 'cyberlegion', id))
+	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id}`))
 
 describe('spawn opens a pane + pre-registers the peer', () => {
 	it('registers the peer (spawning, pane, spawnedBy) and writes its brief', () => {

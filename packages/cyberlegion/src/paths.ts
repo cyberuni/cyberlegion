@@ -98,16 +98,17 @@ export const paths = {
 
 /**
  * Where a spawned unit's own git worktree is checked out by default — a sibling of the primary
- * checkout (`<parent>/<repo>.worktrees/cyberlegion/<id>`), never nested inside the primary's own
- * working tree. A linked worktree living inside the primary's tree is untracked-but-present: it
- * pollutes `git status` in the primary checkout, confuses tooling that walks the tree recursively
- * (test runners, watchers, `find`/`rm -rf`), and risks a tree-wide op in the primary crossing into
- * the nested worktree's own checkout. `<repo>.worktrees/` also matches the sibling convention already
- * in use for manually created worktrees in this environment; the `cyberlegion/` segment namespaces
- * this tool's own units apart from those.
+ * checkout (`<parent>/<repo>.worktrees/legion-<id>`), never nested inside the primary's own working
+ * tree. A linked worktree living inside the primary's tree is untracked-but-present: it pollutes
+ * `git status` in the primary checkout, confuses tooling that walks the tree recursively (test
+ * runners, watchers, `find`/`rm -rf`), and risks a tree-wide op in the primary crossing into the
+ * nested worktree's own checkout. `<repo>.worktrees/` matches the sibling convention already in use
+ * for other tools' worktrees in this environment (herdr's `worktree-<word>-<word>-<hash>`, cursor's
+ * `<proj><count>`); the `legion-` prefix self-identifies this tool's own units the same way, without
+ * needing a subfolder.
  */
 export function resolveUnitWorktreePath(primaryRoot: string, id: string): string {
-	return join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, 'cyberlegion', id)
+	return join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id}`)
 }
 
 /** tmux pane ids look like "%3"; make them filesystem-safe. */
