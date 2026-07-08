@@ -47,7 +47,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(res.pane).toBe('%9')
 		const rec = loadAgent(store, res.agent.id)
 		expect(rec).toMatchObject({ harness: 'claude', status: 'spawning', spawnedBy: 'spawner' })
-		expect(rec?.tmux?.pane).toBe('%9')
+		expect(rec?.pane).toEqual({ mux: 'tmux', id: '%9' })
 		expect(store.resolvePaneId('%9')).toBe(res.agent.id)
 		expect(store.readBrief(res.agent.id)).toBe('reply to alice')
 	})
@@ -267,7 +267,9 @@ describe('backend selection: herdr', () => {
 		expect(res.pane).toBe('herdr-pane-1')
 		expect(herdrCalls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', res.agent.cwd])
 		expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBERLEGION_MUX=herdr claude'])
-		expect(loadAgent(store, res.agent.id)?.tmux).toBeNull()
+		// The herdr spawn now tags its pane locator with the mux (previously left null) — so the
+		// unit's own `prune` runs the herdr liveness check, never a tmux one.
+		expect(loadAgent(store, res.agent.id)?.pane).toEqual({ mux: 'herdr', id: 'herdr-pane-1' })
 	})
 
 	it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", () => {

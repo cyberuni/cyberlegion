@@ -61,4 +61,10 @@ export interface SessionAdapter {
 	focus(exec: Exec, target: SessionTarget): void
 	/** Close the target session. */
 	teardown(exec: Exec, target: SessionTarget): void
+	/**
+	 * Whether the target pane still exists in this backend — the liveness check `prune` runs against a
+	 * record's pane locator. Each backend answers with its own primitive so a herdr pane id is never
+	 * probed with a tmux query (or vice versa).
+	 */
+	paneExists(exec: Exec, target: SessionTarget): boolean
 }

@@ -60,7 +60,7 @@ function registerUnit(rec: Partial<AgentRecord> & { id: string }): AgentRecord {
 		createdAt: '2026-01-01T00:00:00.000Z',
 		lastSeen: '2026-01-01T00:00:00.000Z',
 		worktree: { root: worktreeRoot, branch: `cyberlegion/unit-${rec.id}` },
-		tmux: { pane: '%9' },
+		pane: { mux: 'tmux', id: '%9' },
 		...rec,
 	}
 	saveAgent(store, full)
@@ -93,7 +93,7 @@ describe('teardown worktree + session', () => {
 	})
 
 	it('uses the herdr adapter when $TMUX is unset and $HERDR_ENV is set', () => {
-		registerUnit({ id: 'a3', tmux: null })
+		registerUnit({ id: 'a3', pane: null })
 		writePaneFile('herdr-pane-1', 'a3')
 		const { exec, calls } = makeExec()
 		decommission({ store, env: { HERDR_ENV: '1' }, exec }, { id: 'a3' })
@@ -102,7 +102,7 @@ describe('teardown worktree + session', () => {
 	})
 
 	it("resolves a herdr unit's pane from the pane index when the record has none", () => {
-		registerUnit({ id: 'a4', tmux: null })
+		registerUnit({ id: 'a4', pane: null })
 		writePaneFile('herdr-pane-2', 'a4')
 		const { exec, calls } = makeExec()
 		decommission({ store, env: { HERDR_ENV: '1' }, exec }, { id: 'a4' })
@@ -138,12 +138,16 @@ describe('reap the record', () => {
 	})
 
 	it("reaps only the decommissioned unit's state, leaving another unit's untouched", () => {
-		registerUnit({ id: 'b2', tmux: { pane: '%9' } })
+		registerUnit({ id: 'b2', pane: { mux: 'tmux', id: '%9' } })
 		writePaneFile('%9', 'b2')
 		writeData('b2')
 		const otherRoot = join(worktreeRoot, '..', 'other-worktree')
 		mkdirSync(otherRoot, { recursive: true })
-		registerUnit({ id: 'other', worktree: { root: otherRoot, branch: 'cyberlegion/unit-other' }, tmux: { pane: '%8' } })
+		registerUnit({
+			id: 'other',
+			worktree: { root: otherRoot, branch: 'cyberlegion/unit-other' },
+			pane: { mux: 'tmux', id: '%8' },
+		})
 		writePaneFile('%8', 'other')
 		writeData('other')
 

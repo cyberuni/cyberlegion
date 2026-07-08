@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Exec } from '../identity.ts'
-import { probeMultiplexer } from './mux-probe.ts'
+import { currentPane, probeMultiplexer } from './mux-probe.ts'
 
 /** Builds a fake `ps -o ppid=,comm= -p <pid>` chain: pid -> [ppid, comm]. */
 function psChain(chain: Record<number, [number, string]>): Exec {
@@ -53,7 +53,7 @@ describe('probeMultiplexer — ancestry discovery', () => {
 			[pid]: [pid + 1, 'node'],
 			[pid + 1]: [1, 'herdr'],
 		})
-		expect(probeMultiplexer(exec, { HERDR_PANE: 'p1' })).toEqual({ mux: 'herdr', pane: 'p1', via: 'ancestry' })
+		expect(probeMultiplexer(exec, { HERDR_PANE_ID: 'p1' })).toEqual({ mux: 'herdr', pane: 'p1', via: 'ancestry' })
 	})
 
 	it('detects a screen ancestor', () => {
@@ -80,5 +80,34 @@ describe('probeMultiplexer — ancestry discovery', () => {
 	it('reports none when neither ancestry nor an env hint finds a multiplexer', () => {
 		const noPs: Exec = () => null
 		expect(probeMultiplexer(noPs, {})).toEqual({ mux: 'none', via: 'ancestry' })
+	})
+})
+
+describe('currentPane — env-only self pane resolution', () => {
+	it('reads $TMUX_PANE as a tmux pane', () => {
+		expect(currentPane({ TMUX_PANE: '%3' })).toEqual({ mux: 'tmux', pane: '%3' })
+	})
+
+	it('reads $HERDR_PANE_ID as a herdr pane', () => {
+		expect(currentPane({ HERDR_PANE_ID: 'w3:p4' })).toEqual({ mux: 'herdr', pane: 'w3:p4' })
+	})
+
+	it('prefers the $CYBERLEGION_MUX_PANE fast-path, tagging it herdr when $CYBERLEGION_MUX=herdr', () => {
+		expect(currentPane({ CYBERLEGION_MUX: 'herdr', CYBERLEGION_MUX_PANE: 'w3:p4', TMUX_PANE: '%3' })).toEqual({
+			mux: 'herdr',
+			pane: 'w3:p4',
+		})
+	})
+
+	it('defaults the fast-path mux to tmux when $CYBERLEGION_MUX is absent', () => {
+		expect(currentPane({ CYBERLEGION_MUX_PANE: '%9' })).toEqual({ mux: 'tmux', pane: '%9' })
+	})
+
+	it('prefers $TMUX_PANE over $HERDR_PANE_ID when both are present', () => {
+		expect(currentPane({ TMUX_PANE: '%3', HERDR_PANE_ID: 'w3:p4' })).toEqual({ mux: 'tmux', pane: '%3' })
+	})
+
+	it('returns undefined when the session is in no pane-carrying multiplexer', () => {
+		expect(currentPane({})).toBeUndefined()
 	})
 })

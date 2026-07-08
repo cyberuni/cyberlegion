@@ -15,11 +15,12 @@ behavioral spec + suite here.
 without being told it, and discovering its live peers:
 
 - **Register records who and where** — `identity register [--handle <name>] [--harness <h>]` writes
-  an agent record (id, handle, harness, cwd, worktree, tmux pane/window/session, status, timestamps)
-  into the hub and, inside tmux, a pane→id pointer; it stamps the hub root with the tracked
-  `config.json` marker on first use. It is idempotent per pane: registering again from the same pane
-  keeps the same id and refreshes the record rather than minting a second identity. It fails cleanly
-  (throws, writes no partial record) when the hub root cannot be written.
+  an agent record (id, handle, harness, cwd, worktree, a pane locator tagged with its multiplexer —
+  tmux or herdr — status, timestamps) into the hub and, inside any multiplexer pane, a pane→id
+  pointer; it stamps the hub root with the tracked `config.json` marker on first use. It is idempotent
+  per pane: registering again from the same pane keeps the same id and refreshes the record rather
+  than minting a second identity. It fails cleanly (throws, writes no partial record) when the hub
+  root cannot be written.
 - **whoami prints this session's own identity** — resolves the caller's own id (see self-identity
   recovery below) and prints its record; errors when the session has no identity yet or when a
   resolved self id has no backing record.
@@ -33,13 +34,17 @@ without being told it, and discovering its live peers:
   how many units are live; exit 0 even when unregistered (`self: -`, with a register next-step) —
   never help-and-error (AXI #8 content-first).
 - **prune marks dead agents exited** — `identity prune` scans every non-exited agent and flips
-  `status` to `exited` when its tmux pane is gone (checked via `tmux has-session`/`list-panes`) or its
-  `lastSeen` is older than the staleness window (15 minutes); it returns only the agents it changed,
-  as a TOON list plus a `<N> pruned` aggregate.
+  `status` to `exited` when its pane is gone or its `lastSeen` is older than the staleness window
+  (15 minutes); it returns only the agents it changed, as a TOON list plus a `<N> pruned` aggregate.
+  Liveness is checked **against the pane's own multiplexer** — a tmux locator via
+  `tmux has-session`/`list-panes`, a herdr locator via a herdr pane-existence query — so a live herdr
+  pane is never false-reaped by a tmux check (and vice versa).
 - **Self-identity recovery has one source of truth per context, no shared file** — `resolveSelfId`
-  first tries the pane-keyed pointer when `$TMUX_PANE` is set (an unmapped pane resolves to
-  `undefined`; it does NOT fall back further in that case); only when there is no `$TMUX_PANE` at all
-  does it fall back to `$CYBERLEGION_AGENT_ID`. There is no shared bare `self` file — self-id is
+  first tries the pane-keyed pointer when the session is in a multiplexer pane, resolving "my pane id"
+  mux-agnostically through the shared current-pane helper (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`,
+  and the `$CYBERLEGION_MUX_PANE` fast-path a spawn propagates); an unmapped pane resolves to
+  `undefined` and does NOT fall back further. Only when the session is in **no** multiplexer pane at
+  all does it fall back to `$CYBERLEGION_AGENT_ID`. There is no shared bare `self` file — self-id is
   always pane-keyed or explicit via the env var.
 - **Harness detection is layered** — `--harness` (explicit) always wins and is validated against
   `claude | cursor | codex`, throwing on anything else; absent that, detection tries harness-specific
@@ -77,8 +82,8 @@ Every scenario in [`identity.feature`](./identity.feature) maps to one of these 
 | **whoami** | prints own record; errors when unregistered or record missing |
 | **who lists peers** | TOON list + aggregate; empty is "0 agents" not an error; `--all` includes exited; top-level alias |
 | **bare status (AXI #8)** | no-subcommand prints compact self+harness+unread+live-units; exit 0 unregistered with a register next-step, never help+error |
-| **prune** | marks dead-pane/stale agents exited; returns only changed agents |
-| **self-identity recovery** | pane pointer first; `$CYBERLEGION_AGENT_ID` only absent `$TMUX_PANE`; unmapped pane doesn't fall through; no shared `self` file |
+| **prune** | marks dead-pane/stale agents exited; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents |
+| **self-identity recovery** | pane pointer first, resolving "my pane" mux-agnostically (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`, plus the `$CYBERLEGION_MUX_PANE` fast-path); `$CYBERLEGION_AGENT_ID` only when in no multiplexer pane; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `identity owner` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |

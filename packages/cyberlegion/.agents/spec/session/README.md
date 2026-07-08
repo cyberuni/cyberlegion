@@ -33,8 +33,15 @@ cleanly — the deterministic inverse pair:
     directory to run in.
   - **The session backend is selected by environment** — tmux when `$TMUX` is set, herdr when
     `$HERDR_ENV` is set and `$TMUX` is not; an environment with neither throws asking for one.
-  - **Placement defaults to pane:right** — `--at pane:right|pane:down|tab|window` chooses where the
-    new session opens; omitting it defaults to `pane:right`.
+  - **Placement defaults to pane:right** — `--at pane:right|pane:down|tab|window|workspace` chooses
+    where the new session opens; omitting it defaults to `pane:right`. `workspace` opens a genuinely
+    separate workspace/session (herdr: `workspace create`; tmux: a new detached session) leaving the
+    caller's own workspace untouched, unlike every other placement, which adds a pane/window inside it.
+  - **`--at workspace` creates the worktree atomically when the backend supports it** — a backend
+    with a native combined primitive (herdr's `worktree create`, which both creates the git worktree
+    and nests it under the source workspace in one call) uses it instead of a separate
+    worktree-add-then-open; backends without one (tmux) fall back to creating the worktree and then
+    opening it with `at: 'workspace'`.
   - **The brief is delivered by file, never typed** — the resolved brief text is written to the peer's
     own brief file in the hub, never appended to the typed launch command.
   - **An unmapped harness errors before anything launches** — `--harness` outside the launch map
@@ -89,6 +96,7 @@ Every scenario in [`session.feature`](./session.feature) maps to one of these be
 | **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
 | **backend selected by environment** | tmux vs herdr selection; neither present errors |
 | **placement** | `--at` choices; default pane:right |
+| **`--at workspace` atomic worktree create** | backend with a combined primitive creates the worktree and opens it in one call; others fall back to create-then-open |
 | **brief delivered by file** | never typed into the launch command |
 | **unmapped harness errors** | before any worktree/session opens |
 | **no brief source errors** | `--task`/`--task -`/`--brief-file` required |

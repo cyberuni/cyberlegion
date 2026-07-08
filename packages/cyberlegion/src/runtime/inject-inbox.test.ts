@@ -51,8 +51,26 @@ describe('empty / error cases', () => {
 		expect(injectInbox({ store, env: { CYBERLEGION_AGENT_ID: solo.id } }, 'SessionStart')).toBeNull()
 	})
 
-	it('injects nothing (no error) for an unregistered caller', () => {
+	it('injects nothing (no error) for an unregistered caller in no multiplexer pane', () => {
 		expect(injectInbox({ store, env: {} }, 'SessionStart')).toBeNull()
+	})
+
+	it('auto-registers a live-pane session that has no identity yet, then injects nothing (empty inbox)', () => {
+		// A fresh herdr pane, no identity, no unread mail, no brief, but a detectable harness.
+		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'w5:p1', CLAUDECODE: '1' }
+		const payload = injectInbox({ store, env, exec: () => null }, 'SessionStart')
+		expect(payload).toBeNull() // nothing to inject → stdout empty, exit 0
+		// but the session IS now registered and its pane resolves to a new agent id
+		const newId = store.resolvePaneId('w5:p1')
+		expect(newId).toBeDefined()
+		expect(store.getAgent(newId!)?.pane).toEqual({ mux: 'herdr', id: 'w5:p1' })
+	})
+
+	it('auto-register is best-effort: an undetectable harness fails quietly — no register, no error, no output', () => {
+		// A live pane but no harness signal at all → register throws → inject nothing, never fail the turn.
+		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'w6:p1' }
+		expect(injectInbox({ store, env, exec: () => null }, 'SessionStart')).toBeNull()
+		expect(store.resolvePaneId('w6:p1')).toBeUndefined() // nothing was registered
 	})
 
 	it('rejects an unsupported --event', () => {

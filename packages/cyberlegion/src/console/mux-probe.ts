@@ -2,6 +2,9 @@ import type { Exec } from '../identity.ts'
 
 type Mux = 'tmux' | 'herdr' | 'screen' | 'none'
 
+/** A multiplexer that carries a per-pane env var, so a session can key its own identity from it. */
+export type PaneMux = 'tmux' | 'herdr'
+
 export interface MuxProbe {
 	mux: Mux
 	pane?: string
@@ -13,6 +16,35 @@ const KNOWN_MUX: readonly Mux[] = ['tmux', 'herdr', 'screen', 'none']
 
 function isKnownMux(v: string | undefined): v is Mux {
 	return v != null && (KNOWN_MUX as readonly string[]).includes(v)
+}
+
+/**
+ * The single source of the mux → per-pane-env-var mapping. tmux exports `$TMUX_PANE`; herdr exports
+ * `$HERDR_PANE_ID` (both in the same `wX:pY`-style namespace). screen carries no per-pane env var.
+ * Both the ancestry probe and the `currentPane` self-identity helper read the pane through this
+ * table so the two never diverge on which env var a given mux uses.
+ */
+const PANE_ENV: Record<PaneMux, (env: NodeJS.ProcessEnv) => string | undefined> = {
+	tmux: (env) => env.TMUX_PANE,
+	herdr: (env) => env.HERDR_PANE_ID,
+}
+
+/**
+ * Resolve THIS session's own pane from env alone (no `ps` walk): the `$CYBERLEGION_MUX_PANE`
+ * fast-path a spawn propagates → `$TMUX_PANE` (tmux) → `$HERDR_PANE_ID` (herdr). Returns the pane
+ * tagged with its multiplexer, or undefined when the session is in no pane-carrying multiplexer.
+ * This is the mux-agnostic key both `resolveSelfId` and `register` use.
+ */
+export function currentPane(env: NodeJS.ProcessEnv): { mux: PaneMux; pane: string } | undefined {
+	if (env.CYBERLEGION_MUX_PANE) {
+		// The fast-path pane carries its mux in $CYBERLEGION_MUX (herdr spawns tag it; tmux is the default).
+		return { mux: env.CYBERLEGION_MUX === 'herdr' ? 'herdr' : 'tmux', pane: env.CYBERLEGION_MUX_PANE }
+	}
+	const tmux = PANE_ENV.tmux(env)
+	if (tmux) return { mux: 'tmux', pane: tmux }
+	const herdr = PANE_ENV.herdr(env)
+	if (herdr) return { mux: 'herdr', pane: herdr }
+	return undefined
 }
 
 /**
@@ -39,11 +71,16 @@ export function probeMultiplexer(exec: Exec, env: NodeJS.ProcessEnv, opts: { dis
 	return discoverByAncestry(exec, env)
 }
 
-const MUX_COMM = [
-	{ re: /^tmux(:|$)/, mux: 'tmux' as const, pane: (env: NodeJS.ProcessEnv) => env.TMUX_PANE },
-	{ re: /^herdr(:|$)/, mux: 'herdr' as const, pane: (env: NodeJS.ProcessEnv) => env.HERDR_PANE },
-	{ re: /^screen(:|$)/, mux: 'screen' as const, pane: () => undefined },
+const MUX_COMM: readonly { re: RegExp; mux: Mux }[] = [
+	{ re: /^tmux(:|$)/, mux: 'tmux' },
+	{ re: /^herdr(:|$)/, mux: 'herdr' },
+	{ re: /^screen(:|$)/, mux: 'screen' },
 ]
+
+/** The per-pane env var for a mux, via the shared `PANE_ENV` table; undefined for screen/none. */
+function paneFor(mux: Mux, env: NodeJS.ProcessEnv): string | undefined {
+	return mux === 'tmux' || mux === 'herdr' ? PANE_ENV[mux](env) : undefined
+}
 
 const MAX_ANCESTORS = 32
 
@@ -61,7 +98,7 @@ function walkAncestry(exec: Exec, env: NodeJS.ProcessEnv): MuxProbe | undefined 
 		const comm = spaceIdx === -1 ? '' : trimmed.slice(spaceIdx + 1).trim()
 		const ppid = Number.parseInt(ppidStr, 10)
 		for (const entry of MUX_COMM) {
-			if (entry.re.test(comm)) return { mux: entry.mux, pane: entry.pane(env), via: 'ancestry' }
+			if (entry.re.test(comm)) return { mux: entry.mux, pane: paneFor(entry.mux, env), via: 'ancestry' }
 		}
 		if (!Number.isFinite(ppid) || ppid <= 1) break
 		pid = ppid
@@ -74,7 +111,7 @@ function discoverByAncestry(exec: Exec, env: NodeJS.ProcessEnv): MuxProbe {
 	if (found) return found
 	// Ancestry walk was inconclusive (no ps, or no mux ancestor found) — fall back to the
 	// fast-positive env hint rather than declaring 'none' outright.
-	if (env.TMUX) return { mux: 'tmux', pane: env.TMUX_PANE, via: 'ancestry' }
-	if (env.HERDR_ENV) return { mux: 'herdr', pane: env.HERDR_PANE, via: 'ancestry' }
+	if (env.TMUX) return { mux: 'tmux', pane: paneFor('tmux', env), via: 'ancestry' }
+	if (env.HERDR_ENV) return { mux: 'herdr', pane: paneFor('herdr', env), via: 'ancestry' }
 	return { mux: 'none', via: 'ancestry' }
 }

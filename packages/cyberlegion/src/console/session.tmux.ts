@@ -42,4 +42,11 @@ export const tmuxSessionAdapter: SessionAdapter = {
 	teardown(exec, target) {
 		exec('tmux', ['kill-pane', '-t', target.id])
 	},
+
+	paneExists(exec, target) {
+		// `has-session` hits when the pane id happens to name a session; otherwise scan every pane
+		// server-wide for the id (pane ids are globally unique across sessions).
+		if (exec('tmux', ['has-session', '-t', target.id]) !== null) return true
+		return (exec('tmux', ['list-panes', '-a', '-F', '#{pane_id}']) ?? '').split('\n').includes(target.id)
+	},
 }

@@ -12,6 +12,12 @@ Feature: identity — self-identify and discover peers
     Then the hub records an agent with handle=alice, harness=claude, status=active
     And the pane resolves to that agent's id
 
+  Scenario: register writes the agent record and a pane pointer in a herdr pane
+    Given an unregistered session inside a herdr pane (its pane id in $HERDR_PANE_ID)
+    When it runs identity register --handle alice --harness claude
+    Then the hub records an agent with handle=alice, harness=claude, status=active
+    And the herdr pane resolves to that agent's id
+
   Scenario: register stamps the hub root with the tracked marker
     Given a fresh, unmarked hub root
     When a session runs identity register --handle alice --harness claude
@@ -87,6 +93,18 @@ Feature: identity — self-identify and discover peers
     Then that agent's status becomes exited
     And it is included in the pruned list
 
+  Scenario: prune marks an agent exited when its herdr pane is gone
+    Given a registered agent whose record locates a herdr pane that no longer exists
+    When a session runs identity prune
+    Then that agent's status becomes exited
+    And it is included in the pruned list
+
+  Scenario: prune leaves a live herdr-pane agent untouched
+    Given a registered agent whose record locates a live herdr pane and a fresh lastSeen
+    When a session runs identity prune
+    Then that agent's status remains unchanged
+    And the pruned list is empty
+
   Scenario: prune marks an agent exited when its last-seen is stale
     Given a registered agent whose lastSeen is older than the staleness window
     When a session runs identity prune
@@ -105,16 +123,31 @@ Feature: identity — self-identify and discover peers
     When any command resolves its own identity
     Then it resolves the id via the pane pointer without being told the id
 
-  Scenario: $CYBERLEGION_AGENT_ID resolves self-id only when there is no $TMUX_PANE
-    Given a session with no $TMUX_PANE and $CYBERLEGION_AGENT_ID=envid set
+  Scenario Outline: the current multiplexer pane keys self-identity
+    Given an agent registered in a <mux> pane addressed by its pane env var <var>
+    When any command resolves its own identity
+    Then it resolves that agent's id via the pane pointer without being told the id
+
+    Examples:
+      | mux   | var            |
+      | tmux  | $TMUX_PANE     |
+      | herdr | $HERDR_PANE_ID |
+
+  Scenario: $CYBERLEGION_AGENT_ID resolves self-id only when the session is in no multiplexer pane
+    Given a session in no multiplexer pane (no $TMUX_PANE and no $HERDR_PANE_ID) and $CYBERLEGION_AGENT_ID=envid set
     When it resolves its own identity
     Then it resolves to "envid"
 
-  Scenario: an unregistered pane does not fall back to $CYBERLEGION_AGENT_ID
-    Given a session with $TMUX_PANE set to a pane with no pointer, and $CYBERLEGION_AGENT_ID also set
+  Scenario Outline: an unregistered multiplexer pane does not fall back to $CYBERLEGION_AGENT_ID
+    Given a session in a <mux> pane with no pointer, and $CYBERLEGION_AGENT_ID also set
     When it resolves its own identity
     Then the resolved self id is undefined
     And it does not fall back to $CYBERLEGION_AGENT_ID
+
+    Examples:
+      | mux   |
+      | tmux  |
+      | herdr |
 
   # ── Harness detection ──
 
