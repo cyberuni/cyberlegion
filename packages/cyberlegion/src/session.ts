@@ -34,7 +34,8 @@ export interface SpawnInput {
 	/** Branch to create the unit's worktree on; defaults to `cyberlegion/unit-<id>`. */
 	branch?: string
 	/** Where to check out the unit's worktree; defaults to a sibling of the primary checkout
-	 * (`<parent>/<repo>.worktrees/legion-<id>`) — never nested inside the primary's own tree. */
+	 * (`<parent>/<repo>.worktrees/legion-<id6>`, `id6` the same 6-char slice `handle` defaults to)
+	 * — never nested inside the primary's own tree. */
 	worktreePath?: string
 	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
@@ -55,7 +56,7 @@ export interface SpawnResult {
  * its cwd set to that worktree, pre-register the peer, and drop its brief as a file the peer's own
  * SessionStart hook reads — never typed into its prompt.
  *
- * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/legion-<id>`),
+ * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/legion-<id6>`),
  * never nested inside it, even though the registry/mailbox itself lives in the global hub — the hub
  * addresses units across project and worktree boundaries, but a unit's checkout is necessarily
  * scoped to this one project's git remote.
@@ -93,7 +94,9 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		worktree = null
 	} else {
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
-		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id)
+		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
+		// the directory name lines up with what's already shown to the caller.
+		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
 		const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
 		assertDistinctFromPrimary(added.root, primaryRoot)
 		// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't been

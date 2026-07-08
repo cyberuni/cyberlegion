@@ -39,7 +39,7 @@ function ctx(): IdContext {
 }
 
 const expectedWorktreePath = (id: string) =>
-	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id}`))
+	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id.slice(0, 6)}`))
 
 describe('spawn opens a pane + pre-registers the peer', () => {
 	it('registers the peer (spawning, pane, spawnedBy) and writes its brief', () => {
@@ -116,6 +116,14 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 	it("never nests the default worktree inside the primary checkout's own tree", () => {
 		const res = spawn(ctx(), { harness: 'claude', task: 't' })
 		expect(res.agent.worktree?.root.startsWith(`${resolve(primaryRoot)}/`)).toBe(false)
+	})
+
+	it('names the default worktree dir with the same 6-char id slice as the record handle', () => {
+		const res = spawn(ctx(), { harness: 'claude', task: 't', handle: 'bob' })
+		expect(res.agent.worktree?.root).toBe(expectedWorktreePath(res.agent.id))
+		expect(res.agent.worktree?.root.endsWith(`legion-${res.agent.id.slice(0, 6)}`)).toBe(true)
+		// an explicit --handle doesn't rename the dir — only id-derived defaults do
+		expect(res.agent.worktree?.root.includes('bob')).toBe(false)
 	})
 
 	it('opens the tmux pane with -c set to the new worktree root, not the caller cwd', () => {
