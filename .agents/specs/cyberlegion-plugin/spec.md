@@ -73,10 +73,9 @@ their nodes can pass a spec gate. Root `status: draft` reflects the project roll
 
 **Formation-pass note (post `cyberlegion-plugin-init-skill`).** Two structural observations from the
 post-mission formation pass: (1) `inbox/` was backfilled above — the shipped `manage-inbox` skill had
-no owning node (an untagged orphan self-cleared by placement only, no scenario authored); (2) this
-project has **no `ledger/` directory**, even though `init/init-cyberlegion.feature` is `@frozen` —
-every other spec in the corpus with a frozen `.feature` or a passed gate carries a matching
-`ledger/*.jsonl` gate-verdict shard (`sdd:combat-log-governance`); this one does not, so the spec
-gate that froze `init-cyberlegion.feature` left no durable floor. Escalated as CR
-`cyberlegion-plugin-ledger-backfill` (only the conductor / spec-gate skill may write a `gate` ledger
-line, so the Warden cannot self-clear this in-session).
+no owning node (an untagged orphan self-cleared by placement only, no scenario authored); (2) the
+`init`/`spec` and `init`/`impl` gate lines for CR `cyberlegion-plugin-init-skill` had been appended to
+a stray root-level `ledger/` directory instead of this project's own sibling `ledger/` (a landed
+concurrent commit, not this pass's mission) — relocated in-session via a zero-content-delta move to
+`ledger/cyberlegion-plugin-init-skill.6a31c8.jsonl` here; self-cleared (pure structural relocation,
+no line rewritten, no verdict changed).
