@@ -35,7 +35,9 @@ because a nudge already fired.
 | Watch mail as it streams in (observer, never acks) | `npx cyberlegion@<version> mail watch` |
 | List addressable peers | `npx cyberlegion@<version> identity who` |
 | Sweep dead peers | `npx cyberlegion@<version> identity prune` |
-| Set up the mail-surfacing hook / diagnose the environment | `npx cyberlegion@<version> admin install` / `admin doctor` |
+| Onboard / set up cyberlegion (register the surfacing hook, bind the main owner pane, first-run setup) | **invoke the `init-cyberlegion` skill** — the interactive onboarding front door over `cyberlegion init` / `identity owner` / `identity bind-main` |
+| Diagnose the environment (harness, multiplexer, pane, hub root) | `npx cyberlegion@<version> admin doctor` |
+| Register the surfacing hook by hand (low-level, explicit harness) | `npx cyberlegion@<version> admin install` — the raw verb `init-cyberlegion` wraps; use directly only when scripting a known harness |
 | Dispatch work to fulfill a role with a brief and expect a verdict back (routing judgment needed — which strategy, which agent def, warm vs cold) | **hand off to `dispatch-governance`** — do not pick a `dispatch` subcommand yourself |
 | No user channel at all (unattended trigger, multi-unit fan-out) | **spawn the `headless-legate` agent** by name — it realizes this same gateway + `dispatch-governance` flow headless |
 
