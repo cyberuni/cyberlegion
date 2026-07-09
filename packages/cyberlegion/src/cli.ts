@@ -5,7 +5,7 @@ import { migrateStore } from './admin.ts'
 import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { selectSessionAdapter } from './console/index.ts'
-import { probeMultiplexer } from './console/mux-probe.ts'
+import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
 import { decommission } from './decommission.ts'
 import { type DispatchResult, DispatchWaitingError, channel as dispatchChannel } from './dispatch/channel.ts'
 import { collect as dispatchCollect } from './dispatch/collect.ts'
@@ -152,6 +152,30 @@ withGlobals(identity.command('owner'))
 			toon: toonObject({ id: rec.id, handle: rec.handle, kind: rec.kind, status: rec.status }),
 			json: rec,
 		})
+	})
+
+withGlobals(identity.command('bind-main'))
+	.description("bind (or move) the hub's single main pane — the standing owner's live presence")
+	.option('--clear', 'unbind the main pane (a no-op when nothing is bound)')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		if (opts.clear) {
+			ctx.store.setMainPane(null)
+			emit(formatOf(opts), { toon: toonObject({ mainPane: 'none' }), json: { mainPane: null } })
+			return
+		}
+		const cur = currentPane(ctx.env ?? process.env)
+		if (!cur) fail('no multiplexer pane to bind — run this from inside a tmux or herdr pane')
+		ctx.store.setMainPane(cur.pane)
+		emit(formatOf(opts), { toon: toonObject({ mainPane: cur.pane }), json: { mainPane: cur.pane } })
+	})
+
+withGlobals(identity.command('main'))
+	.description("print the hub's bound main pane")
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		const pane = ctx.store.getMainPane()
+		emit(formatOf(opts), { toon: toonObject({ mainPane: pane ?? 'none' }), json: { mainPane: pane ?? null } })
 	})
 
 function runWho(opts: GlobalOpts & { all?: boolean }): void {
@@ -794,6 +818,45 @@ withGlobals(admin.command('migrate'))
 			toon: toonObject({ agents: res.agents, messages: res.messages, briefs: res.briefs }),
 			json: res,
 		})
+	})
+
+// -------------------------------------------------------------------------------------------
+// init — the onboarding front door: resolve the harness, register the surfacing hook, and point
+// at binding the durable owner inbox. `admin install` stays the explicit low-level verb.
+// -------------------------------------------------------------------------------------------
+withGlobals(program.command('init'))
+	.description('resolve this session harness, register the Legion surfacing hook, and advise owner binding')
+	.option('--agent <h>', 'claude | cursor | codex (else auto-detected)')
+	.option('--dir <path>', 'project dir to write config into', process.cwd())
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		let harness: Harness
+		try {
+			const detected = detectHarness(opts.agent, ctx)
+			if (!detected) fail('could not detect harness — pass --agent claude|cursor|codex')
+			harness = detected
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		const results = install(harness, opts.dir)
+		emit(formatOf(opts), {
+			toon: toonList(
+				'hooks',
+				results,
+				[
+					{ key: 'event', get: (r) => r.event },
+					{ key: 'status', get: (r) => r.status },
+					{ key: 'file', get: (r) => r.file },
+				],
+				`harness ${harness}, ${results.length} hooks`,
+			),
+			json: { harness, hooks: results },
+		})
+		const hasStandingOwner = listAgents(ctx.store).some((a) => a.kind === 'standing')
+		if (!hasStandingOwner) {
+			nextStep('cyberlegion identity owner --handle legate to mint the durable owner inbox')
+			nextStep('cyberlegion identity bind-main to bind this pane as the owner live presence')
+		}
 	})
 
 // -------------------------------------------------------------------------------------------

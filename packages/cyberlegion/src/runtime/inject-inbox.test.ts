@@ -44,6 +44,9 @@ describe('mail hook emits the SessionStart payload', () => {
 
 describe('empty / error cases', () => {
 	it('injects nothing when there is no unread mail and no brief', () => {
+		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
+		// isolating this test to the brief/mail-only precondition it targets.
+		registerStanding({ store }, { handle: 'somebody' })
 		const solo = register(
 			{ store, env: { CYBERLEGION_AGENT_ID: 'lone', TMUX_PANE: '%9' }, exec: () => null },
 			{ handle: 'lone', harness: 'claude' },
@@ -56,7 +59,10 @@ describe('empty / error cases', () => {
 	})
 
 	it('auto-registers a live-pane session that has no identity yet, then injects nothing (empty inbox)', () => {
-		// A fresh herdr pane, no identity, no unread mail, no brief, but a detectable harness.
+		// A fresh herdr pane, no identity, no unread mail, no brief, but a detectable harness. Bind
+		// this pane as the hub main pane so the (mux) session-start setup nudge is silenced —
+		// isolating this test to the auto-register + empty-inbox precondition it targets.
+		store.setMainPane('w5:p1')
 		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'w5:p1', CLAUDECODE: '1' }
 		const payload = injectInbox({ store, env, exec: () => null }, 'SessionStart')
 		expect(payload).toBeNull() // nothing to inject → stdout empty, exit 0
@@ -137,6 +143,111 @@ describe('owner mail surfaces into a root session, never into a spawned unit', (
 			{ store, env: { TMUX: 't', TMUX_PANE: '%7' }, exec: () => null },
 			{ handle: 'root4', harness: 'claude' },
 		)
-		expect(injectInbox({ store, env: { CYBERLEGION_AGENT_ID: root.id } }, 'SessionStart')).toBeNull()
+		// This scenario's own precondition IS "no standing owner record exists" — which is exactly
+		// what would otherwise trip the (non-mux, since the call below carries no pane env) session-start
+		// setup nudge. Assert both halves explicitly: no owner section, and the nudge is the only content.
+		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: root.id } }, 'SessionStart')
+		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxStr).not.toContain('Owner mail')
+		expect(ctxStr).toContain('Legion setup')
+	})
+})
+
+describe('owner mail gates on the bound main pane', () => {
+	it('the bound main pane surfaces the owner unread mail under a distinct heading', () => {
+		const homa = registerStanding({ store }, { handle: 'homa' })
+		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%20' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		store.setMainPane('%20')
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%20' }, exec: () => null }, 'SessionStart')
+		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxStr).toContain('Owner mail — homa')
+		expect(ctxStr).toContain('status report')
+		expect(ctxStr).not.toMatch(/^## Unread mail/m)
+	})
+
+	it('a root session that is not the bound main pane does not surface owner mail', () => {
+		const homa = registerStanding({ store }, { handle: 'homa' })
+		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%20' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%21' }, exec: () => null }, { handle: 'root2', harness: 'claude' })
+		store.setMainPane('%20')
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%21' }, exec: () => null }, 'SessionStart')
+		expect(payload?.hookSpecificOutput.additionalContext ?? '').not.toContain('Owner mail')
+	})
+
+	it('with no main pane bound, any root session still surfaces owner mail (fallback)', () => {
+		const homa = registerStanding({ store }, { handle: 'homa' })
+		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%22' }, exec: () => null }, { handle: 'root3', harness: 'claude' })
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%22' }, exec: () => null }, 'SessionStart')
+		expect(payload?.hookSpecificOutput.additionalContext ?? '').toContain('Owner mail — homa')
+	})
+})
+
+describe('the session-start Legion setup nudge', () => {
+	it('an unbound root pane gets a Legion setup nudge pointing at cyberlegion init', () => {
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%30' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%30' }, exec: () => null }, 'SessionStart')
+		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxStr).toContain('Legion setup')
+		expect(ctxStr).toContain('cyberlegion init')
+	})
+
+	it('an unbound root pane surfaces owner mail and the setup nudge together', () => {
+		const homa = registerStanding({ store }, { handle: 'homa' })
+		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%31' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%31' }, exec: () => null }, 'SessionStart')
+		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxStr).toContain('Owner mail — homa')
+		expect(ctxStr).toContain('Legion setup')
+	})
+
+	it('binding a main pane silences the nudge', () => {
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%32' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		store.setMainPane('%32')
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%32' }, exec: () => null }, 'SessionStart')
+		expect(payload?.hookSpecificOutput.additionalContext ?? '').not.toContain('Legion setup')
+	})
+
+	it('a spawned unit never gets the setup nudge', () => {
+		const unit = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%33' }, exec: () => null },
+			{ handle: 'unit', harness: 'claude' },
+		)
+		saveAgent(store, { ...unit, spawnedBy: 'someone' })
+		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%33' }, exec: () => null }, 'SessionStart')
+		expect(payload?.hookSpecificOutput.additionalContext ?? '').not.toContain('Legion setup')
+	})
+
+	it('a non-multiplexer root session with no standing owner gets the setup nudge', () => {
+		register({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux1' } }, { handle: 'nonmux', harness: 'claude' })
+		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux1' } }, 'SessionStart')
+		expect(payload?.hookSpecificOutput.additionalContext ?? '').toContain('Legion setup')
+	})
+
+	it('a non-multiplexer root session that already has a standing owner gets no nudge', () => {
+		registerStanding({ store }, { handle: 'homa2' })
+		register({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux2' } }, { handle: 'nonmux', harness: 'claude' })
+		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux2' } }, 'SessionStart')
+		expect(payload).toBeNull()
+	})
+
+	it('computing the gate or nudge never fails the turn even when the main-pane lookup throws', () => {
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%34' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		const throwingStore = new Proxy(store, {
+			get(target, prop, receiver) {
+				if (prop === 'getMainPane') {
+					return () => {
+						throw new Error('boom')
+					}
+				}
+				return Reflect.get(target, prop, receiver)
+			},
+		}) as typeof store
+		expect(() =>
+			injectInbox({ store: throwingStore, env: { TMUX: 't', TMUX_PANE: '%34' }, exec: () => null }, 'SessionStart'),
+		).not.toThrow()
 	})
 })

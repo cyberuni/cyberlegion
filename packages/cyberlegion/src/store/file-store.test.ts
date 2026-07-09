@@ -105,6 +105,34 @@ describe('mail: removeMessage', () => {
 	})
 })
 
+describe('main pane (hub-level owner-presence pointer)', () => {
+	it('getMainPane is undefined when nothing is bound', () => {
+		expect(store.getMainPane()).toBeUndefined()
+	})
+
+	it('setMainPane/getMainPane round-trips', () => {
+		store.setMainPane('%3')
+		expect(store.getMainPane()).toBe('%3')
+	})
+
+	it('setMainPane(null) clears an existing binding', () => {
+		store.setMainPane('%3')
+		store.setMainPane(null)
+		expect(store.getMainPane()).toBeUndefined()
+	})
+
+	it('setMainPane(null) is a no-op (never throws) when nothing is bound', () => {
+		expect(() => store.setMainPane(null)).not.toThrow()
+		expect(store.getMainPane()).toBeUndefined()
+	})
+
+	it('setMainPane moves the binding on rebind — still exactly one bound pane', () => {
+		store.setMainPane('%3')
+		store.setMainPane('%9')
+		expect(store.getMainPane()).toBe('%9')
+	})
+})
+
 describe('result (dispatch result slot)', () => {
 	it('resultPath is computed only — no IO, no existence implied', () => {
 		expect(store.resultPath('d1')).toBe(join(store.root, 'data', 'd1', 'result.json'))

@@ -91,4 +91,11 @@ export interface Store {
 	writeResult(id: string, value: unknown): void
 	/** Read a dispatch's result JSON text, or undefined if not yet written. */
 	readResult(id: string): string | undefined
+
+	// -- main pane (hub-level owner-presence pointer) --
+	/** Set (or move) the hub's single main pane — the standing owner's live presence — or clear it
+	 * (`null`, a no-op when already unbound). A hub-level singleton, independent of any agent record. */
+	setMainPane(pane: string | null): void
+	/** The hub's currently bound main pane, or undefined when none is bound. */
+	getMainPane(): string | undefined
 }
