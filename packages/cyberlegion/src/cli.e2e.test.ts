@@ -117,6 +117,52 @@ describe('standing identity — identity owner', () => {
 	})
 })
 
+describe('identity bind-main / main — the hub main pane', () => {
+	const paneEnv = (pane: string) => ({ TMUX: 't', TMUX_PANE: pane })
+
+	it('bind-main records the caller current pane as the hub main pane', () => {
+		legion(['identity', 'bind-main'], paneEnv('%1'))
+		expect(legion(['identity', 'main'])).toContain('mainPane: %1')
+	})
+
+	it('bind-main throws when the caller is in no multiplexer pane', () => {
+		expect(() => legion(['identity', 'bind-main'])).toThrow()
+		expect(legion(['identity', 'main'])).toContain('mainPane: none')
+	})
+
+	it('binding from a different pane moves the main pane', () => {
+		legion(['identity', 'bind-main'], paneEnv('%1'))
+		legion(['identity', 'bind-main'], paneEnv('%2'))
+		expect(legion(['identity', 'main'])).toContain('mainPane: %2')
+	})
+
+	it('bind-main --clear removes the binding', () => {
+		legion(['identity', 'bind-main'], paneEnv('%1'))
+		legion(['identity', 'bind-main', '--clear'])
+		expect(legion(['identity', 'main'])).toContain('mainPane: none')
+	})
+
+	it('bind-main --clear is a no-op when nothing is bound', () => {
+		expect(() => legion(['identity', 'bind-main', '--clear'])).not.toThrow()
+		expect(legion(['identity', 'main'])).toContain('mainPane: none')
+	})
+
+	it('main prints the bound pane', () => {
+		legion(['identity', 'bind-main'], paneEnv('%5'))
+		expect(legion(['identity', 'main'])).toContain('mainPane: %5')
+	})
+
+	it('main reports a definitive none when unbound', () => {
+		expect(legion(['identity', 'main'])).toContain('mainPane: none')
+	})
+
+	it('binding a main pane neither creates nor requires a standing owner', () => {
+		legion(['identity', 'bind-main'], paneEnv('%1'))
+		const standing = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
+		expect(standing).toHaveLength(0)
+	})
+})
+
 describe('bare invocation — content-first status (AXI #8)', () => {
 	it('prints a compact status and exits 0 even when unregistered (never help+error)', () => {
 		// execFileSync throws on a non-zero exit, so reaching the assertions proves exit 0.
@@ -177,9 +223,12 @@ describe('mail group', () => {
 	})
 
 	it('mail hook emits raw JSON (not TOON) on stdout', () => {
+		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
+		// isolating this test to the no-brief/no-unread-mail precondition it targets.
+		legion(['identity', 'owner', '--handle', 'homa'])
 		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
 		const who = JSON.parse(legion(['identity', 'who', '--format', 'json']))
-		const aliceId = who[0].id
+		const aliceId = who.find((a: { handle: string }) => a.handle === 'alice').id
 		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
 		expect(out.trim()).toBe('') // no brief, no unread mail — nothing injected, still exit 0
 	})

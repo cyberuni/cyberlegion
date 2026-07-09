@@ -69,6 +69,15 @@ without being told it, and discovering its live peers:
   migration). Registration never happens implicitly — sending to an unknown recipient still throws
   (fail-loud); it does not auto-create an owner. Bare `identity owner` (no `--handle`) lists the
   registered standing records only, without any session agents.
+- **The main pane is the standing owner's live presence** — `identity bind-main` records the caller's
+  current multiplexer pane as the hub's single **main pane**: the one session `surfacing/` treats as
+  the standing owner's live presence, where owner mail surfaces. It is a hub-level singleton keyed by
+  the pane id, independent of any agent record; binding from a different pane **moves** it (last bind
+  wins, still exactly one). It throws when the caller is in no multiplexer pane — there is nothing to
+  bind. `identity bind-main --clear` removes the binding (a no-op, never an error, when none is bound),
+  and `identity main` prints the bound pane or a definitive "none". Binding a main pane neither creates
+  nor requires a standing owner record: the durable inbox (`identity owner`) and where it surfaces
+  (`bind-main`) are minted independently.
 
 **Non-goals** — sending/reading mail (`mail/`), spawning/closing/nudging a peer session (`session/`),
 hook-based injection of mail into a harness turn (`surfacing/`), thread correlation and the bounded
@@ -87,3 +96,4 @@ Every scenario in [`identity.feature`](./identity.feature) maps to one of these 
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `identity owner` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |
+| **main pane** | `bind-main` records the caller's pane as the hub's single owner-presence pane (moves on rebind, throws in no pane); `--clear` unbinds (no-op when unbound); `main` shows the pane or "none"; independent of any standing owner |

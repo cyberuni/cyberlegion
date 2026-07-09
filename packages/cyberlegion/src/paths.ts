@@ -94,6 +94,7 @@ export const paths = {
 	dataDir: (root: string, id: string) => join(root, 'data', id),
 	briefFile: (root: string, id: string) => join(root, 'data', id, 'brief.md'),
 	resultFile: (root: string, id: string) => join(root, 'data', id, 'result.json'),
+	mainPaneFile: (root: string) => join(root, 'main-pane.id'),
 }
 
 /**

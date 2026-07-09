@@ -53,22 +53,47 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 		parts.push(`## Unread mail (${unread.length})\n\n${lines.join('\n')}`)
 	}
 
+	const cur = currentPane(ctx.env ?? process.env)
+
 	// Owner mail — a top-level session (no spawnedBy: not a legion-spawned unit) also surfaces every
 	// standing owner's unread mail, read-only, so a human roaming across sessions sees a frameless
-	// agent's report inline. Defensive: any owner-side failure must never fail the harness hook.
+	// agent's report inline. Among root sessions, a bound main pane gates surfacing to that one pane;
+	// with no main pane bound, any root session still surfaces (the pre-onboarding fallback). Defensive:
+	// any owner-side failure must never fail the harness hook.
 	if (rec && !rec.spawnedBy) {
 		try {
-			const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
-			for (const owner of standing) {
-				const ownerUnread = inbox({ store: ctx.store }, { meId: owner.id, unread: true })
-				if (ownerUnread.length === 0) continue
-				const lines = ownerUnread.map(
-					(m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ''}: ${m.body} \`(${m.id})\``,
-				)
-				parts.push(`## Owner mail — ${owner.handle} (${ownerUnread.length})\n\n${lines.join('\n')}`)
+			const bound = ctx.store.getMainPane()
+			if (!bound || cur?.pane === bound) {
+				const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
+				for (const owner of standing) {
+					const ownerUnread = inbox({ store: ctx.store }, { meId: owner.id, unread: true })
+					if (ownerUnread.length === 0) continue
+					const lines = ownerUnread.map(
+						(m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ''}: ${m.body} \`(${m.id})\``,
+					)
+					parts.push(`## Owner mail — ${owner.handle} (${ownerUnread.length})\n\n${lines.join('\n')}`)
+				}
 			}
 		} catch {
 			// owner-mail surfacing is best-effort — never let a store read error fail the harness turn
+		}
+	}
+
+	// Session-start setup nudge — for a root session (no spawnedBy), prompt onboarding while
+	// incomplete: in a multiplexer pane, incomplete means no main pane bound; in no pane (non-mux),
+	// incomplete means no standing owner exists yet. Best-effort: never fails the harness turn.
+	if (rec && !rec.spawnedBy) {
+		try {
+			const incomplete = cur ? !ctx.store.getMainPane() : !listAgents(ctx.store).some((a) => a.kind === 'standing')
+			if (incomplete) {
+				parts.push(
+					'## Legion setup\n\n' +
+						'This pane has no owner inbox bound yet — run `cyberlegion init` to register the surfacing ' +
+						'hook and bind this pane as the owner live presence.',
+				)
+			}
+		} catch {
+			// the setup nudge is best-effort — never let a store read error fail the harness turn
 		}
 	}
 
