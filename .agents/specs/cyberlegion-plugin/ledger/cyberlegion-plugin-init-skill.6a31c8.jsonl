@@ -1,0 +1,3 @@
+{"kind":"leash","cr":"cyberlegion-plugin-init-skill","leash":"auto-spec","by":"derived","approach":["thin CLI-wrapper skill; additive new node + additive legate row; no frozen scenario narrowed"]}
+{"kind":"gate","cr":"cyberlegion-plugin-init-skill","gate":"spec","node":"init","verdict":"approve","by":"agent","why":"aced spec-judge ALIGNED (oracle/builder/architect all PASS); added hook-only guard scenario; no open markers; frozen init-cyberlegion.feature"}
+{"kind":"gate","cr":"cyberlegion-plugin-init-skill","gate":"impl","node":"init","verdict":"approve","by":"agent","why":"aced impl-judge ALL-PASS 18/18 (11 trigger rows acc 1.0, 3 routing, 14 behavior, rubric 10/10>=8); thin CLI-wrapper boundary clean; legate dual-front-door overlap disambiguated"}
