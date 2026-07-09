@@ -35,10 +35,11 @@ which harness it runs under:
 - **init is idempotent** — re-running `init` for an already-installed project re-reports `already
   present` for each hook rather than duplicating an entry, exactly as the underlying installer does.
 
-**Non-goals** — the hook payload and the per-harness `admin install`/`admin doctor` mechanics
-(`surfacing/`); minting the standing owner inbox and binding the main pane (`identity/`); the
-user-facing interactive ask (the `init-cyberlegion` plugin skill that wraps this verb). This node owns
-only the auto-detecting hook-registration entry point and its owner-binding advice.
+**Non-goals** — the hook payload and the per-harness `admin install` mechanics (`surfacing/`);
+multiplexer/harness self-diagnosis via `admin doctor` (`wake/`); minting the standing owner inbox and
+binding the main pane (`identity/`); the user-facing interactive ask (the `init-cyberlegion` plugin
+skill that wraps this verb). This node owns only the auto-detecting hook-registration entry point and
+its owner-binding advice.
 
 Every scenario in [`init.feature`](./init.feature) maps to one of these behaviors:
 
