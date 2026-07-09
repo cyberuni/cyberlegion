@@ -37,6 +37,7 @@ published CLI's contract.
 | [`gateway/`](./gateway/README.md) | behavioral | the `legate` skill — thin classifier front door; loads no governance, writes no state |
 | [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `headless-legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent, and the `subagent-backend-governance` procedure for the subagent path |
 | [`init/`](./init/README.md) | behavioral | the `init-cyberlegion` onboarding skill — a thin CLI wrapper that probes the environment, registers the surfacing hook, and (root-only, on an explicit yes) binds this pane as the durable `legate` owner inbox |
+| [`inbox/`](./inbox/README.md) | behavioral | the `manage-inbox` skill — the human's on-demand surface for the standing owner mailbox (list/read/ack/reply) |
 
 ## Placement map
 
@@ -53,6 +54,8 @@ Where a new concept lives — slot here, do not invent placement:
 - **a new onboarding / setup intent** (registering the surfacing hook, binding the main owner pane,
   first-run environment probing) → `init/` — the user-facing `init-cyberlegion` skill; keep every
   mechanic a CLI call, never add production logic here.
+- **a new owner-mailbox review intent** (listing, reading, acking, or replying to owner mail once
+  bound) → `inbox/` — the user-facing `manage-inbox` skill; never add routing/dispatch judgment here.
 - **a new identity / mail / session / dispatch-primitive CLI operation** → **not here** — that is
   the `cyberlegion` CLI project (`packages/cyberlegion`).
 - **a cross-capability e2e** (spans both gateway and dispatch) → this project's own e2e; a future
@@ -62,7 +65,18 @@ Where a new concept lives — slot here, do not invent placement:
 
 This spec skeleton was authored alongside the plugin build (CR `legion-gateway-legate`) without full
 `.feature` suites. The `init/` node was specced and its `init-cyberlegion.feature` **frozen** by CR
-`cyberlegion-plugin-init-skill` (spec gate passed, ALIGNED). `gateway/gateway.feature` and
-`dispatch/dispatch.feature` remain owed follow-up work before either node can pass a spec gate. Root
-`status: draft` reflects the project rollup — it advances to `approved` only once every node is
-gated; per-`.feature` freeze is independent (only `init-cyberlegion.feature` is `@frozen` today).
+`cyberlegion-plugin-init-skill` (spec gate passed, ALIGNED). `gateway/gateway.feature`,
+`dispatch/dispatch.feature`, and the `inbox/` node backfilled below remain owed follow-up work before
+their nodes can pass a spec gate. Root `status: draft` reflects the project rollup — it advances to
+`approved` only once every node is gated; per-`.feature` freeze is independent (only
+`init-cyberlegion.feature` is `@frozen` today).
+
+**Formation-pass note (post `cyberlegion-plugin-init-skill`).** Two structural observations from the
+post-mission formation pass: (1) `inbox/` was backfilled above — the shipped `manage-inbox` skill had
+no owning node (an untagged orphan self-cleared by placement only, no scenario authored); (2) this
+project has **no `ledger/` directory**, even though `init/init-cyberlegion.feature` is `@frozen` —
+every other spec in the corpus with a frozen `.feature` or a passed gate carries a matching
+`ledger/*.jsonl` gate-verdict shard (`sdd:combat-log-governance`); this one does not, so the spec
+gate that froze `init-cyberlegion.feature` left no durable floor. Escalated as CR
+`cyberlegion-plugin-ledger-backfill` (only the conductor / spec-gate skill may write a `gate` ledger
+line, so the Warden cannot self-clear this in-session).
