@@ -34,6 +34,7 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 | [`dispatch/`](./dispatch/README.md) | result-slot primitives for delegating work and awaiting a verdict |
 | [`agent/`](./agent/README.md) | resolve reusable agent definitions |
 | [`surfacing/`](./surfacing/README.md) | inject unread mail into a session across harnesses |
+| [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook |
 
 > Scaffold (`legion-scaffold`): nodes are placeholders; each is authored to a behavioral spec + suite
 > by its own change request. See `flickering-pondering-rose` / `cyberlegion.design.md` for the plan.

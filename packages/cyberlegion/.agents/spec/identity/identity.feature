@@ -247,3 +247,49 @@ Feature: identity — self-identify and discover peers
     When a session runs identity owner with no handle
     Then both homa and ops are listed
     And no session agents are listed
+
+  # ── The main pane (the standing owner's live presence) ──
+
+  Scenario: bind-main records the caller's current pane as the hub main pane
+    Given a session inside a tmux pane
+    When it runs identity bind-main
+    Then the hub's main pane resolves to that pane
+
+  Scenario: bind-main throws when the caller is in no multiplexer pane
+    Given a session in no multiplexer pane
+    When it runs identity bind-main
+    Then the command throws that there is no pane to bind
+    And no main pane is recorded
+
+  Scenario: binding from a different pane moves the main pane
+    Given a hub whose main pane is already bound to one pane
+    When a session in a different pane runs identity bind-main
+    Then the hub's main pane resolves to the second pane
+    And there is still exactly one bound main pane
+
+  Scenario: bind-main --clear removes the binding
+    Given a hub with a bound main pane
+    When a session runs identity bind-main --clear
+    Then the hub has no bound main pane
+
+  Scenario: bind-main --clear is a no-op when nothing is bound
+    Given a hub with no bound main pane
+    When a session runs identity bind-main --clear
+    Then it does not throw
+    And the hub still has no bound main pane
+
+  Scenario: main prints the bound pane
+    Given a hub whose main pane is bound
+    When a session runs identity main
+    Then it prints the bound pane id
+
+  Scenario: main reports a definitive none when unbound
+    Given a hub with no bound main pane
+    When a session runs identity main
+    Then it reports "none" rather than erroring
+
+  Scenario: binding a main pane neither creates nor requires a standing owner
+    Given a hub with no standing owner record
+    When a session in a pane runs identity bind-main
+    Then the main pane is bound
+    And no standing owner record is created

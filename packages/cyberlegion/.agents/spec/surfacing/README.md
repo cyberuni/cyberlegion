@@ -44,24 +44,32 @@ harness's own hook mechanism, and wiring that hook up in the first place:
   `PostToolUse` is wired only where the harness supports it (claude and codex — cursor has no
   PostToolUse hook). Running install again for the same harness does not duplicate the entry
   (`already present` rather than a second registration).
-- **Owner mail surfaces into a root session, never into a spawned unit** — beyond the caller's own
-  brief and unread mail, `mail hook` also surfaces the **standing owner** inbox's unread mail (bodies
-  included) under a distinct owner-mail heading, so a human at any top-level session sees a frameless
-  agent's report inline without pulling it manually. The gate is **"is this a spawned unit?"**, not
-  "is this the human" (the human roams and can't be identified): a caller whose record has a
-  `spawnedBy` (a legion-spawned unit) surfaces **no** owner mail; a top-level session with no
-  `spawnedBy` surfaces it. Surfacing **never acks** — an unread owner message re-surfaces on every
-  hook call until it is explicitly acked (`mail ack --owner`), and once acked it no longer surfaces.
-  Showing a message in a session's context is a model printing text, not proof a human read it, so
-  read stays a deliberate act. When no standing owner record exists at all, `mail hook` surfaces no
-  owner section and still exits 0 (it never fails the harness turn). The `spawnedBy` gate suppresses
-  legion-spawned units but not a *top-level* autonomous session (a frameless cron agent also has no
-  `spawnedBy`) — such a session is still a root context, so surfacing there is accepted for now; a
-  headless opt-out is a CR-B / formation follow-up, not this node's concern.
+- **Owner mail surfaces into the bound main pane, never into a spawned unit** — beyond the caller's
+  own brief and unread mail, `mail hook` also surfaces the **standing owner** inbox's unread mail
+  (bodies included) under a distinct owner-mail heading, so a human sees a frameless agent's report
+  inline without pulling it manually. A spawned unit (record has a `spawnedBy`) **never** surfaces
+  owner mail. Among root sessions (no `spawnedBy`) the gate keys on the hub's **main pane** (`identity
+  bind-main`): when a main pane **is** bound, only the session in that pane surfaces owner mail —
+  another root pane surfaces none; when **no** main pane is bound, the gate falls back to surfacing in
+  **any** root session (the pre-onboarding behavior, so nothing regresses before a pane is bound).
+  Surfacing **never acks** — an unread owner message re-surfaces on every hook call until it is
+  explicitly acked (`mail ack --owner`), and once acked it no longer surfaces (showing a message is a
+  model printing text, not proof a human read it, so read stays a deliberate act). When no standing
+  owner record exists at all, `mail hook` surfaces no owner section and still exits 0.
+- **An unbound root session gets a session-start setup nudge** — when the caller is a root session (no
+  `spawnedBy`) and onboarding is incomplete, `mail hook` appends a best-effort `## Legion setup` line
+  pointing at `cyberlegion init`, so a human is prompted to designate this pane as the owner's live
+  presence. Incomplete means: **in a multiplexer pane** → no main pane is bound; **in no pane**
+  (non-mux) → no standing owner record exists (there is no pane to bind, so a minted owner is the
+  completion signal). Binding a main pane (mux) or minting the standing owner (non-mux) silences the
+  nudge. A spawned unit never gets it. Computing the gate or the nudge is best-effort — any store error
+  is swallowed and the hook still exits 0, never failing the harness turn.
 
 **Non-goals** — the mail primitives themselves (send/inbox/read/ack, `mail/`), the doorbell nudge
-(`session/`), thread correlation and the bounded `mail await`/`watch` (`wake/`) — this node only
-covers the hook payload and its installation.
+(`session/`), thread correlation and the bounded `mail await`/`watch` (`wake/`), minting the standing
+owner inbox and binding the main pane (`identity/`), and the auto-detecting onboarding front door
+(`init/`) — this node only covers the hook payload, its installation, and the owner-mail/nudge
+surfacing gate.
 
 Every scenario in [`surfacing.feature`](./surfacing.feature) maps to one of these behaviors:
 
@@ -73,4 +81,5 @@ Every scenario in [`surfacing.feature`](./surfacing.feature) maps to one of thes
 | **no unread + no brief injects nothing** | empty payload → nothing printed |
 | **unsupported --event rejected** | only SessionStart/PostToolUse accepted |
 | **install wires per-harness, idempotently** | SessionStart for all three; PostToolUse only where supported; re-run does not duplicate |
-| **owner mail surfaces into root sessions only** | root (no `spawnedBy`) surfaces standing-owner unread with bodies under an owner heading; spawned units don't; never acks; acked no longer surfaces |
+| **owner mail surfaces into the bound main pane** | spawned units never surface; among root sessions, a bound main pane gates surfacing to that one pane, and with none bound it falls back to any root session; bodies under an owner heading; never acks; acked no longer surfaces |
+| **session-start setup nudge** | an unbound root session gets a best-effort `## Legion setup` nudge toward `cyberlegion init` (mux: no main pane bound; non-mux: no standing owner); binding/minting silences it; spawned units never get it; best-effort, always exit 0 |
