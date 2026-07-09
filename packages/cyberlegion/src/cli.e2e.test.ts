@@ -42,148 +42,161 @@ function legionOut(args: string[], env: NodeJS.ProcessEnv = {}): { stdout: strin
 	return { stdout: res.stdout, stderr: res.stderr }
 }
 
-describe('identity group', () => {
-	it('register prints the new identity as TOON by default', () => {
-		const out = legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
-		expect(out).toContain('handle: alice')
-		expect(out).toContain('harness: claude')
+describe('spec:cyberlegion/identity', () => {
+	describe('identity group', () => {
+		it('register prints the new identity as TOON by default', () => {
+			const out = legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+			expect(out).toContain('handle: alice')
+			expect(out).toContain('harness: claude')
+		})
+
+		it('register --format json emits parseable JSON', () => {
+			const out = legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice', '--format', 'json'])
+			expect(JSON.parse(out)).toMatchObject({ handle: 'alice', harness: 'claude' })
+		})
+
+		it('who lists every non-exited peer with a definitive aggregate line', () => {
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+			legion(['identity', 'register', '--harness', 'cursor', '--handle', 'bob'])
+			const out = legion(['identity', 'who'])
+			expect(out).toContain('alice')
+			expect(out).toContain('bob')
+			expect(out).toContain('2 agents')
+		})
+
+		it('who reports a definitive empty state when nothing is registered', () => {
+			const out = legion(['identity', 'who'])
+			expect(out).toContain('0 agents')
+		})
+
+		it('the top-level who command behaves like identity who', () => {
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+			expect(legion(['who'])).toContain('alice')
+		})
 	})
 
-	it('register --format json emits parseable JSON', () => {
-		const out = legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice', '--format', 'json'])
-		expect(JSON.parse(out)).toMatchObject({ handle: 'alice', harness: 'claude' })
+	describe('whoami', () => {
+		it("whoami prints this session's own identity", () => {
+			const env = { CYBERLEGION_AGENT_ID: 'alice1' }
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'], env)
+			const out = legion(['identity', 'whoami'], env)
+			expect(out).toContain('handle: alice')
+			expect(out).toContain('harness: claude')
+			expect(out).toContain('status: active')
+		})
+
+		it('whoami errors when the session has no identity yet', () => {
+			expect(() => legion(['identity', 'whoami'])).toThrow()
+			const { stderr } = legionOut(['identity', 'whoami'])
+			expect(stderr).toMatch(/register/i)
+		})
 	})
 
-	it('who lists every registered peer with a definitive aggregate line', () => {
-		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
-		legion(['identity', 'register', '--harness', 'cursor', '--handle', 'bob'])
-		const out = legion(['identity', 'who'])
-		expect(out).toContain('alice')
-		expect(out).toContain('bob')
-		expect(out).toContain('2 agents')
+	describe('standing identity — identity owner', () => {
+		it('mints a standing record for a fresh handle', () => {
+			const out = legion(['identity', 'owner', '--handle', 'homa'])
+			expect(out).toContain('handle: homa')
+			expect(out).toContain('kind: standing')
+		})
+
+		it('identity owner warns when a live session already claims that handle', () => {
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'homa'])
+			const { stdout, stderr } = legionOut(['identity', 'owner', '--handle', 'homa'])
+			expect(stderr).toMatch(/live session already claims/i)
+			expect(stdout).toContain('kind: standing')
+			const who = JSON.parse(legion(['identity', 'who', '--all', '--format', 'json']))
+			expect(who.filter((a: { handle: string }) => a.handle === 'homa')).toHaveLength(2)
+		})
+
+		it('who lists a standing record alongside session agents', () => {
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+			legion(['identity', 'owner', '--handle', 'homa'])
+			const out = legion(['identity', 'who'])
+			expect(out).toContain('alice')
+			expect(out).toContain('homa')
+			expect(out).toContain('2 agents')
+		})
+
+		it('bare identity owner lists the standing records', () => {
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
+			legion(['identity', 'owner', '--handle', 'homa'])
+			legion(['identity', 'owner', '--handle', 'ops'])
+			const listed = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
+			const handles = listed.map((a) => a.handle)
+			expect(handles).toContain('homa')
+			expect(handles).toContain('ops')
+			expect(handles).not.toContain('alice')
+		})
 	})
 
-	it('who reports a definitive empty state when nothing is registered', () => {
-		const out = legion(['identity', 'who'])
-		expect(out).toContain('0 agents')
+	describe('identity bind-main / main — the hub main pane', () => {
+		const paneEnv = (pane: string) => ({ TMUX: 't', TMUX_PANE: pane })
+
+		it("bind-main records the caller's current pane as the hub main pane", () => {
+			legion(['identity', 'bind-main'], paneEnv('%1'))
+			expect(legion(['identity', 'main'])).toContain('mainPane: %1')
+		})
+
+		it('bind-main throws when the caller is in no multiplexer pane', () => {
+			expect(() => legion(['identity', 'bind-main'])).toThrow()
+			expect(legion(['identity', 'main'])).toContain('mainPane: none')
+		})
+
+		it('binding from a different pane moves the main pane', () => {
+			legion(['identity', 'bind-main'], paneEnv('%1'))
+			legion(['identity', 'bind-main'], paneEnv('%2'))
+			expect(legion(['identity', 'main'])).toContain('mainPane: %2')
+		})
+
+		it('bind-main --clear removes the binding', () => {
+			legion(['identity', 'bind-main'], paneEnv('%1'))
+			legion(['identity', 'bind-main', '--clear'])
+			expect(legion(['identity', 'main'])).toContain('mainPane: none')
+		})
+
+		it('bind-main --clear is a no-op when nothing is bound', () => {
+			expect(() => legion(['identity', 'bind-main', '--clear'])).not.toThrow()
+			expect(legion(['identity', 'main'])).toContain('mainPane: none')
+		})
+
+		it('main prints the bound pane', () => {
+			legion(['identity', 'bind-main'], paneEnv('%5'))
+			expect(legion(['identity', 'main'])).toContain('mainPane: %5')
+		})
+
+		it('main reports a definitive none when unbound', () => {
+			expect(legion(['identity', 'main'])).toContain('mainPane: none')
+		})
+
+		it('binding a main pane neither creates nor requires a standing owner', () => {
+			legion(['identity', 'bind-main'], paneEnv('%1'))
+			const standing = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
+			expect(standing).toHaveLength(0)
+		})
 	})
 
-	it('the top-level `who` alias behaves like `identity who`', () => {
-		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
-		expect(legion(['who'])).toContain('alice')
-	})
-})
+	describe('bare invocation — content-first status (AXI #8)', () => {
+		it('bare cyberlegion prints a compact status and exits 0', () => {
+			// execFileSync throws on a non-zero exit, so reaching the assertions proves exit 0.
+			const out = legion([])
+			expect(out).toContain('self: -')
+			expect(out).toContain('unread: 0')
+			expect(out).toContain('units: 0')
+		})
 
-describe('standing identity — identity owner', () => {
-	it('mints a standing record for a fresh handle', () => {
-		const out = legion(['identity', 'owner', '--handle', 'homa'])
-		expect(out).toContain('handle: homa')
-		expect(out).toContain('kind: standing')
-	})
+		it("bare status reflects this session's own identity, unread, and live units", () => {
+			const env = { CYBERLEGION_AGENT_ID: 'alice1' }
+			legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'], env)
+			legion(['mail', 'send', '--to', 'alice', '--subject', 'hi', '--body', 'yo'], env)
+			const out = legion([], env)
+			expect(out).toContain('self: alice')
+			expect(out).toContain('unread: 1')
+			expect(out).toContain('units: 1')
+		})
 
-	// Scenario 7: identity owner warns (stderr) when a live session already claims that handle, but
-	// still creates the standing record.
-	it('warns on stderr when a live session already claims the handle, but still creates the standing record', () => {
-		legion(['identity', 'register', '--harness', 'claude', '--handle', 'homa'])
-		const { stdout, stderr } = legionOut(['identity', 'owner', '--handle', 'homa'])
-		expect(stderr).toMatch(/live session already claims/i)
-		expect(stdout).toContain('kind: standing')
-		const who = JSON.parse(legion(['identity', 'who', '--all', '--format', 'json']))
-		expect(who.filter((a: { handle: string }) => a.handle === 'homa')).toHaveLength(2)
-	})
-
-	// Scenario 5: `identity who` lists a standing record alongside a live session agent — exercised
-	// through the real command path (past runWho's status!=='exited' membership filter).
-	it('identity who lists a standing record alongside a live session agent', () => {
-		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
-		legion(['identity', 'owner', '--handle', 'homa'])
-		const out = legion(['identity', 'who'])
-		expect(out).toContain('alice')
-		expect(out).toContain('homa')
-		expect(out).toContain('2 agents')
-	})
-
-	// Scenario (additive): bare `identity owner` (no --handle) lists only the standing records, never
-	// session agents.
-	it('bare identity owner lists the standing records and no session agents', () => {
-		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'])
-		legion(['identity', 'owner', '--handle', 'homa'])
-		legion(['identity', 'owner', '--handle', 'ops'])
-		const listed = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
-		const handles = listed.map((a) => a.handle)
-		expect(handles).toContain('homa')
-		expect(handles).toContain('ops')
-		expect(handles).not.toContain('alice')
-	})
-})
-
-describe('identity bind-main / main — the hub main pane', () => {
-	const paneEnv = (pane: string) => ({ TMUX: 't', TMUX_PANE: pane })
-
-	it('bind-main records the caller current pane as the hub main pane', () => {
-		legion(['identity', 'bind-main'], paneEnv('%1'))
-		expect(legion(['identity', 'main'])).toContain('mainPane: %1')
-	})
-
-	it('bind-main throws when the caller is in no multiplexer pane', () => {
-		expect(() => legion(['identity', 'bind-main'])).toThrow()
-		expect(legion(['identity', 'main'])).toContain('mainPane: none')
-	})
-
-	it('binding from a different pane moves the main pane', () => {
-		legion(['identity', 'bind-main'], paneEnv('%1'))
-		legion(['identity', 'bind-main'], paneEnv('%2'))
-		expect(legion(['identity', 'main'])).toContain('mainPane: %2')
-	})
-
-	it('bind-main --clear removes the binding', () => {
-		legion(['identity', 'bind-main'], paneEnv('%1'))
-		legion(['identity', 'bind-main', '--clear'])
-		expect(legion(['identity', 'main'])).toContain('mainPane: none')
-	})
-
-	it('bind-main --clear is a no-op when nothing is bound', () => {
-		expect(() => legion(['identity', 'bind-main', '--clear'])).not.toThrow()
-		expect(legion(['identity', 'main'])).toContain('mainPane: none')
-	})
-
-	it('main prints the bound pane', () => {
-		legion(['identity', 'bind-main'], paneEnv('%5'))
-		expect(legion(['identity', 'main'])).toContain('mainPane: %5')
-	})
-
-	it('main reports a definitive none when unbound', () => {
-		expect(legion(['identity', 'main'])).toContain('mainPane: none')
-	})
-
-	it('binding a main pane neither creates nor requires a standing owner', () => {
-		legion(['identity', 'bind-main'], paneEnv('%1'))
-		const standing = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as { handle: string }[]
-		expect(standing).toHaveLength(0)
-	})
-})
-
-describe('bare invocation — content-first status (AXI #8)', () => {
-	it('prints a compact status and exits 0 even when unregistered (never help+error)', () => {
-		// execFileSync throws on a non-zero exit, so reaching the assertions proves exit 0.
-		const out = legion([])
-		expect(out).toContain('self: -')
-		expect(out).toContain('unread: 0')
-		expect(out).toContain('units: 0')
-	})
-
-	it('reflects this session own identity, unread count, and live-unit count', () => {
-		const env = { CYBERLEGION_AGENT_ID: 'alice1' }
-		legion(['identity', 'register', '--harness', 'claude', '--handle', 'alice'], env)
-		legion(['mail', 'send', '--to', 'alice', '--subject', 'hi', '--body', 'yo'], env)
-		const out = legion([], env)
-		expect(out).toContain('self: alice')
-		expect(out).toContain('unread: 1')
-		expect(out).toContain('units: 1')
-	})
-
-	it('--format json emits a parseable status', () => {
-		expect(JSON.parse(legion(['--format', 'json']))).toMatchObject({ self: null, unread: 0, units: 0 })
+		it('--format json emits a parseable status', () => {
+			expect(JSON.parse(legion(['--format', 'json']))).toMatchObject({ self: null, unread: 0, units: 0 })
+		})
 	})
 })
 
