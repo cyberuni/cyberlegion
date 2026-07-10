@@ -1,10 +1,8 @@
 @frozen
-Feature: wake — thread correlation, bounded await, watch, and mux detection
-  Wake a peer to a new turn without a shared process: thread-correlated mail (send/reply, thread
-  filter, delete), a blocking mail await that self-caps under a harness tool-timeout, a non-acking
-  mail watch stream, and the two-mode multiplexer probe a future gateway uses to choose between the
-  bounded poll and the multiplexer doorbell. Sending and reading plain mail live in mail; the
-  doorbell itself (session nudge) lives in session; hook surfacing lives in surfacing; the routing
+Feature: mail wait — thread correlation, bounded await, and watch
+  Correlate a conversation across replies, block for a matching reply without risking a harness
+  tool-timeout kill, and stream new mail without consuming it. Plain send/inbox/read/ack/delete live
+  in mail/core; hook-based injection and owner-mail surfacing live in mail/surface; the routing
   brain that actually drives a turn lives in the future gateway (legion-gateway-legate).
 
   # ── Threads correlate a conversation ──
@@ -28,23 +26,6 @@ Feature: wake — thread correlation, bounded await, watch, and mux detection
     Given the calling agent has both acked and un-acked messages on thread "cr-a" from two senders
     When it runs mail inbox --thread cr-a --unread --from alice
     Then only the un-acked thread "cr-a" messages from alice are listed
-
-  # ── Delete removes mail permanently ──
-
-  Scenario: delete removes an unread message
-    Given the calling agent has an unread message <msg-id>
-    When it runs mail delete <msg-id>
-    Then the message no longer appears in mail inbox at all
-
-  Scenario: delete removes an already-acked message
-    Given the calling agent has an already-acked message <msg-id>
-    When it runs mail delete <msg-id>
-    Then the message no longer appears in mail inbox at all
-
-  Scenario: delete on an unknown message id errors rather than silently succeeding
-    Given a message id that is not in the calling agent's inbox at all
-    When it runs mail delete <msg-id>
-    Then the command reports the message is not in this inbox
 
   # ── Await blocks then reads, with three unambiguous outcomes ──
 
@@ -95,58 +76,3 @@ Feature: wake — thread correlation, bounded await, watch, and mux detection
     Given messages arrive on different threads and from different senders while watching
     When it runs mail watch --thread cr-1 --from alice
     Then only new messages matching both filters are printed
-
-  # ── Multiplexer detection is two-mode ──
-
-  Scenario: $CYBERLEGION_MUX is trusted outright as a fast-path
-    Given $CYBERLEGION_MUX=tmux and $CYBERLEGION_MUX_PANE=%3 are set
-    When the mux probe runs
-    Then it reports mux=tmux, pane=%3, via=env, without walking the process ancestry
-
-  Scenario: $CYBERLEGION_MUX=none is an override even inside a real multiplexer
-    Given $CYBERLEGION_MUX=none is set while $TMUX is also set
-    When the mux probe runs
-    Then it reports mux=none
-
-  Scenario: absent the env fast-path, the probe walks the process ancestry from $$
-    Given no $CYBERLEGION_MUX is set and a tmux server is an ancestor of the current process
-    When the mux probe runs
-    Then it reports mux=tmux via=ancestry, found by walking ppid/comm up from the current pid
-
-  Scenario: $TMUX/$HERDR_ENV alone are not trusted — only a fast-positive hint the walk falls back to
-    Given $TMUX is set but the ancestry walk itself is inconclusive
-    When the mux probe runs
-    Then it falls back to the $TMUX hint rather than declaring no multiplexer
-
-  Scenario: admin doctor reports the detected mux and prints a pin hint
-    Given a caller running behind a detected multiplexer
-    When it runs cyberlegion admin doctor
-    Then it reports harness, mux, pane, hub root, and self-id
-    And it prints an export CYBERLEGION_MUX=<m> hint so the caller can pin the fast-path
-
-  Scenario: session spawn propagates the fast-path to the spawned child
-    Given a caller spawning a new peer session behind a detected multiplexer
-    When cyberlegion session spawn opens the new session
-    Then the launched command's environment carries CYBERLEGION_MUX so the child does not re-discover
-
-  # ── selectWakePath is a pure decision helper ──
-
-  Scenario: the portable default is a bounded await
-    Given a harness with a multiplexer available but no special capability
-    When selectWakePath runs
-    Then it returns A-loop
-
-  Scenario: Claude Code with an observable background task prefers A-prime
-    Given the harness is claude and the task is observable
-    When selectWakePath runs
-    Then it returns A-prime
-
-  Scenario: a live foreign session behind a verified mux prefers the doorbell
-    Given a dedicated listener session behind a verified multiplexer
-    When selectWakePath runs
-    Then it returns B
-
-  Scenario: B is never returned without a multiplexer
-    Given mux.mux is 'none', even with every other condition for B or A-prime satisfied
-    When selectWakePath runs
-    Then it never returns B

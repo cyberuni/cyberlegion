@@ -1,37 +1,38 @@
 @frozen
-Feature: identity — self-identify and discover peers
-  Register this session, recover its own id, and list addressable peers over the global hub. Sending
-  and reading mail live in mail; spawning/closing/nudging a peer session lives in session; hook-based
-  injection lives in surfacing; thread correlation and the bounded mail await/watch live in wake.
+Feature: unit registry — register, discover, and prune legion units
+  Register this session, recover its own id, discover addressable peers over the global hub, and
+  reap dead ones. Sending and reading mail live in mail; spawning/closing a peer session lives in
+  unit/lifecycle; the pane/backend layer lives in mux; hook-based injection lives in mail/surface;
+  the human's read-pane pointer lives in attach.
 
   # ── Register records who and where ──
 
   Scenario: register writes the agent record and a pane pointer
     Given an unregistered session inside a tmux pane
-    When it runs identity register --handle alice --harness claude
+    When it runs unit register --handle alice --harness claude
     Then the hub records an agent with handle=alice, harness=claude, status=active
     And the pane resolves to that agent's id
 
   Scenario: register writes the agent record and a pane pointer in a herdr pane
     Given an unregistered session inside a herdr pane (its pane id in $HERDR_PANE_ID)
-    When it runs identity register --handle alice --harness claude
+    When it runs unit register --handle alice --harness claude
     Then the hub records an agent with handle=alice, harness=claude, status=active
     And the herdr pane resolves to that agent's id
 
   Scenario: register stamps the hub root with the tracked marker
     Given a fresh, unmarked hub root
-    When a session runs identity register --handle alice --harness claude
+    When a session runs unit register --handle alice --harness claude
     Then the hub root's config.json marker exists
 
   Scenario: register is idempotent for the same pane
     Given a session already registered in the current pane
-    When it runs identity register --harness claude again with no --handle
+    When it runs unit register --harness claude again with no --handle
     Then it keeps the same id
     And the registry still holds exactly one agent
 
   Scenario: register fails cleanly when the registry cannot be written
     Given a hub root that cannot be created or written (its path is already a file)
-    When a session runs identity register --handle a --harness claude
+    When a session runs unit register --handle a --harness claude
     Then the command throws
     And no agent record is written
 
@@ -39,38 +40,41 @@ Feature: identity — self-identify and discover peers
 
   Scenario: whoami prints this session's own identity
     Given a session registered in the current pane
-    When it runs identity whoami
+    When it runs unit whoami
     Then it prints that session's own id, handle, harness, and status
 
   Scenario: whoami errors when the session has no identity yet
     Given a session with no resolvable self id
-    When it runs identity whoami
-    Then the command errors asking the caller to run identity register first
+    When it runs unit whoami
+    Then the command errors asking the caller to run unit register first
 
   # ── who lists the addressable peers ──
+  # `unit who` (alias: top-level `who`) is the single list command — the old `session list` folded
+  # in here (CR-2 resolution #1): fields id·handle·harness·status·pane, aggregate "N units", default
+  # non-exited + --all.
 
-  Scenario: who lists every non-exited peer with a definitive aggregate line
-    Given two registered agents, alice and bob
-    When a session runs identity who
-    Then it lists both as a TOON agents list
-    And the aggregate line reads "2 agents"
+  Scenario: who lists every non-exited unit with a definitive aggregate line
+    Given two registered units, alice and bob
+    When a session runs unit who
+    Then it lists both as a TOON list with fields id, handle, harness, status, and pane
+    And the aggregate line reads "2 units"
 
   Scenario: who reports a definitive empty state when nothing is registered
     Given an empty registry
-    When a session runs identity who
-    Then it reports "0 agents" rather than erroring
+    When a session runs unit who
+    Then it reports "0 units" rather than erroring
 
   Scenario: who excludes exited agents by default, --all includes them
     Given one active agent and one agent already marked exited
-    When a session runs identity who
+    When a session runs unit who
     Then only the active agent is listed
-    When it runs identity who --all
+    When it runs unit who --all
     Then both agents are listed
 
-  Scenario: the top-level who command behaves like identity who
+  Scenario: the top-level who command behaves like unit who
     Given a registered agent alice
     When a session runs the top-level who command
-    Then it lists alice exactly as identity who would
+    Then it lists alice exactly as unit who would
 
   # ── bare invocation is a content-first status (AXI #8) ──
 
@@ -89,30 +93,30 @@ Feature: identity — self-identify and discover peers
 
   Scenario: prune marks an agent exited when its tmux pane is gone
     Given a registered agent whose tmux pane no longer exists
-    When a session runs identity prune
+    When a session runs unit prune
     Then that agent's status becomes exited
     And it is included in the pruned list
 
   Scenario: prune marks an agent exited when its herdr pane is gone
     Given a registered agent whose record locates a herdr pane that no longer exists
-    When a session runs identity prune
+    When a session runs unit prune
     Then that agent's status becomes exited
     And it is included in the pruned list
 
   Scenario: prune leaves a live herdr-pane agent untouched
     Given a registered agent whose record locates a live herdr pane and a fresh lastSeen
-    When a session runs identity prune
+    When a session runs unit prune
     Then that agent's status remains unchanged
     And the pruned list is empty
 
   Scenario: prune marks an agent exited when its last-seen is stale
     Given a registered agent whose lastSeen is older than the staleness window
-    When a session runs identity prune
+    When a session runs unit prune
     Then that agent's status becomes exited
 
   Scenario: prune leaves a live, recently-seen agent untouched
     Given a registered agent with a live pane and a fresh lastSeen
-    When a session runs identity prune
+    When a session runs unit prune
     Then that agent's status remains unchanged
     And the pruned list is empty
 
@@ -179,14 +183,14 @@ Feature: identity — self-identify and discover peers
 
   Scenario: an undetectable harness requires --harness rather than guessing
     Given a register call with no --harness and no detectable harness signal at all
-    When it runs identity register
+    When it runs unit register
     Then the command throws asking for --harness rather than recording a guessed harness
 
   # ── Every call touches last-seen ──
 
   Scenario: touch refreshes the caller's last-seen
     Given a registered agent with an old lastSeen
-    When the caller runs a command that resolves its own identity (e.g. identity who)
+    When the caller runs a command that resolves its own identity (e.g. unit who)
     Then that agent's lastSeen is refreshed to now
 
   Scenario: touch is a no-op for an unregistered caller
@@ -196,33 +200,33 @@ Feature: identity — self-identify and discover peers
 
   # ── Standing identity (a session-independent, prune-exempt owner inbox) ──
 
-  Scenario: identity owner mints a standing record with a handle-derived stable id
+  Scenario: unit register --standing mints a standing record with a handle-derived stable id
     Given an empty registry
-    When a session runs identity owner --handle homa
+    When a session runs unit register --standing --handle homa
     Then the hub records an agent with handle=homa and kind=standing
     And its id is derived from the handle, not a random session id
 
   Scenario: registering the same owner handle again is idempotent
     Given a standing identity already registered for handle homa
-    When a session runs identity owner --handle homa again
+    When a session runs unit register --standing --handle homa again
     Then it keeps the same id
     And the registry still holds exactly one standing record for homa
 
   Scenario: a standing record carries no tmux pane and is not pane-indexed
-    Given a session runs identity owner --handle homa inside a tmux pane
+    Given a session runs unit register --standing --handle homa inside a tmux pane
     When the standing record is written
     Then the record has no tmux pane, window, or session
     And the current pane resolves to the caller's own session id, not the standing id
 
   Scenario: prune never marks a standing record exited even when its last-seen is stale
     Given a standing identity homa whose lastSeen is older than the staleness window
-    When a session runs identity prune
+    When a session runs unit prune
     Then homa's status remains active
     And homa is not included in the pruned list
 
   Scenario: who lists a standing record alongside session agents
     Given a session agent alice and a standing identity homa
-    When a session runs identity who
+    When a session runs unit who
     Then both alice and homa are listed
 
   Scenario: an owner handle colliding with a live session resolves to the standing record
@@ -230,9 +234,9 @@ Feature: identity — self-identify and discover peers
     When a recipient named homa is resolved
     Then it resolves to the standing record, not the live session
 
-  Scenario: identity owner warns when a live session already claims that handle
+  Scenario: unit register --standing warns when a live session already claims that handle
     Given a live session agent registered with handle homa
-    When a session runs identity owner --handle homa
+    When a session runs unit register --standing --handle homa
     Then a standing record for homa is created
     And it warns that a live session already claims that handle
 
@@ -242,54 +246,9 @@ Feature: identity — self-identify and discover peers
     Then it is treated as a session record
     And prune considers it for staleness like any session
 
-  Scenario: bare identity owner lists the standing records
+  Scenario: bare unit register --standing lists the standing records
     Given two standing identities homa and ops
-    When a session runs identity owner with no handle
+    When a session runs unit register --standing with no handle
     Then both homa and ops are listed
     And no session agents are listed
 
-  # ── The main pane (the standing owner's live presence) ──
-
-  Scenario: bind-main records the caller's current pane as the hub main pane
-    Given a session inside a tmux pane
-    When it runs identity bind-main
-    Then the hub's main pane resolves to that pane
-
-  Scenario: bind-main throws when the caller is in no multiplexer pane
-    Given a session in no multiplexer pane
-    When it runs identity bind-main
-    Then the command throws that there is no pane to bind
-    And no main pane is recorded
-
-  Scenario: binding from a different pane moves the main pane
-    Given a hub whose main pane is already bound to one pane
-    When a session in a different pane runs identity bind-main
-    Then the hub's main pane resolves to the second pane
-    And there is still exactly one bound main pane
-
-  Scenario: bind-main --clear removes the binding
-    Given a hub with a bound main pane
-    When a session runs identity bind-main --clear
-    Then the hub has no bound main pane
-
-  Scenario: bind-main --clear is a no-op when nothing is bound
-    Given a hub with no bound main pane
-    When a session runs identity bind-main --clear
-    Then it does not throw
-    And the hub still has no bound main pane
-
-  Scenario: main prints the bound pane
-    Given a hub whose main pane is bound
-    When a session runs identity main
-    Then it prints the bound pane id
-
-  Scenario: main reports a definitive none when unbound
-    Given a hub with no bound main pane
-    When a session runs identity main
-    Then it reports "none" rather than erroring
-
-  Scenario: binding a main pane neither creates nor requires a standing owner
-    Given a hub with no standing owner record
-    When a session in a pane runs identity bind-main
-    Then the main pane is bound
-    And no standing owner record is created

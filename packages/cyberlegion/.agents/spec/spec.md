@@ -27,14 +27,17 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 
 | Node | Concern |
 |---|---|
-| [`identity/`](./identity/README.md) | self-identify and discover peers |
-| [`session/`](./session/README.md) | warm peer session lifecycle over a multiplexer |
-| [`mail/`](./mail/README.md) | durable inter-agent messaging |
-| [`wake/`](./wake/README.md) | wake a peer — doorbell nudge, bounded await, hook surfacing |
-| [`dispatch/`](./dispatch/README.md) | result-slot primitives for delegating work and awaiting a verdict |
+| [`mux/`](./mux/README.md) | the unit-agnostic pane abstraction — backend selection, placement, multiplexer detection |
+| [`unit/`](./unit/registry/README.md) | the instance registry (`unit/registry`) + warm session lifecycle (`unit/lifecycle`) |
+| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing (`mail/surface`) |
 | [`agent/`](./agent/README.md) | resolve reusable agent definitions |
-| [`surfacing/`](./surfacing/README.md) | inject unread mail into a session across harnesses |
-| [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook |
+| [`attach/`](./attach/README.md) | the human's read-pane — an attention pointer to the hub's main pane |
+| [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook (owns the per-harness installer) |
+| [`admin/`](./admin/README.md) | hub-state maintenance (`admin migrate`) |
+| [`dispatch/`](./dispatch/README.md) | result-slot primitives for delegating work and awaiting a verdict |
 
-> Scaffold (`legion-scaffold`): nodes are placeholders; each is authored to a behavioral spec + suite
-> by its own change request. See `flickering-pondering-rose` / `cyberlegion.design.md` for the plan.
+> CR-2 (`cyberlegion-cli-realign`, ADR-0024) realigned this tree to command groups + one node per
+> real architectural layer (`mux`); `identity`/`session` dissolved into `unit`, `surfacing`/`wake`
+> dissolved into `mail`/`mux`/`init`, `attach`/`admin` are new. `dispatch/` is out of scope (moves to
+> the Legate plugin in CR-4). See `.agents/plans/cyberlegion-cli-realign.migration-map.md` for the
+> full scenario→target contract.

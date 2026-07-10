@@ -1,8 +1,9 @@
 @frozen
 Feature: init — the onboarding front door
   One command resolves this session's harness and registers the SessionStart surfacing hook, then
-  points the human at binding a durable owner inbox. The hook payload and the explicit per-harness
-  admin install live in surfacing; minting the owner inbox and binding the main pane live in identity.
+  points the human at binding a durable owner inbox. init owns hook installation directly (the old
+  admin install folded in here); the hook payload lives in mail/surface; minting the owner inbox
+  lives in unit/registry and binding the read-pane in attach.
 
   # ── init resolves the harness and registers the surfacing hook ──
 
@@ -18,6 +19,16 @@ Feature: init — the onboarding front door
     Then claude's config also registers a PostToolUse hook
     When init resolves cursor and registers
     Then cursor's config has no PostToolUse entry
+
+  Scenario: init registers PostToolUse for codex, which supports it
+    Given a fresh project directory
+    When init resolves codex and registers
+    Then codex's config also registers a PostToolUse hook
+
+  Scenario: init registers the SessionStart hook for cursor and codex too
+    Given a fresh project directory
+    When init --agent cursor and init --agent codex each register
+    Then each harness's config registers "cyberlegion mail hook --event SessionStart" under its own event key
 
   # ── auto-detect vs explicit --agent ──
 
