@@ -107,19 +107,19 @@ describe('init points at owner binding when none is bound', () => {
 		const dir = freshProjectDir()
 		const res = legionOut(['init', '--agent', 'claude', '--dir', dir])
 		expect(res.status).toBe(0)
-		expect(res.stderr).toMatch(/identity owner/)
-		expect(res.stderr).toMatch(/bind-main/)
+		expect(res.stderr).toMatch(/unit register --standing/)
+		expect(res.stderr).toMatch(/attach/)
 	})
 })
 
 describe('init emits no bind-owner next-step when a standing owner already exists', () => {
 	it('does not advise binding when a standing owner is already present', () => {
-		legion(['identity', 'owner', '--handle', 'legate'])
+		legion(['unit', 'register', '--standing', '--handle', 'legate'])
 		const dir = freshProjectDir()
 		const res = legionOut(['init', '--agent', 'claude', '--dir', dir])
 		expect(res.status).toBe(0)
-		expect(res.stderr).not.toMatch(/identity owner/)
-		expect(res.stderr).not.toMatch(/bind-main/)
+		expect(res.stderr).not.toMatch(/unit register --standing/)
+		expect(res.stderr).not.toMatch(/attach/)
 	})
 })
 
@@ -127,9 +127,9 @@ describe('init never mints an owner or binds a pane itself', () => {
 	it('leaves the registry and main pane untouched after a successful run', () => {
 		const dir = freshProjectDir()
 		legion(['init', '--agent', 'claude', '--dir', dir])
-		const standing = JSON.parse(legion(['identity', 'owner', '--format', 'json'])) as unknown[]
+		const standing = JSON.parse(legion(['unit', 'register', '--standing', '--format', 'json'])) as unknown[]
 		expect(standing).toHaveLength(0)
-		expect(legion(['identity', 'main'])).toContain('mainPane: none')
+		expect(legion(['attach', '--show'])).toContain('mainPane: none')
 	})
 })
 

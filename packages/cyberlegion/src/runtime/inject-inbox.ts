@@ -21,7 +21,7 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 	let meId = resolveSelfId(ctx)
 	if (!meId) {
 		// No identity yet. If the session IS in a live multiplexer pane, self-register it here so a
-		// human who never ran `identity register` still gets a first-class hub presence. Best-effort:
+		// human who never ran `unit register` still gets a first-class hub presence. Best-effort:
 		// a register failure (e.g. no detectable harness) must never fail the harness turn.
 		if (currentPane(ctx.env ?? process.env)) {
 			try {

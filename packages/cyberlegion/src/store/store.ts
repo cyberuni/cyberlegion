@@ -36,7 +36,7 @@ export interface AgentRecord {
 	brief?: string
 	spawnedBy?: string
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,
-	 * prune-exempt owner inbox minted by `identity owner`. */
+	 * prune-exempt owner inbox minted by `unit register --standing`. */
 	kind?: 'session' | 'standing'
 }
 

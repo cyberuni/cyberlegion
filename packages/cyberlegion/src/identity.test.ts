@@ -253,7 +253,7 @@ describe('spec:cyberlegion/identity', () => {
 	})
 
 	describe('standing identity', () => {
-		it('identity owner mints a standing record with a handle-derived stable id', () => {
+		it('unit register --standing mints a standing record with a handle-derived stable id', () => {
 			const rec = registerStanding(ctx({}), { handle: 'homa' })
 			expect(rec.kind).toBe('standing')
 			expect(rec.handle).toBe('homa')

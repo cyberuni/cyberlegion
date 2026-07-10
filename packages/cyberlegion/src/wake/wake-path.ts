@@ -3,7 +3,7 @@ import type { MuxProbe } from '../console/mux-probe.ts'
 /**
  * The wake-matrix path a gateway would drive a turn through. Pure decision helper — no I/O, no
  * polling, no session backend calls; the gateway (`legion-gateway-legate`, CR-5) composes this with
- * the actual `mail await` / `session nudge` primitives.
+ * the actual `mail await` / `unit nudge` primitives.
  *
  * - **A** — a single unbounded `mail await` (not returned here; superseded by A-loop everywhere the
  *   gateway drives this decision, since a raw A risks a harness tool-timeout SIGKILL).
@@ -11,7 +11,7 @@ import type { MuxProbe } from '../console/mux-probe.ts'
  * - **A-prime** — Claude Code with an observable background task: run `await` via
  *   `run_in_background` and poll its result instead of blocking the turn.
  * - **B** — a live foreign session behind a verified multiplexer: ring the doorbell
- *   (`session nudge`) instead of polling. Never selected without a mux.
+ *   (`unit nudge`) instead of polling. Never selected without a mux.
  * - **C** — own-the-PTY (dropped from the shipped matrix; kept as a type for completeness).
  * - **D** — `/loop`-style external re-invocation (dropped from the shipped matrix).
  * - **E** — hook surfacing at a turn boundary (selected by the caller directly, not by this
