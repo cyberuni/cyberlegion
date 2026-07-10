@@ -729,9 +729,10 @@ withGlobals(mux.command('doctor'))
 withGlobals(mux.command('mode'))
 	.description('report the detected session-backend mode')
 	.action((opts) => {
+		const ctx = ctxOf(opts)
 		let mode = 'none'
 		try {
-			mode = selectSessionAdapter(process.env).name
+			mode = selectSessionAdapter(ctx.env ?? process.env).name
 		} catch {
 			// no multiplexer detected — reported as 'none'
 		}
