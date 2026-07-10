@@ -1,10 +1,11 @@
 @frozen
 Feature: agent — resolve reusable agent definitions
   Resolve a universal `.md` agent def (YAML frontmatter + Markdown body, as used under
-  `.agents/agents/*.md` and `plugins/*/agents/*.md`) into launch flags or a subagent instruction.
-  Reads a file only — no knowledge of plugin namespacing, SDD, or the def's author. The
+  `.agents/agents/*.md` and `plugins/*/agents/*.md`) into a machine payload or a CHANNEL launch
+  command. Reads a file only — no knowledge of plugin namespacing, SDD, or the def's author. The
   gateway/Legate routing brain that decides warm-peer vs run-inline vs subagent lives in the future
-  `legion-gateway-legate` (CR-5); this node only resolves + realizes.
+  `legion-gateway-legate` (CR-5); this node only resolves + realizes the channel launch. A caller
+  composing a cold Task subagent builds that instruction itself from the resolved payload.
 
   # ── Resolve by name under the project convention ──
 
@@ -104,24 +105,6 @@ Feature: agent — resolve reusable agent definitions
     Given a resolved def whose instructions contain a single quote, double quotes, and a $() sequence
     When realizeLaunch runs
     Then the command escapes the instructions so they are inert as shell syntax
-
-  # ── realizeSubagentInstruction names subagent_type + brief/result paths ──
-
-  Scenario: the instruction names subagent_type after the def and both hand-off file paths
-    Given a resolved def named "reviewer" and a briefFile/resultFile pair
-    When realizeSubagentInstruction runs
-    Then the instruction mentions subagent_type: reviewer, the brief file path, and the result file path
-
-  Scenario: the instruction always inlines model/effort/instructions too
-    Given a resolved def with a model, an effort, and instructions
-    When realizeSubagentInstruction runs
-    Then the instruction text still carries the model, the effort, and the full instructions body
-    And it is correct even if the caller's harness has no subagent type named after the def
-
-  Scenario: a def missing model/effort omits those lines rather than printing empty values
-    Given a resolved def with no model and no effort
-    When realizeSubagentInstruction runs
-    Then the instruction contains no "Model:" or "Effort:" line
 
   # ── agent list / show / resolve / path ──
 

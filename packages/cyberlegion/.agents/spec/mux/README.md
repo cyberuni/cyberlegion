@@ -29,15 +29,9 @@ session opens through, independent of any unit's identity or lifecycle:
   `mux doctor` runs discovery and prints an `export CYBERLEGION_MUX=<m> CYBERLEGION_MUX_PANE=<p>`
   hint so a caller can pin the fast-path; `unit spawn` injects the same vars into the spawned
   child's launch command so it inherits the fast-path instead of re-discovering.
-- **selectWakePath is a pure decision helper** — given `{harness, mux, observable?,
-  dedicatedListener?}` it returns the wake-matrix path a gateway would drive a turn through: the
-  portable default is `A-loop` (bounded await); Claude Code with an observable background task
-  prefers `A-prime`; a live foreign session behind a verified mux prefers `B`; `B` is never returned
-  when `mux.mux === 'none'`. It does no I/O. **Deprecated (CR-4)**: this decision helper is pure
-  routing and is expected to move to the Legate plugin alongside `dispatch` when routing leaves the
-  CLI; parked here for CR-2 as the least-disruptive placement (migration-map.md judgment call #3).
-
 **Non-goals** — the unit registry and lifecycle that use the selected backend (`unit/`); the
+wake-matrix routing decision (`selectWakePath` — which wake path a gateway drives a turn through)
+that CR-4 moved out of the CLI to the Legate plugin's routing governance, alongside `dispatch`; the
 gateway/Legate routing brain that actually calls `selectWakePath` and drives a turn
 (`legion-gateway-legate`, CR-5); the mail primitives and hook surfacing that ride on top of a pane
 once opened (`mail/`) — this node owns only backend selection, placement, and multiplexer detection.
@@ -49,5 +43,4 @@ Every scenario in [`mux.feature`](./mux.feature) maps to one of these behaviors:
 | **backend selected by environment** | tmux vs herdr selection; neither present errors |
 | **placement** | `--at` choices; default pane:right |
 | **multiplexer detection is two-mode** | `$CYBERLEGION_MUX` fast-path + override; ancestry walk; hint fallback; `mux doctor` hint; `unit spawn` propagation |
-| **selectWakePath is a pure decision helper** | portable default; Claude+observable; live session+mux; never B without mux — DEPRECATED(cr-4), moves to the Legate plugin |
 | **mux mode** | reports the detected session backend; "none" (exit 0) when no adapter is selectable |

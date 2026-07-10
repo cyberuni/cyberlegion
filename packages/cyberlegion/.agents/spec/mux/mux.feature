@@ -67,32 +67,6 @@ Feature: mux — the unit-agnostic pane abstraction
     When cyberlegion unit spawn opens the new session
     Then the launched command's environment carries CYBERLEGION_MUX so the child does not re-discover
 
-  # ── selectWakePath is a pure decision helper ──
-  # DEPRECATED(cr-4): routing moves to the Legate plugin — selectWakePath and every scenario in
-  # this group are recommended for CR-2 placement here (least disruption) but are a likely CR-4
-  # move to the plugin alongside dispatch when routing leaves the CLI (migration-map.md judgment
-  # call #3).
-
-  Scenario: the portable default is a bounded await
-    Given a harness with a multiplexer available but no special capability
-    When selectWakePath runs
-    Then it returns A-loop
-
-  Scenario: Claude Code with an observable background task prefers A-prime
-    Given the harness is claude and the task is observable
-    When selectWakePath runs
-    Then it returns A-prime
-
-  Scenario: a live foreign session behind a verified mux prefers the doorbell
-    Given a dedicated listener session behind a verified multiplexer
-    When selectWakePath runs
-    Then it returns B
-
-  Scenario: B is never returned without a multiplexer
-    Given mux.mux is 'none', even with every other condition for B or A-prime satisfied
-    When selectWakePath runs
-    Then it never returns B
-
   # ── mode reports the selected backend ──
 
   Scenario: mux mode reports the detected session backend
