@@ -23,24 +23,19 @@ npx cyberlegion@0.1.0 <command>
 
 ## Commands
 
-### identity — self-identify and discover peers
+### unit — self-identify, discover peers, and manage session lifecycle
 
 ```sh
-npx cyberlegion identity register --handle scout   # register/refresh this session
-npx cyberlegion identity whoami                     # print your own identity
-npx cyberlegion identity who                        # list addressable peers
-npx cyberlegion identity prune                      # mark dead agents exited and sweep
-```
-
-### session — warm peer session lifecycle over a multiplexer
-
-```sh
-npx cyberlegion session spawn --agent reviewer      # launch a peer in its own git worktree (tmux/herdr)
-npx cyberlegion session list                         # list live peer sessions
-npx cyberlegion session focus <ref>                  # move input focus to a peer's session
-npx cyberlegion session nudge <ref>                  # ring a peer's session (doorbell)
-npx cyberlegion session read <ref>                   # scrape a peer's session screen
-npx cyberlegion session close <id>                   # tear down worktree + session, reap state
+npx cyberlegion unit register --handle scout        # register/refresh this session
+npx cyberlegion unit register --standing --handle homa  # mint a standing, session-independent owner inbox
+npx cyberlegion unit whoami                          # print your own identity
+npx cyberlegion unit who                             # list addressable peers / live peer sessions
+npx cyberlegion unit prune                           # mark dead agents exited and sweep
+npx cyberlegion unit spawn --agent reviewer          # launch a peer in its own git worktree (tmux/herdr)
+npx cyberlegion unit focus <ref>                     # move input focus to a peer's session
+npx cyberlegion unit nudge <ref>                     # ring a peer's session (doorbell)
+npx cyberlegion unit read <ref>                      # scrape a peer's session screen
+npx cyberlegion unit close <id>                      # tear down worktree + session, reap state
 ```
 
 ### mail — durable inter-agent messaging
@@ -75,12 +70,30 @@ npx cyberlegion agent resolve <name>                 # emit the full machine pay
 npx cyberlegion agent path <name>                    # print the resolved def file path
 ```
 
-### admin — setup and diagnostics
+### mux — multiplexer diagnostics
 
 ```sh
-npx cyberlegion admin install                        # wire the mail-surfacing hook into a harness config
-npx cyberlegion admin doctor                         # probe harness, multiplexer, hub root, self-id
-npx cyberlegion admin mode                            # report the detected session-backend mode
+npx cyberlegion mux doctor                           # probe harness, multiplexer, hub root, self-id
+npx cyberlegion mux mode                              # report the detected session-backend mode
+```
+
+### init — onboarding
+
+```sh
+npx cyberlegion init                                 # wire the mail-surfacing hook into a harness config
+```
+
+### attach — the human's read-pane
+
+```sh
+npx cyberlegion attach                               # bind this pane as the hub's main (owner) pane
+npx cyberlegion attach --show                        # print the bound main pane
+npx cyberlegion attach --clear                       # unbind the main pane
+```
+
+### admin — hub-state maintenance
+
+```sh
 npx cyberlegion admin migrate                        # merge one hub root state into another
 ```
 

@@ -44,7 +44,7 @@ exiting. Resolve the owner recipient in this order:
 
 1. an explicit `--report-to <handle>` / brief-carried handle;
 2. else `$CYBERLEGION_OWNER`;
-3. else the hub's standing owner (`cyberlegion identity owner` with no handle lists them; a single
+3. else the hub's standing owner (`cyberlegion unit register --standing` with no handle lists them; a single
    standing record is the owner).
 
 Then:
@@ -63,7 +63,7 @@ from it.
 **Fail loud — never drop the report.** If no standing owner resolves (no `--report-to`, no
 `$CYBERLEGION_OWNER`, no standing record on the hub), do **not** silently succeed or invent a
 recipient. Surface the failure (nonzero exit, a clear message naming the missing owner and the fix:
-`cyberlegion identity owner --handle <h>`). A report with nowhere to go is a stop, not a no-op.
+`cyberlegion unit register --standing --handle <h>`). A report with nowhere to go is a stop, not a no-op.
 
 ## Read is a deliberate act — surfacing is not a receipt
 
@@ -83,5 +83,5 @@ loop, and it arrives on a later turn, not this one.
   `headless-legate` and in `dispatch-governance`'s result section — those load this contract now
   rather than restating it.
 - The frameless→owner branch depends on the standing owner identity and owner-mail surfacing shipped
-  in the `cyberlegion` CLI (`identity owner`, `mail send/--owner`, the surfacing hook). It states the
+  in the `cyberlegion` CLI (`unit register --standing`, `mail send/--owner`, the surfacing hook). It states the
   *transport*; the CLI carries the mechanism.

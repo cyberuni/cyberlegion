@@ -24,7 +24,7 @@ harness's own Task/subagent tool (only `dispatch/`'s subagent path does that, vi
 
 | Behavior | Trigger | Outcome |
 |---|---|---|
-| **classify a messaging intent** | "send a message to `<peer>`", "check my inbox", "wait for a reply" | runs the matching `mail`/`session`/`identity` CLI call directly |
+| **classify a messaging intent** | "send a message to `<peer>`", "check my inbox", "wait for a reply" | runs the matching `mail`/`unit` CLI call directly |
 | **classify a dispatch intent** | "dispatch this work to fulfill `<role>`", "get a verdict from `<role>` on `<brief>`" | loads `dispatch-governance` in-session — does not pick a strategy itself |
 | **spawn `headless-legate` when headless** | the gateway is reached with no live user or peer channel (an unattended trigger, a multi-unit fan-out) | spawns the `headless-legate` agent by name, which realizes this same flow headless |
-| **doorbell vs. mailbox discipline** | any request that involves waking a peer | a nudge (`session nudge`) never carries content; the payload always lives in the mailbox (`mail send` or a dispatch's brief/result files) |
+| **doorbell vs. mailbox discipline** | any request that involves waking a peer | a nudge (`unit nudge`) never carries content; the payload always lives in the mailbox (`mail send` or a dispatch's brief/result files) |

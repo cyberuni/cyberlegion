@@ -48,7 +48,7 @@ Collect every unit's `DispatchResult` before returning.
 
 The Legate is spawned cold for each muster (one fan-out batch or one unattended trigger) and carries
 no memory across musters. Derive everything it needs from what it is handed — the brief(s), any
-verdict schema, and the environment it probes fresh via `admin doctor`. Never assume a prior
+verdict schema, and the environment it probes fresh via `mux doctor`. Never assume a prior
 muster's resolved strategy or environment probe still holds.
 
 ## Spawn depth

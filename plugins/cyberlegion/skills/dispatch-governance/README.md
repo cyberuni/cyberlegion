@@ -12,7 +12,7 @@ in-session on a dispatch intent, and by the `headless-legate` agent when there i
 ## What it does
 
 - Resolves the target agent definition's `warm`/`interactive` tags (`cyberlegion agent resolve`).
-- Probes the environment for a multiplexer (`cyberlegion admin doctor`).
+- Probes the environment for a multiplexer (`cyberlegion mux doctor`).
 - Picks exactly one of three strategies — **channel** (warm peer), **run-inline** (caller does the
   work itself), or **subagent** (cold, one-shot, via `subagent-backend-governance`) — and executes
   it with the `cyberlegion` CLI primitives.

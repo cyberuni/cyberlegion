@@ -33,7 +33,7 @@ replying on a report's thread to answer a frameless agent's question.
 **Non-goals** — routing or dispatch judgment (that is `gateway/` / `dispatch/`); onboarding /
 binding the owner identity in the first place (that is `init/`); a session's own (non-owner) inbox
 (the plain `mail inbox`/`read`/`ack`, out of scope for this skill and this node); the CLI mechanics
-themselves (`identity owner`, `mail inbox`/`read`/`ack`/`send` — the sibling `packages/cyberlegion`
+themselves (`unit register --standing`, `mail inbox`/`read`/`ack`/`send` — the sibling `packages/cyberlegion`
 project).
 
 | Use case | Trigger | Inputs | Outcome |

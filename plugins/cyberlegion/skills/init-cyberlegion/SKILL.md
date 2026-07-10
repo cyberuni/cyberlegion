@@ -22,7 +22,7 @@ like? — the CLI holds all the *mechanism*.
 ### 1. Probe the environment
 
 ```bash
-npx cyberlegion@<version> admin doctor
+npx cyberlegion@<version> mux doctor
 ```
 
 Run this **before** touching the hook or any identity. It reports `harness`, `mux`, `pane`,
@@ -37,7 +37,7 @@ npx cyberlegion@<version> init
 ```
 
 Auto-detect is the default — plain `npx cyberlegion@<version> init`, no `--agent` flag. Pass
-`--agent <name>` **only** when `admin doctor` could not auto-detect the harness, or the user named
+`--agent <name>` **only** when `mux doctor` could not auto-detect the harness, or the user named
 one explicitly:
 
 ```bash
@@ -73,15 +73,15 @@ Only a root session with no `legate` owner bound is offered the bind. Ask plainl
 ### 5. On an explicit yes — mint and bind
 
 ```bash
-npx cyberlegion@<version> identity owner --handle legate
-npx cyberlegion@<version> identity bind-main
+npx cyberlegion@<version> unit register --standing --handle legate
+npx cyberlegion@<version> attach
 ```
 
 Run these **in this order** and only after the explicit yes: mint the durable, session-independent
 `legate` owner inbox first, then bind the current pane as that owner's live presence.
 
-**Non-mux parity.** If the probe reported no multiplexer or pane, `identity bind-main` is a no-op —
-that is expected, not a failure. Still run `identity owner --handle legate` on yes, and complete
+**Non-mux parity.** If the probe reported no multiplexer or pane, `attach` is a no-op —
+that is expected, not a failure. Still run `unit register --standing --handle legate` on yes, and complete
 **without erroring**. The root session surfaces owner mail via the `!spawnedBy` fallback instead of a
 bound pane.
 

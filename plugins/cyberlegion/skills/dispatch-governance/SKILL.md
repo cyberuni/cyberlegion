@@ -27,7 +27,7 @@ may need to grill the caller or converse over multiple rounds, not just return o
 ## 2. Probe the environment
 
 ```bash
-npx cyberlegion@<version> admin doctor --format json
+npx cyberlegion@<version> mux doctor --format json
 ```
 
 Read whether a multiplexer was ancestry-discovered (tmux/herdr) — a **channel** strategy needs one
@@ -48,7 +48,7 @@ to open a pane in; its absence rules that strategy out regardless of what the ag
   npx cyberlegion@<version> dispatch channel --agent <R> --brief-file <B> [--verdict-schema <V>] --wait
   ```
 
-  This is the one CLI-driven convenience — `prep` + `session spawn` + `mail await` in one call. Use
+  This is the one CLI-driven convenience — `prep` + `unit spawn` + `mail await` in one call. Use
   `--at` to place the pane, `--timeout`/`--max-wait` to bound the wait; a `waiting` sentinel at
   `--max-wait` means re-run with `--wait` to keep polling, not a failure.
 
