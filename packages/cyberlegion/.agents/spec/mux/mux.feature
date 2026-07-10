@@ -5,16 +5,17 @@ Feature: mux — the unit-agnostic pane abstraction
   running inside. Unit spawn/close/focus/nudge/read live in unit; hook surfacing lives in mail.
 
   # ── The session backend is selected by environment ──
+  # The backend is a parameter of one contract, not a second subject — one adapter per env.
 
-  Scenario: $TMUX selects the tmux backend
-    Given a caller with $TMUX set
+  Scenario Outline: the session backend is selected by environment
+    Given a caller with <env>
     When unit spawn runs
-    Then the new pane is opened through the tmux adapter
+    Then the new pane is opened through the <adapter> adapter
 
-  Scenario: $HERDR_ENV with no $TMUX selects the herdr backend
-    Given a caller with $HERDR_ENV set and no $TMUX
-    When unit spawn runs
-    Then the new pane is opened through the herdr adapter
+    Examples:
+      | env                         | adapter |
+      | $TMUX set                   | tmux    |
+      | $HERDR_ENV set and no $TMUX | herdr   |
 
   Scenario: neither tmux nor herdr detected errors before opening anything
     Given a caller with neither $TMUX nor $HERDR_ENV set
