@@ -34,8 +34,9 @@ subordinate to `mail` instead of a top-level sibling.
   caller's later `mail inbox`/`mail await` still sees it.
 
 **Non-goals** — plain send/inbox/read/ack/delete (`mail/core`); the hook injection payload and
-owner-mail surfacing gate (`mail/surface`); the multiplexer probe and `selectWakePath` decision
-helper, which moved to `mux/` as a real architectural layer rather than a mail sub-command; the
+owner-mail surfacing gate (`mail/surface`); the multiplexer probe, which lives in `mux/` as a real
+architectural layer rather than a mail sub-command (the `selectWakePath` wake-matrix decision it once
+sat beside was dissolved out of the CLI to the Legate plugin's routing governance in CR-4); the
 gateway/Legate routing brain that actually calls these primitives to drive a turn
 (`legion-gateway-legate`, CR-5).
 

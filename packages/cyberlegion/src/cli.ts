@@ -78,7 +78,7 @@ function withGlobals(cmd: Command): Command {
 const program = new Command()
 program
 	.name('cyberlegion')
-	.description('Harness-agnostic agent session spawning, messaging, and dispatch over the filesystem')
+	.description('Harness-agnostic agent session spawning and messaging over the filesystem')
 	.version(VERSION)
 	// The program carries --space/--format for the bare-status default action; the same names are
 	// declared on every leaf subcommand. Positional options keep a post-verb --space bound to the

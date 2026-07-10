@@ -1,14 +1,13 @@
 {
 	"name": "cyberlegion",
 	"version": "0.1.0",
-	"description": "Harness-agnostic agent session spawning, messaging, and dispatch over the filesystem",
+	"description": "Harness-agnostic agent session spawning and messaging over the filesystem",
 	"keywords": [
 		"agent",
 		"claude-code",
 		"cursor",
 		"codex",
 		"inter-agent",
-		"dispatch",
 		"tmux"
 	],
 	"repository": {

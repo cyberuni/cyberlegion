@@ -3,9 +3,9 @@
 [![npm version](https://img.shields.io/npm/v/cyberlegion.svg)](https://www.npmjs.com/package/cyberlegion)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Harness-agnostic, MCP-free agent session spawning, messaging, and dispatch over the filesystem (Claude Code, Cursor, Codex).
+Harness-agnostic, MCP-free agent session spawning and messaging over the filesystem (Claude Code, Cursor, Codex).
 
-The CLI is pure mechanism — dumb hands a routing layer composes. It never decides *how* to reach a peer (warm-peer session vs cold subagent vs run-inline); it just spawns, messages, and dispatches. State lives under a shared hub root (`$CYBERLEGION_ROOT`, else the global hub).
+The CLI is pure mechanism — dumb hands a routing layer composes. It never decides *how* to reach a peer (warm-peer session vs cold subagent vs run-inline); it just spawns and messages, and the routing brain composes those primitives (spawn a peer + await its mail, or run a cold subagent and take its Task result). State lives under a shared hub root (`$CYBERLEGION_ROOT`, else the global hub).
 
 ## Usage
 
@@ -49,14 +49,6 @@ npx cyberlegion mail delete <msg-id>                 # permanently remove a mess
 npx cyberlegion mail await                           # block until a thread reply arrives, print + ack
 npx cyberlegion mail watch                           # stream new matching mail (observer only)
 npx cyberlegion mail hook                            # emit the harness hook injection payload (JSON)
-```
-
-### dispatch — delegate work and await a result
-
-```sh
-npx cyberlegion dispatch prep                        # allocate id + brief + result slot (spawns nothing)
-npx cyberlegion dispatch channel --agent worker --wait  # prep + spawn + await the reply
-npx cyberlegion dispatch collect <id>                # read + validate a subagent's result file
 ```
 
 ### agent — resolve reusable agent definitions
