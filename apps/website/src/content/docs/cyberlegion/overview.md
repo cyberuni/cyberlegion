@@ -15,7 +15,6 @@ The `cyberlegion` CLI is the cold, deterministic mechanism — dumb hands a rout
 |---|---|
 | `unit` | Register and discover legion units, then spawn and reap warm sessions — `register` (`--standing` mints a session-independent owner inbox), `whoami`, `who` (lists peers + live sessions with their pane), `prune`, `spawn` (in its own git worktree, or `--cwd` into an existing one; `--at pane:right\|pane:down\|tab\|window\|workspace`), `focus`, `nudge`, `read`, `close` |
 | `mail` | Durable inter-agent messaging — `send`, `inbox`, `read`, `ack`, `delete`, `await` (block for a reply), `watch`, `hook` |
-| `dispatch` | Delegate work and await a result — `prep`, `channel --wait`, `collect` |
 | `agent` | Resolve reusable agent definitions under `.agents/agents/` — `list`, `show`, `resolve`, `path` |
 | `mux` | The unit-agnostic pane layer — `doctor` (probe harness/multiplexer/hub root/self-id), `mode` (report the detected session backend) |
 | `attach` | The human's read-pane — bind this pane as the hub's main (owner) pane; `--show` reads it, `--clear` unbinds |
@@ -24,11 +23,11 @@ The `cyberlegion` CLI is the cold, deterministic mechanism — dumb hands a rout
 
 ## The Legate
 
-The **Legate** is the routing brain on top of the console — the judgment the CLI deliberately doesn't carry. Given an intent (fulfill a role with a brief, expect a verdict), it reads the target agent-definition's `warm`/`interactive` tags and the environment's multiplexer availability, then picks exactly one strategy:
+The **Legate** is the routing brain on top of the console — the judgment the CLI deliberately doesn't carry. The CLI has no `dispatch` command group; deciding *how* to delegate is the Legate's one job. Given an intent (fulfill a role with a brief, expect a verdict), it reads the target agent-definition's `warm`/`interactive` tags and the environment's multiplexer availability, then picks exactly one strategy:
 
-- **channel** — a warm, interactive peer in its own pane (`dispatch channel`)
+- **channel** — a warm, interactive peer in its own pane, composed from `unit spawn` + `mail await`
 - **run-inline** — no multiplexer to host a peer, so the caller does the work itself, in-session
-- **subagent** — a cold, one-shot unit realized via the caller's own Task tool (`dispatch prep` / `dispatch collect`)
+- **subagent** — a cold, one-shot unit realized via the caller's own Task tool, its Task-result the verdict
 
 In an attended session, the Legate runs in-session as `dispatch-governance`. With no user channel, it's realized headless as the `headless-legate` agent.
 
