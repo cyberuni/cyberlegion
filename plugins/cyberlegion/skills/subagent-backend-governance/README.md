@@ -11,9 +11,11 @@ strategy.
 
 ## What it does
 
-- `dispatch prep` — allocate the envelope (id, brief file, result-file slot, instruction text).
-- Invoke the caller's own harness Task/subagent tool with the envelope's `instruction` verbatim.
-- `dispatch collect` — read and validate the result file against the verdict schema.
+- `cyberlegion agent resolve <R>` — resolve the def's model/effort/harness/instructions.
+- Build the subagent instruction from the resolved def + the caller-supplied brief, and invoke the
+  caller's own harness Task/subagent tool with it.
+- Take the subagent's Task-result (its own final returned message) as the verdict — no result file,
+  no schema validation (deferred to a `mail --verdict-schema` capability).
 
 ## What it does not do
 

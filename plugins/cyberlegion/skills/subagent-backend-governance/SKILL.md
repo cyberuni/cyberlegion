@@ -1,6 +1,6 @@
 ---
 name: subagent-backend-governance
-description: "Internal skill: the parent-side procedure for the cold-subagent dispatch path — prep an envelope, invoke the caller's own harness Task/subagent tool, collect and validate the result. Loaded by dispatch-governance when it picks the subagent strategy. Not triggered by users directly."
+description: "Internal skill: the parent-side procedure for the cold-subagent dispatch path — resolve the agent def, build the subagent instruction, invoke the caller's own harness Task/subagent tool, and take its Task-result as the verdict. Loaded by dispatch-governance when it picks the subagent strategy. Not triggered by users directly."
 user-invocable: false
 ---
 
@@ -10,34 +10,33 @@ The concrete procedure `dispatch-governance` runs once it has picked the **subag
 cold, one-shot unit with no live user channel and no expectation of a multi-round conversation.
 Three steps, always in this order.
 
-## 1. Prep the envelope
+## 1. Resolve the agent def
 
 ```bash
-npx cyberlegion@<version> dispatch prep --agent <R> --brief-file <B> [--verdict-schema <V>] --format json
+npx cyberlegion@<version> agent resolve <R> --format json
 ```
 
-Allocates a dispatch `id`, a brief file, and a result-file slot, and returns an envelope carrying
-`instruction` — the exact text to hand the subagent — plus `briefFile` and `resultFile` paths. This
-command **spawns nothing and never invokes a Task tool itself**; it only allocates state and hands
-back what the caller needs to do the spawning.
+Returns `model`, `effort`, `harness`, and `instructions` for role `R`. `cyberlegion` allocates no
+dispatch id, no brief file, and no result slot for this path — it only resolves the def; the caller
+builds the instruction itself.
 
-## 2. Invoke the caller's own Task/subagent tool
+## 2. Build the instruction and invoke the caller's own Task/subagent tool
 
-Pass the envelope's `instruction` **verbatim** to whatever subagent-spawning tool the **calling
-harness** provides (e.g. an `Agent`/`Task` tool) — never a `cyberlegion` command. The instruction
-already tells the unit to read its brief at `briefFile` and write its result JSON to `resultFile`;
-do not paraphrase or re-derive it. `cyberlegion` has no subagent-spawning primitive of its own by
-design — spawning is always the caller's own mechanism, because only the caller's harness knows how.
+Compose the subagent instruction from the resolved def (`model`, `effort`, `instructions`) plus the
+caller-supplied brief `B`, and pass it to whatever subagent-spawning tool the **calling harness**
+provides (e.g. an `Agent`/`Task` tool) — never a `cyberlegion` command. Name `subagent_type: <R>`
+when the harness recognizes it, but always inline the model/effort/instructions too so the same
+instruction is correct even when the harness has no such named subagent type. `cyberlegion` has no
+subagent-spawning primitive of its own by design — spawning is always the caller's own mechanism,
+because only the caller's harness knows how.
 
-## 3. Collect and validate the result
+## 3. Take the Task-result as the verdict
 
-```bash
-npx cyberlegion@<version> dispatch collect <id> --verdict-schema <V> --format json
-```
-
-Reads `resultFile`, validates it against `V` when a schema was given, and returns the validated
-result (or a validation failure) — the subagent path's counterpart to `mail await` on the channel
-path.
+The subagent's **Task-result — its own final returned message** — is the verdict. There is no
+`dispatch collect`, no result file, and no schema validation step: the caller reads the return value
+its own Task tool hands back, the same way it would for any other subagent spawn. (Structured
+verdict-schema validation on that return is a deferred `mail --verdict-schema` capability, not
+present today.)
 
 ## Non-goals
 

@@ -21,7 +21,7 @@ collects my return value?** — and the transport follows.
 | Lifecycle | Who collects | Report / ask transport | Resume |
 |---|---|---|---|
 | **Subagent** — Task-spawned; a caller frame awaits the return | the spawner | Return a `DispatchResult` / verdict packet with `needsInput` populated. **Cannot** `mail await` — the context dies at return. | The spawner collects, gathers answers, re-invokes. |
-| **Spawned peer / channel** — a spawner `dispatch channel --wait`s, or a wrapper reads stdout | the spawner / wrapper | Return the packet, **or** reply on the mail thread the spawner awaits. | The spawner relays. |
+| **Spawned peer / channel** — a spawner `unit spawn`s then `mail await`s on the thread, or a wrapper reads stdout | the spawner / wrapper | Return the packet, **or** reply on the mail thread the spawner awaits. | The spawner relays. |
 | **Bare top-level / cron** — a scheduler started this session; **no frame** reads the return | nobody | **Push `mail send` to the standing owner, then exit.** This is the Slack/PR analog. | A later tick (cron) or the owner's reply on the thread re-reads it; state lives in the thread, not the process. |
 
 The rule mirrors `run-inline`: a cold subagent **must** return (it cannot await); a bare cron session

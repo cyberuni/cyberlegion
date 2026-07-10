@@ -40,7 +40,7 @@ to the standing owner and exit. Read `relay-governance` for the full fork; do no
 
 The one thing genuinely the Legate's own, above single-dispatch routing: given a **batch** of briefs,
 resolve each one's strategy independently (a batch may mix channel and subagent units) and run them —
-subagent dispatches may run concurrently (each is its own `prep`/Task/`collect` round-trip); channel
+subagent dispatches may run concurrently (each is its own resolve/Task-invoke/Task-result round-trip); channel
 dispatches each occupy a pane, so cap concurrency to what the environment's multiplexer can host.
 Collect every unit's `DispatchResult` before returning.
 

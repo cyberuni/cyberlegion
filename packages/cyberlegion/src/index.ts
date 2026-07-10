@@ -6,7 +6,7 @@
 // Keep this narrow and intentional: the domain types + Store seam + the reusable operations, never
 // internal helpers.
 
-export { realizeLaunch, realizeSubagentInstruction } from './agentdef/realize.ts'
+export { realizeLaunch } from './agentdef/realize.ts'
 // ── Agent definitions ──────────────────────────────────────────────────────────────────────────
 export type { AgentDef } from './agentdef/resolve.ts'
 export { listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
@@ -17,12 +17,6 @@ export { probeMultiplexer } from './console/mux-probe.ts'
 export { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from './console/worktree.ts'
 export type { DecommissionInput, DecommissionResult } from './decommission.ts'
 export { decommission } from './decommission.ts'
-export type { ChannelInput, DispatchResult } from './dispatch/channel.ts'
-export { channel, DispatchWaitingError } from './dispatch/channel.ts'
-export { collect } from './dispatch/collect.ts'
-// ── Dispatch ───────────────────────────────────────────────────────────────────────────────────
-export type { DispatchEnvelope, PrepInput } from './dispatch/prep.ts'
-export { prep } from './dispatch/prep.ts'
 // ── Identity + registry ────────────────────────────────────────────────────────────────────────
 export type { Exec, IdContext, RegisterInput } from './identity.ts'
 export {
@@ -59,6 +53,4 @@ export { FileStore } from './store/file-store.ts'
 export type { AgentRecord, Harness, InboxSnapshot, Message, Store } from './store/store.ts'
 export type { AwaitInput, AwaitOutcome } from './wake/await.ts'
 export { awaitReply } from './wake/await.ts'
-export type { WakePathInput, WakePathResult } from './wake/wake-path.ts'
-export { selectWakePath } from './wake/wake-path.ts'
 export { watchMail } from './wake/watch.ts'

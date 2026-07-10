@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { realizeLaunch, realizeSubagentInstruction, shellQuote } from './realize.ts'
+import { realizeLaunch, shellQuote } from './realize.ts'
 import type { AgentDef } from './resolve.ts'
 
 function def(overrides: Partial<AgentDef> = {}): AgentDef {
@@ -51,26 +51,5 @@ describe('realizeLaunch', () => {
 	it('safely quotes instructions containing shell-special characters', () => {
 		const res = realizeLaunch(def({ instructions: `don't leak "quotes"; $(rm -rf /)`, harness: 'claude' }))
 		expect(res.command).toContain(shellQuote(`don't leak "quotes"; $(rm -rf /)`))
-	})
-})
-
-describe('realizeSubagentInstruction', () => {
-	it('names subagent_type + brief/result paths and inlines model/effort/instructions', () => {
-		const out = realizeSubagentInstruction(def({ model: 'sonnet', effort: 'high' }), {
-			briefFile: '/tmp/brief.md',
-			resultFile: '/tmp/result.json',
-		})
-		expect(out).toContain('subagent_type: reviewer')
-		expect(out).toContain('Model: sonnet.')
-		expect(out).toContain('Effort: high.')
-		expect(out).toContain('/tmp/brief.md')
-		expect(out).toContain('/tmp/result.json')
-		expect(out).toContain('Look for correctness bugs first.')
-	})
-
-	it('omits the model/effort lines when the def carries neither', () => {
-		const out = realizeSubagentInstruction(def(), { briefFile: '/tmp/b.md', resultFile: '/tmp/r.json' })
-		expect(out).not.toContain('Model:')
-		expect(out).not.toContain('Effort:')
 	})
 })

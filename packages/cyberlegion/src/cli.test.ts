@@ -16,7 +16,7 @@ describe('cli scaffold', () => {
 
 	it('--help lists the mechanism command groups', () => {
 		const out = legion(['--help'])
-		for (const group of ['mux', 'unit', 'mail', 'dispatch', 'agent', 'attach', 'init', 'admin']) {
+		for (const group of ['mux', 'unit', 'mail', 'agent', 'attach', 'init', 'admin']) {
 			expect(out).toContain(group)
 		}
 	})

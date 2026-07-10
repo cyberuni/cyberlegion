@@ -19,9 +19,9 @@ logic, loads no other governance, and writes no state of its own.
 
 Two different primitives, never confused: a **nudge** (`unit nudge <ref>`) is a dumb doorbell —
 it rings a peer's pane and carries no content. The **payload always lives in the mailbox**
-(`mail send`, or the brief/result files a dispatch allocates) — a peer that receives a nudge reads
-its mail to learn *why* it was rung. Never encode meaning in a nudge itself; never skip the mailbox
-because a nudge already fired.
+(`mail send`, or the brief file `unit spawn` drops for a new unit) — a peer that receives a nudge
+reads its mail to learn *why* it was rung. Never encode meaning in a nudge itself; never skip the
+mailbox because a nudge already fired.
 
 ## Classification map
 
@@ -38,7 +38,7 @@ because a nudge already fired.
 | Onboard / set up cyberlegion (register the surfacing hook, bind the main owner pane, first-run setup) | **invoke the `init-cyberlegion` skill** — the interactive onboarding front door over `cyberlegion init` / `unit register --standing` / `attach` |
 | Diagnose the environment (harness, multiplexer, pane, hub root) | `npx cyberlegion@<version> mux doctor` |
 | Register the surfacing hook by hand (low-level, explicit harness) | `npx cyberlegion@<version> init --agent <harness>` — the `init-cyberlegion` skill wraps this; use directly only when scripting a known harness |
-| Dispatch work to fulfill a role with a brief and expect a verdict back (routing judgment needed — which strategy, which agent def, warm vs cold) | **hand off to `dispatch-governance`** — do not pick a `dispatch` subcommand yourself |
+| Dispatch work to fulfill a role with a brief and expect a verdict back (routing judgment needed — which strategy, which agent def, warm vs cold) | **hand off to `dispatch-governance`** — do not compose `unit spawn`/`mail await`/the Task tool yourself |
 | No user channel at all (unattended trigger, multi-unit fan-out) | **spawn the `headless-legate` agent** by name — it realizes this same gateway + `dispatch-governance` flow headless |
 
 ## Load the handling skill in-session

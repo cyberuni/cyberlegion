@@ -1,4 +1,4 @@
-// Domain types + the Store seam ALL mailbox + registry + brief/result access goes through. Pure —
+// Domain types + the Store seam ALL mailbox + registry + brief access goes through. Pure —
 // no fs/net here; `FileStore` (file-store.ts) is the current on-disk implementation, and a later
 // `SqliteStore` is the sanctioned swap when FTS search, relational features, or measured
 // volume/concurrency pain motivate it (identity/message/runtime code never changes).
@@ -45,7 +45,7 @@ export interface InboxSnapshot {
 	read: Message[]
 }
 
-/** The seam all mailbox + registry + brief/result access goes through. */
+/** The seam all mailbox + registry + brief access goes through. */
 export interface Store {
 	/** This store's root (for path-relative concerns the Store itself doesn't cover, e.g. spawning
 	 * a worktree under a project-local root distinct from this hub). */
@@ -83,14 +83,6 @@ export interface Store {
 	// -- brief (spawn-time payload handed to a new unit) --
 	writeBrief(agentId: string, text: string): void
 	readBrief(agentId: string): string | undefined
-
-	// -- result (dispatch result slot — the subagent path's file counterpart to mail's thread await) --
-	/** Path this dispatch's result file would live at (computed only — no IO; existence not implied). */
-	resultPath(id: string): string
-	/** Write a dispatch's result as JSON text. */
-	writeResult(id: string, value: unknown): void
-	/** Read a dispatch's result JSON text, or undefined if not yet written. */
-	readResult(id: string): string | undefined
 
 	// -- main pane (hub-level owner-presence pointer) --
 	/** Set (or move) the hub's single main pane — the standing owner's live presence — or clear it

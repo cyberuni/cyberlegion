@@ -127,19 +127,6 @@ export class FileStore implements Store {
 		return existsSync(file) ? readFileSync(file, 'utf8') : undefined
 	}
 
-	resultPath(id: string): string {
-		return paths.resultFile(this.root, id)
-	}
-
-	writeResult(id: string, value: unknown): void {
-		writeJson(paths.resultFile(this.root, id), value)
-	}
-
-	readResult(id: string): string | undefined {
-		const file = paths.resultFile(this.root, id)
-		return existsSync(file) ? readFileSync(file, 'utf8') : undefined
-	}
-
 	setMainPane(pane: string | null): void {
 		const file = paths.mainPaneFile(this.root)
 		if (pane) {

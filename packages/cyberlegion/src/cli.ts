@@ -7,9 +7,6 @@ import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolv
 import { selectSessionAdapter } from './console/index.ts'
 import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
 import { decommission } from './decommission.ts'
-import { type DispatchResult, DispatchWaitingError, channel as dispatchChannel } from './dispatch/channel.ts'
-import { collect as dispatchCollect } from './dispatch/collect.ts'
-import { type DispatchEnvelope, prep as dispatchPrep } from './dispatch/prep.ts'
 import {
 	bumpLastSeen,
 	detectHarness,
@@ -37,8 +34,10 @@ import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
 
 // cyberlegion — the CLI is pure mechanism (dumb hands a routing layer composes). Routing
-// (warm-peer vs cold-subagent vs run-inline) is never decided here. Command groups (ADR-0024):
-//   mux · unit · mail · agent · attach · init · admin · dispatch
+// (warm-peer vs cold-subagent vs run-inline), the wake-matrix decision, and result collection are
+// never decided here — a cold subagent returns via the caller's own Task-result, a warm peer via
+// `mail await`; the Legate plugin governance composes those primitives. Command groups (ADR-0024):
+//   mux · unit · mail · agent · attach · init · admin
 
 const VERSION = '0.0.0'
 
@@ -489,124 +488,6 @@ withGlobals(mail.command('hook'))
 		touch(ctx)
 		const payload = injectInbox(ctx, opts.event)
 		if (payload) console.log(JSON.stringify(payload))
-	})
-
-// -------------------------------------------------------------------------------------------
-// dispatch — result-slot primitives; routing (warm peer vs cold subagent) is never decided here
-// -------------------------------------------------------------------------------------------
-const dispatch = program.command('dispatch').description('delegate work and await a result (result-slot primitives)')
-
-function definePrepOptions(cmd: Command): Command {
-	return withGlobals(cmd)
-		.option('--agent <name>', 'resolve an agent def to build the instruction/launch from')
-		.option('--agent-file <path>', 'read an exact agent def file instead of resolving by name')
-		.option('--role <name>', 'role label folded into the generic instruction when no agent def is given')
-		.option('--brief-text <text>', 'brief body text')
-		.option('--brief-file <path>', 'read the brief from a file, or - for stdin')
-		.option('--verdict-schema <path>', 'JSON schema file (required keys + primitive types) the result must satisfy')
-		.option('--thread <id>', 'thread id (defaults to the minted dispatch id)')
-}
-
-function dispatchResultFields(r: DispatchResult) {
-	return { id: r.id, verdict: r.verdict != null ? JSON.stringify(r.verdict) : undefined, body: r.body, ts: r.ts }
-}
-
-definePrepOptions(dispatch.command('prep'))
-	.description('allocate an id + brief + result slot and return the envelope — spawns nothing, never invokes Task')
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		let envelope: DispatchEnvelope
-		try {
-			envelope = dispatchPrep(
-				{ store: ctx.store },
-				{
-					agent: opts.agent,
-					agentFile: opts.agentFile,
-					role: opts.role,
-					briefText: opts.briefText,
-					briefFile: opts.briefFile,
-					thread: opts.thread,
-				},
-			)
-		} catch (err) {
-			fail(err instanceof Error ? err.message : String(err))
-		}
-		emit(formatOf(opts), { toon: toonObject({ ...envelope }), json: envelope })
-		nextStep(
-			`spawn a subagent with the instruction, then \`cyberlegion dispatch collect ${envelope.id}\` — ` +
-				`or on the channel path, \`cyberlegion mail await --thread ${envelope.thread}\``,
-		)
-	})
-
-definePrepOptions(dispatch.command('channel'))
-	.description(
-		'prep + spawn a peer session + (--wait) await the mail-thread reply — the one CLI-driven convenience ' +
-			'(needs --agent or --agent-file to realize the peer launch)',
-	)
-	.addOption(
-		new Option('--at <placement>', 'where to open the new session')
-			.choices(['pane:right', 'pane:down', 'tab', 'window', 'workspace'])
-			.default('pane:right'),
-	)
-	.option('--wait', 'block for the mail-thread reply and print the validated result')
-	.option(
-		'--timeout <ms>',
-		'give up after this many ms with no reply (0 = wait forever)',
-		(v) => Number.parseInt(v, 10),
-		600_000,
-	)
-	.option(
-		'--max-wait <s>',
-		'self-cap for one internal poll cycle, in seconds (re-arm by re-running with --wait)',
-		(v) => Number.parseInt(v, 10),
-		240,
-	)
-	.action(async (opts) => {
-		const ctx = ctxOf(opts)
-		touch(ctx)
-		let result: DispatchResult | DispatchEnvelope
-		try {
-			result = await dispatchChannel(ctx, {
-				agent: opts.agent,
-				agentFile: opts.agentFile,
-				role: opts.role,
-				briefText: opts.briefText,
-				briefFile: opts.briefFile,
-				verdictSchema: opts.verdictSchema,
-				thread: opts.thread,
-				at: opts.at,
-				wait: opts.wait,
-				timeoutMs: opts.timeout,
-				maxWaitS: opts.maxWait,
-			})
-		} catch (err) {
-			if (err instanceof DispatchWaitingError) {
-				console.error(err.message)
-				return
-			}
-			fail(err instanceof Error ? err.message : String(err))
-		}
-		if ('ts' in result) {
-			emit(formatOf(opts), { toon: toonObject(dispatchResultFields(result)), json: result })
-			return
-		}
-		emit(formatOf(opts), { toon: toonObject({ ...result }), json: result })
-		nextStep(`cyberlegion mail await --thread ${result.thread} to collect the reply later`)
-	})
-
-withGlobals(dispatch.command('collect'))
-	.description("read + validate a subagent's result file (the subagent path's counterpart to mail await)")
-	.argument('<id>', 'dispatch id')
-	.option('--verdict-schema <path>', 'JSON schema file the result must satisfy')
-	.action((id, opts) => {
-		const ctx = ctxOf(opts)
-		let result: DispatchResult
-		try {
-			result = dispatchCollect({ store: ctx.store }, id, opts.verdictSchema)
-		} catch (err) {
-			fail(err instanceof Error ? err.message : String(err))
-		}
-		emit(formatOf(opts), { toon: toonObject(dispatchResultFields(result)), json: result })
 	})
 
 // -------------------------------------------------------------------------------------------
