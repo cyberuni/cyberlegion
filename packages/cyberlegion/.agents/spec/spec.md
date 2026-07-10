@@ -1,7 +1,10 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
+  impl:
+    verdict: approve
+    by: unional
   spec:
     verdict: approve
     by: unional
