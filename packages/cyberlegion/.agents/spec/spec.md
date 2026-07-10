@@ -1,6 +1,18 @@
 ---
-status: draft
+status: approved
 project-path: packages/cyberlegion
+approval:
+  spec:
+    verdict: approve
+    by: unional
+    cause: clearance
+    why:
+      floor: clearance — two frozen contracts were re-opened and re-frozen this CR — unit/registry's who scenario (merged the old session list, +pane field, "N units" aggregate) and mail/surface's install group (removed, deduped into init with added codex coverage). Both narrowing/rewrite re-opens were ratified in the CR-2 resolutions (res#1 who-merge, res#2 install-dedup) and by this gate ratification. No Compatibility bump (spec-only this CR — the CLI is unchanged until deliver). No Conflict.
+      blast: high — whole-tree realignment (ADR-0024)- identity->unit/{registry,lifecycle}, session dissolved, wake/surfacing dissolved into mail/{wait,surface}+mux, new mux/attach/admin nodes; 152 scenarios relocated. dispatch/ and agent/ untouched.
+      novelty: high — first project-spec realignment on cyberlegion; the sub-node split (unit, mail) is a new node-shape for this spec.
+      confidence: high — command-noun renames are freeze-preserving reconciles (ADR-0021); check-spec-state/suite/structure all green; no oversized node.
+      judge: cold sdd-spec-judge — oracle PASS; architect/builder returned change (not reject); all blocking findings fixed (illegal spec-type, freeze-legality re-open, 4 README syncs) and re-verified green.
+      cr: cyberlegion-cli-realign
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn, messaging, and dispatch

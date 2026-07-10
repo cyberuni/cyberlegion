@@ -1,3 +1,4 @@
+@frozen
 Feature: admin — hub-state maintenance
   Moving a hub's state from one root into another — e.g. an old project-local root into the global
   hub. The onboarding front door lives in init; multiplexer diagnostics (doctor/mode) live in mux.

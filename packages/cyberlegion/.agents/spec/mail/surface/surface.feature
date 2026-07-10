@@ -1,3 +1,4 @@
+@frozen
 Feature: mail surface — inject unread mail into a session across harnesses
   mail hook emits the harness hook injection payload for a spawned peer's pending brief, its unread
   mail, and the standing owner's unread mail when this session is the hub's main pane. The mail
