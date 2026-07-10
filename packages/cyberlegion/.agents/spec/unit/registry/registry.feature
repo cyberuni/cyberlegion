@@ -1,4 +1,3 @@
-@frozen
 Feature: unit registry — register, discover, and prune legion units
   Register this session, recover its own id, discover addressable peers over the global hub, and
   reap dead ones. Sending and reading mail live in mail; spawning/closing a peer session lives in

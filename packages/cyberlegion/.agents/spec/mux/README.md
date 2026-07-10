@@ -50,4 +50,4 @@ Every scenario in [`mux.feature`](./mux.feature) maps to one of these behaviors:
 | **placement** | `--at` choices; default pane:right |
 | **multiplexer detection is two-mode** | `$CYBERLEGION_MUX` fast-path + override; ancestry walk; hint fallback; `mux doctor` hint; `unit spawn` propagation |
 | **selectWakePath is a pure decision helper** | portable default; Claude+observable; live session+mux; never B without mux — DEPRECATED(cr-4), moves to the Legate plugin |
-| **mux mode** | TODO — no current spec coverage; see the TODO in `mux.feature` |
+| **mux mode** | reports the detected session backend; "none" (exit 0) when no adapter is selectable |

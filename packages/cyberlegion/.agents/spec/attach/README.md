@@ -19,11 +19,9 @@ human is reading from:
   the pane id; binding from a different pane **moves** it (last bind wins, still exactly one). It
   throws when the caller is in no multiplexer pane — there is nothing to bind.
 - **attach --clear removes the binding** — a no-op, never an error, when none is bound.
-- **attach --status prints the bound pane or a definitive "none"** — see the TODO in
-  [`attach.feature`](./attach.feature): the plan text collapses both the bind verb (was
-  `identity bind-main`) and the show verb (was `identity main`) onto the single name `attach`,
-  which is a real collision (write vs. read) this restructure could not resolve without changing
-  behavior. `--status` is a placeholder, not a confirmed flag name.
+- **attach --show prints the bound pane or a definitive "none"** — the read form of the verb. One
+  flag family, no ambiguity: bare `attach` always binds (was `bind-main`), `--clear` unbinds, `--show`
+  reads (was `main`), and `--follow` (deferred, CR-4) auto-moves it via tmux focus-events.
 - **Binding a main pane neither creates nor requires a standing owner** — the durable inbox (`unit
   register --standing`) and where it surfaces (`attach`) are minted independently.
 
@@ -37,5 +35,5 @@ Every scenario in [`attach.feature`](./attach.feature) maps to one of these beha
 |---|---|
 | **attach records the caller's pane** | binds the current pane as the hub's single main pane; moves on rebind; throws in no pane |
 | **attach --clear** | unbinds; no-op when unbound |
-| **attach --status** | shows the bound pane or "none" — TODO: naming collision with the bind verb, see `attach.feature` |
+| **attach --show** | prints the bound pane or "none" |
 | **independent of a standing owner** | binding neither creates nor requires one |

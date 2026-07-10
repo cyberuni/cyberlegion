@@ -10,7 +10,7 @@ unit's brief, its unread mail, and (when this session is the hub's main pane) th
 unread mail into a session. Migrated CR-2 from `surfacing/surfacing.feature`
 (`cyberlegion-cli-realign`, ADR-0024): the former `surfacing/` concept-folder dissolves — `mail
 surface` is a real mail sub-command group, correctly subordinate to `mail` instead of a top-level
-sibling. The per-harness installer scenarios did **not** move here — see the TODO below.
+sibling. The per-harness installer folded into [`init/`](../../init/README.md), which owns installation directly.
 
 ## Use Cases
 
@@ -81,4 +81,3 @@ Every scenario in [`surface.feature`](./surface.feature) maps to one of these be
 | **unsupported --event rejected** | only SessionStart/PostToolUse accepted |
 | **owner mail surfaces into the bound main pane** | spawned units never surface; among root sessions, a bound main pane (`attach`) gates surfacing to that one pane, and with none bound it falls back to any root session; bodies under an owner heading; never acks; acked no longer surfaces |
 | **session-start setup nudge** | an unbound root session gets a best-effort `## Legion setup` nudge toward `cyberlegion init` (mux: no main pane bound; non-mux: no standing owner); binding/minting silences it; spawned units never get it; best-effort, always exit 0 |
-| **install (pending dedup)** | TODO — see above; scenarios parked at `init/install-pending.feature`, not authored here |

@@ -25,10 +25,11 @@ without being told it, and discovering its live peers:
 - **whoami prints this session's own identity** — resolves the caller's own id (see self-identity
   recovery below) and prints its record; errors when the session has no identity yet or when a
   resolved self id has no backing record.
-- **who lists the addressable peers** — `unit who [--all]` lists every registered agent as a
-  TOON list (`agents[N]{id,handle,harness,status}:`) plus a `<N> agents` aggregate line, exit 0 even
-  when the registry is empty (`0 agents`, never an error); by default agents with `status: exited`
-  are filtered out, `--all` includes them. A top-level `who` command is a plain alias of `unit who`.
+- **who lists the addressable peers** — `unit who [--all]` is the single list command (the old
+  `session list` folded in, CR-2 resolution #1): every registered unit as a TOON list
+  (`units[N]{id,handle,harness,status,pane}:`) plus a `<N> units` aggregate line, exit 0 even when the
+  registry is empty (`0 units`, never an error); by default units with `status: exited` are filtered
+  out, `--all` includes them. A top-level `who` command is a plain alias of `unit who`.
 - **Bare invocation is a content-first status** — `cyberlegion` with no subcommand prints a compact
   status (`self · harness · unread · units`) of this session's own identity, its unread count, and
   how many units are live; exit 0 even when unregistered (`self: -`, with a register next-step) —
@@ -81,11 +82,10 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 |---|---|
 | **register records who and where** | writes record + pane pointer; hub marker stamped; idempotent per pane; fails cleanly when unwritable |
 | **whoami** | prints own record; errors when unregistered or record missing |
-| **who lists peers** | TOON list + aggregate; empty is "0 agents" not an error; `--all` includes exited; top-level alias — TODO: merge with `list` into one `unit who` (CR-2 resolution #1) |
+| **who lists peers** | single list command (folded `session list`): TOON list with a `pane` field; aggregate "N units"; empty is "0 units"; `--all` includes exited; top-level alias |
 | **bare status (AXI #8)** | no-subcommand prints compact self+harness+unread+live-units; exit 0 unregistered with a register next-step, never help+error |
 | **prune** | marks dead-pane/stale agents exited; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents |
 | **self-identity recovery** | pane pointer first, resolving "my pane" mux-agnostically (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`, plus the `$CYBERLEGION_MUX_PANE` fast-path); `$CYBERLEGION_AGENT_ID` only when in no multiplexer pane; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `unit register --standing` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |
-| **list (from session)** | live (non-exited) peers — TODO: the other half of the who/list merge (CR-2 resolution #1); moved here, not yet reconciled |

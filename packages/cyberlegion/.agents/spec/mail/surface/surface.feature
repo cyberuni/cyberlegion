@@ -1,10 +1,9 @@
-@frozen
 Feature: mail surface — inject unread mail into a session across harnesses
   mail hook emits the harness hook injection payload for a spawned peer's pending brief, its unread
   mail, and the standing owner's unread mail when this session is the hub's main pane. The mail
   primitives themselves live in mail/core; thread correlation and the bounded mail await/watch live
   in mail/wait; the doorbell nudge lives in unit/lifecycle; installing the hook into a project's
-  harness config is pending reconciliation into init (see init/install-pending.feature).
+  harness config lives in init.
 
   # ── mail hook emits brief + unread mail ──
 

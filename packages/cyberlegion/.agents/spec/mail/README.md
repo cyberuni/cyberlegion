@@ -1,5 +1,4 @@
 ---
-spec-type: index
 concept: [cyberlegion]
 ---
 
