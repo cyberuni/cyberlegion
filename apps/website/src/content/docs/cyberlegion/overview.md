@@ -13,12 +13,14 @@ The `cyberlegion` CLI is the cold, deterministic mechanism — dumb hands a rout
 
 | Command group | What it does |
 |---|---|
-| `identity` | Self-identify and discover addressable peers — `register`, `whoami`, `owner` (mint a standing, session-independent owner inbox), `who`, `prune` |
-| `session` | Warm peer session lifecycle over a multiplexer — `spawn` (in its own git worktree, or `--cwd` into an existing one; `--at pane:right\|pane:down\|tab\|window\|workspace`), `list`, `focus`, `nudge`, `read`, `close` |
+| `unit` | Register and discover legion units, then spawn and reap warm sessions — `register` (`--standing` mints a session-independent owner inbox), `whoami`, `who` (lists peers + live sessions with their pane), `prune`, `spawn` (in its own git worktree, or `--cwd` into an existing one; `--at pane:right\|pane:down\|tab\|window\|workspace`), `focus`, `nudge`, `read`, `close` |
 | `mail` | Durable inter-agent messaging — `send`, `inbox`, `read`, `ack`, `delete`, `await` (block for a reply), `watch`, `hook` |
 | `dispatch` | Delegate work and await a result — `prep`, `channel --wait`, `collect` |
 | `agent` | Resolve reusable agent definitions under `.agents/agents/` — `list`, `show`, `resolve`, `path` |
-| `admin` | Setup and diagnostics — `install` (wire the mail-surfacing hook into a harness), `doctor` (probe harness/multiplexer/hub root/self-id), `mode`, `migrate` (merge one hub root into another) |
+| `mux` | The unit-agnostic pane layer — `doctor` (probe harness/multiplexer/hub root/self-id), `mode` (report the detected session backend) |
+| `attach` | The human's read-pane — bind this pane as the hub's main (owner) pane; `--show` reads it, `--clear` unbinds |
+| `init` | Onboarding front door — auto-detect the harness and wire the mail-surfacing hook into its config |
+| `admin` | Hub-state maintenance — `migrate` (merge one hub root into another) |
 
 ## The Legate
 
