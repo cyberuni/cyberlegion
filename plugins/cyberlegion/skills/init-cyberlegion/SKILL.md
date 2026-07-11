@@ -12,10 +12,19 @@ It is a **thin wrapper**: every mechanic is a `cyberlegion` CLI call. The skill 
 and the judgment* — is this a root session? should we ask to bind? what does the environment look
 like? — the CLI holds all the *mechanism*.
 
-> **Version pin.** Every invocation below reads `npx cyberlegion@<version> ...` — a placeholder.
-> The package is not yet published to npm (`legion-publish` is a later CR in the extraction); until
-> then, resolve the CLI from a workspace checkout (`packages/cyberlegion/bin/cyberlegion.mjs`) or
-> whatever pinned version the project has declared. Never invent a version number.
+> **Version pin.** Resolve the CLI version **once, before the flow**, by reading the plugin's bundled
+> map at `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json` — a flat `{ "<package>": "<version>" }` map the
+> `universal-plugin bundle` step emits at release time. Look up the `cyberlegion` key:
+>
+> - **A version is found** → use it for every `npx cyberlegion@<version> ...` call below, **and** pass
+>   it to the hook registration in step 2 as `init --pin <version>` so the installed surfacing hook is
+>   pinned to the same shipped version.
+> - **No `pins.json`, no `cyberlegion` key, or a malformed map** (an unbundled workspace checkout) →
+>   fall back to the unpinned `npx cyberlegion ...` form and pass **no** `--pin`. **Never invent a
+>   version number.**
+>
+> Do not scrape the version from prose. (`legion-publish` — actually publishing `cyberlegion` to npm —
+> is a later extraction CR; until then the npx pin is dormant and the local workspace bin serves.)
 
 ## Flow
 
@@ -33,15 +42,17 @@ invent facts the probe did not report.
 ### 2. Register the surfacing hook
 
 ```bash
-npx cyberlegion@<version> init
+npx cyberlegion@<version> init --pin <version>
 ```
 
-Auto-detect is the default — plain `npx cyberlegion@<version> init`, no `--agent` flag. Pass
-`--agent <name>` **only** when `mux doctor` could not auto-detect the harness, or the user named
-one explicitly:
+Pass `--pin <version>` with the version resolved above so the installed hook is pinned to the shipped
+version; **omit `--pin`** (and use the unpinned `npx cyberlegion init`) when the map yielded no version.
+
+Auto-detect is the default — no `--agent` flag. Pass `--agent <name>` **only** when `mux doctor` could
+not auto-detect the harness, or the user named one explicitly (it composes with `--pin`):
 
 ```bash
-npx cyberlegion@<version> init --agent <name>
+npx cyberlegion@<version> init --pin <version> --agent <name>
 ```
 
 This step is **idempotent**: if the hook is already registered, `init` reports `already present` —
@@ -87,8 +98,9 @@ bound pane.
 
 ## Boundaries
 
-- Every mechanic here is a `cyberlegion` CLI call — this skill never touches the filesystem or hub
-  state directly and never invents a config format.
+- Every mechanic here is a `cyberlegion` CLI call — this skill writes no hub state and invents no
+  config format. Its only filesystem read is the plugin's own bundled `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json`
+  version map, to resolve the CLI pin.
 - It never mints or binds an owner identity without an explicit user yes.
 - It is distinct from `legate` — sending/spawning/dispatching to a peer is `legate`'s job, not this
   skill's.
