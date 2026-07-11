@@ -4,8 +4,9 @@ Feature: init-cyberlegion — onboard a session into the Legion
   cyberlegion CLI through probe (mux doctor) -> register the surfacing hook (init) -> detect a root
   session (!spawnedBy) -> ask before binding this pane as the durable legate owner inbox -> on an
   explicit yes, mint the owner (unit register --standing --handle legate) and bind the pane (attach).
-  Every mechanic is a cyberlegion CLI call; the skill never touches the filesystem or hub state directly
-  and never invents a config format. Spawning/mailing/dispatching a peer is legate; reading or acking
+  Every mechanic is a cyberlegion CLI call; the skill writes no hub state and invents no config format
+  (its only filesystem read is the plugin's own bundled ${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json version
+  map, to resolve the CLI pin). Spawning/mailing/dispatching a peer is legate; reading or acking
   owner mail is manage-inbox; the CLI mechanics themselves live in the sibling packages/cyberlegion
   project and are out of scope here.
 
@@ -78,13 +79,33 @@ Feature: init-cyberlegion — onboard a session into the Legion
   Scenario: the agent flag is passed only when detection needs it
     Given cyberlegion mux doctor cannot auto-detect the harness or the user named one
     When init-cyberlegion registers the surfacing hook
-    Then it runs cyberlegion init --agent with the resolved harness rather than plain cyberlegion init
+    Then it runs cyberlegion init --agent with the resolved harness rather than without an --agent flag
 
   @behavior
   Scenario: the agent flag is omitted when auto-detect succeeds
     Given cyberlegion mux doctor auto-detects the harness and the user named none
     When init-cyberlegion registers the surfacing hook
-    Then it runs plain cyberlegion init without an --agent flag
+    Then it runs cyberlegion init without an --agent flag
+
+  # ── Version pin read from the plugin's bundled map ──
+
+  @behavior
+  Scenario: the pinned version is read from the plugin's bundled map, not invented
+    Given the plugin ships a .plugin/pins.json mapping cyberlegion to a version
+    When init-cyberlegion resolves which cyberlegion CLI version to run
+    Then it reads that version from ${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json rather than inventing a number or scraping prose
+
+  @behavior
+  Scenario: the resolved version is threaded into init --pin
+    Given .plugin/pins.json maps cyberlegion to a version
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init --pin with that version so the installed hook is version-pinned
+
+  @behavior
+  Scenario: a missing or unreadable map falls back to the unpinned CLI without inventing a version
+    Given no .plugin/pins.json is present, or it carries no cyberlegion entry, or it is malformed (an unbundled workspace checkout or a corrupt map)
+    When init-cyberlegion resolves which cyberlegion CLI version to run
+    Then it invokes the unpinned cyberlegion CLI and passes no --pin, never inventing a version number
 
   # ── Detecting root vs spawned ──
 
