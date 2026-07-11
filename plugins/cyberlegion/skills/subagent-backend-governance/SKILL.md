@@ -1,6 +1,6 @@
 ---
 name: subagent-backend-governance
-description: "Internal skill: the parent-side procedure for the cold-subagent dispatch path — resolve the agent def, build the subagent instruction, invoke the caller's own harness Task/subagent tool, and take its Task-result as the verdict. Loaded by dispatch-governance when it picks the subagent strategy. Not triggered by users directly."
+description: "Internal skill: the parent-side procedure for the cold-subagent dispatch path. Loaded by dispatch-governance when it picks the subagent strategy. Not triggered by users directly."
 user-invocable: false
 ---
 
