@@ -40,6 +40,7 @@ to open a pane in; its absence rules that strategy out regardless of what the ag
 | true | true | true | **channel** |
 | true | true | false | **run-inline** |
 | false or true | false | — | **subagent** |
+| false | true | — | **error** — unroutable def |
 
 - **channel** — warm, interactive, and a pane is available: spin up a live peer that can converse
   and mail back over rounds. Compose the primitives directly — no single CLI command does this:
@@ -77,6 +78,15 @@ to open a pane in; its absence rules that strategy out regardless of what the ag
   Task/subagent tool → the subagent's Task-result (its own final returned message) is the verdict.
   The CLI cannot invoke a Task tool itself — that is always the caller's own tool, never
   `cyberlegion`'s — and it collects nothing on the caller's behalf; there is no result file.
+
+- **error (unroutable def)** — `interactive` with `warm` unset (`false`) has no strategy. A role that
+  needs live back-and-forth (`interactive`) must be a live peer (`warm`); a cold one-shot must not be
+  `interactive` (`subagent-backend-governance` is one-shot by design). So this pair is a **malformed
+  def**, not a routing choice — **fail loud** here, naming the def and the contradictory tags, so the
+  author fixes it. It is **not** a `needsInput` (that is for an under-specified task, not a bad def),
+  and it is **never** silently swept into **subagent**. This is the Legate's judgment, not the CLI's:
+  `agent resolve` reports the raw tags; only this governance holds the table that knows the pair maps
+  to nothing.
 
 The CLI never chooses between these on its own — `unit spawn` + `mail await` only run in this
 sequence when this governance picked **channel**; the caller's Task tool only runs when it picked
