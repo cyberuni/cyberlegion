@@ -8,22 +8,22 @@ approval:
     cause: dimension
     why:
       floor: none
-      blast: low — a command-string change in install.ts + a new opt-in init `--pin` flag; the upsert migration matcher rewrites a legacy bare entry in place (never duplicates); 295/295 cyberlegion tests, full pnpm verify 19/19.
-      novelty: low — faithful impl of the frozen npx-form scenarios; `hookTarget` normalization collapses bare/unpinned/pinned to one target so re-init always rewrites in place.
-      confidence: high — cold sdd-impl-judge: all scenarios PASS, IMPLEMENTATION_PASS true, exercise-backstop confirmed (make hookCommand ignore pin → the --pin test fails; drop the rewrite-in-place branch → the migration test fails); diff scoped to install.ts/cli.ts. Non-blocking follow-ups: a pre-existing verify-scenarios.mts path-resolution bug (scenario-bridge unusable for cyberlegion until fixed); the deferred malformed-`--pin` validation scenario.
-      judge: cold sdd-impl-judge — all scenarios PASS, IMPLEMENTATION_PASS true, exercise-backstop confirmed.
-      cr: hook-npx-pin
+      blast: low — a `validatePin` allowlist guard in install.ts (called at the top of install() before any write) + a try/catch → fail() wrap of the init install call in cli.ts; 310/310 cyberlegion tests, full pnpm verify green.
+      novelty: low — faithful impl of the two frozen validation scenarios; the guard is an allowlist token regex (`/^[0-9A-Za-z][0-9A-Za-z._+-]*$/`) so every dangerous class is excluded structurally.
+      confidence: high — cold sdd-impl-judge: all scenarios PASS, IMPLEMENTATION_PASS true; validation runs before writeJson (a rejected pin leaves no config); added a `spec:cyberlegion/init` e2e block (first init e2e coverage) binding the two scenarios through the real CLI exit path. Exercise-backstop: removing validatePin() or loosening the regex flips every malformed-pin it.each case. Diff scoped to install.ts/cli.ts/install.test.ts/cli.e2e.test.ts.
+      judge: cold sdd-impl-judge — all scenarios PASS, IMPLEMENTATION_PASS true, BLOCKER null.
+      cr: validate-pin
   spec:
     verdict: approve
     by: agent
-    cause: clearance
+    cause: dimension
     why:
-      floor: clearance — re-opened two frozen contracts (ratified by the user's approval of the cyberlegion surfacing-hook plan): mail/surface/surface.feature's dedicated-command scenario generalized (exact bare string → "runs the dedicated mail hook --event, not a generic exec", ceding the npx-prefix specifics to init); init/init.feature's two SessionStart-registration scenarios rewritten from the bare form to `npx cyberlegion mail hook --event`. Both re-frozen this gate.
-      blast: low — a command-string form change to the surfacing hook plus a new opt-in `--pin` flag; additive pin/unpin/legacy-migration scenarios; no capability removed. Fixes a deployability gap (the bare command needed a global install; cyberlegion is unpublished + unlinked at the repo root).
-      novelty: low — aligns cyberlegion to the repo hook convention (`npx <pkg>@<version>`); the pinned version is injected by the init skill (Part C, via the bundle-emitted .plugin/pins.json), not runtime-read from the binary.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no blocker). One non-blocking content gap (no malformed-`--pin` validation scenario) deferred as a follow-up — the version comes from the trusted bundle-stamped pins map, not free user input. legion-publish dependency: the npx pin is dormant until cyberlegion publishes (not a defect).
-      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true; non-blocking: defer the `--pin` validation scenario.
-      cr: hook-npx-pin
+      floor: none — two additive scenarios on the already-`@frozen` init/init.feature (a malformed `--pin` is rejected before any hook is registered; a version-or-dist-tag `--pin` is accepted); `gherkin-cli diff` addOnly=true, so they self-clear and stay frozen with no re-open.
+      blast: low — hardens the public `init --pin` flag against a malformed value; the shipped path (bundle-stamped concrete version from .plugin/pins.json) is unaffected; no existing scenario narrowed, no capability removed.
+      novelty: low — closes the malformed-`--pin` validation gap the hook-npx-pin spec gate deferred as a follow-up (#109); validation lives at the single install() choke point, covering any caller.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no blocker); enriched init/README Subject to name the `--pin` validation symmetrically with `--agent`. Non-blocking observation (prose "or"-bundling vs a Scenario Outline) left as house style.
+      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
+      cr: validate-pin
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

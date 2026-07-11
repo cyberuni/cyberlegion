@@ -3,6 +3,18 @@ import { dirname, join } from 'node:path'
 import type { Harness } from './identity.ts'
 import type { HookEvent } from './runtime/inject-inbox.ts'
 
+// A --pin must be a single npm version-or-dist-tag token so it embeds safely into the
+// `npx cyberlegion@<pin>` hook command — no whitespace, ranges, `@`, or shell metacharacters that
+// would break or hijack the registered command. Accepts `1.2.3`, `1.2.3-rc.1+build.5`, `latest`.
+const PIN_TOKEN = /^[0-9A-Za-z][0-9A-Za-z._+-]*$/
+export function validatePin(pin: string): void {
+	if (!PIN_TOKEN.test(pin)) {
+		throw new Error(
+			`invalid --pin "${pin}" — expected a version or dist-tag token like 0.2.0 or latest (no spaces, ranges, or shell metacharacters)`,
+		)
+	}
+}
+
 // The command a harness hook runs to surface unread mail.
 const hookCommand = (event: HookEvent, pin?: string): string =>
 	pin ? `npx cyberlegion@${pin} mail hook --event ${event}` : `npx cyberlegion mail hook --event ${event}`
@@ -64,6 +76,7 @@ function writeJson(file: string, data: unknown): void {
 export function install(harness: Harness, projectDir = process.cwd(), pin?: string): InstallResult[] {
 	const spec = VENDORS[harness]
 	if (!spec) throw new Error(`unknown harness "${harness}" (expected claude | cursor | codex)`)
+	if (pin !== undefined) validatePin(pin)
 	const file = join(projectDir, spec.file)
 	const settings = readJson(file)
 	const results: InstallResult[] = []

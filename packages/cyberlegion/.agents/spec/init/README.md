@@ -30,8 +30,10 @@ which harness it runs under:
   command is the **npx** form — `npx cyberlegion@<version> mail hook --event <event>` when `--pin`
   supplies the project's declared version (the version is **injected**, not read from the running
   binary, so it matches the bundled plugin's pin), or the unpinned `npx cyberlegion mail hook
-  --event <event>` when no `--pin` is given. It reports each registration as `registered` or
-  `already present`.
+  --event <event>` when no `--pin` is given. A supplied `--pin` is **validated** as a single npm
+  version-or-dist-tag token before it is embedded — a malformed pin (empty, whitespace, a range, or a
+  shell metacharacter) is rejected and no hook is registered. It reports each registration as
+  `registered` or `already present`.
 - **init auto-detects; installation is otherwise explicit** — `init` adds auto-detection and an
   owner-binding next-step for onboarding, on top of the low-level installer (see the TODO above for
   where that installer's own pending scenarios currently live). `init` never chooses a harness by
