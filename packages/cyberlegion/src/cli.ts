@@ -673,6 +673,7 @@ withGlobals(program.command('init'))
 	.description('resolve this session harness, register the Legion surfacing hook, and advise owner binding')
 	.option('--agent <h>', 'claude | cursor | codex (else auto-detected)')
 	.option('--dir <path>', 'project dir to write config into', process.cwd())
+	.option('--pin <version>', 'version to pin the registered npx hook command to (e.g. the bundled plugin version)')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		let harness: Harness
@@ -683,7 +684,7 @@ withGlobals(program.command('init'))
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}
-		const results = install(harness, opts.dir)
+		const results = install(harness, opts.dir, opts.pin)
 		emit(formatOf(opts), {
 			toon: toonList(
 				'hooks',

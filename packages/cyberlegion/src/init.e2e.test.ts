@@ -46,7 +46,7 @@ describe('init resolves the harness and registers the SessionStart hook', () => 
 		const dir = freshProjectDir()
 		const out = legion(['init', '--dir', dir], { CLAUDECODE: '1' })
 		expect(readCfg(dir, '.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
-			'cyberlegion mail hook --event SessionStart',
+			'npx cyberlegion mail hook --event SessionStart',
 		)
 		expect(out).toContain('harness claude')
 	})
