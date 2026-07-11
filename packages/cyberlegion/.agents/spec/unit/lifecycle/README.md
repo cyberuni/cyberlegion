@@ -65,9 +65,11 @@ cleanly — the deterministic inverse pair:
     worktree removal.
 - **focus moves input focus to a peer's session** — `unit focus <ref>` resolves the peer (by id,
   handle, or worktree branch/CR ref) to its pane and focuses it via the session adapter.
-- **nudge rings a peer's session — a dumb doorbell** — `unit nudge <ref>` sends an empty
-  keystroke to the peer's pane through the session adapter; it carries no payload itself (the mail is
-  the payload — `mail/surface`/`mail/wait` read it on the peer's next turn).
+- **nudge rings a peer's session — a doorbell that carries a message** — `unit nudge <ref>`
+  delivers a message as a turn to the peer's pane through the session adapter (a live agent session
+  only acts on real input; an empty keystroke is a no-op). The default message points the peer at its
+  inbox; `--message <text>` overrides it. The mail the peer already has is the real payload —
+  `mail/surface`/`mail/wait` read it on that turn.
 - **read scrapes a peer's session screen** — `unit read <ref> [--lines <n>]` captures the target
   pane's current output through the session adapter.
 
@@ -97,5 +99,5 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **close reaps only the targeted unit** | other units' state untouched |
 | **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
 | **focus** | move input focus to a peer's pane |
-| **nudge** | doorbell send-keys, no payload |
+| **nudge** | doorbell that delivers a message as a turn; default points at the inbox, `--message` overrides |
 | **read** | scrape a peer's session screen |
