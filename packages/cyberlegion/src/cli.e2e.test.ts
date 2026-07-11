@@ -326,6 +326,12 @@ describe('AXI fail-loud behavior', () => {
 	it('mail send without a caller identity fails with a structured stderr error', () => {
 		expect(() => legion(['mail', 'send', '--to', 'ghost', '--body', 'hi'])).toThrow()
 	})
+
+	it('unit spawn --at rejects a value outside the allowed set (window was removed)', () => {
+		const { stderr } = legionOut(['unit', 'spawn', '--harness', 'claude', '--task', 't', '--at', 'window'])
+		expect(() => legion(['unit', 'spawn', '--harness', 'claude', '--task', 't', '--at', 'window'])).toThrow()
+		expect(stderr).toMatch(/Allowed choices are pane:right, pane:down, tab, workspace/)
+	})
 })
 
 describe('agent group', () => {

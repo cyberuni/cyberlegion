@@ -31,6 +31,19 @@ mux                doctor · mode   (+ internal open/close/read/write/focus)
 
 Only `doctor` / `mode` surface to a user; the rest is the abstraction the legion composes. `nudge` is *legion* — at the mux level it is just `write` (send-keys) with a doorbell meaning.
 
+## Placement — a concept, not a backend command
+
+`unit spawn --at` names *where* a new session opens as a **placement concept**, and the mux layer maps it onto whatever the live backend calls it. Every multiplexer nests the same four levels — **Session › Workspace › Tab › Pane** — but the vocabulary drifts (notably: a tmux/screen "Window" *is* the **Tab** level, not a workspace):
+
+| Concept       | tmux    | screen | zellij  | cmux                          | Orca                  | herdr     |
+| ------------- | ------- | ------ | ------- | ----------------------------- | --------------------- | --------- |
+| **Session**   | Session | Session| Session | App (state saved on restart)  | ----                  | Session   |
+| **Workspace** | ----    | ----   | ----    | Window/Workspace              | Worktree (git branch) | Workspace |
+| **Tab**       | Window  | Window | Tab     | Vertical Tab (w/ git status)  | Tab                   | Tab       |
+| **Pane**      | Pane    | Region | Pane    | Split Pane                    | Pane                  | Pane      |
+
+cyberlegion drives two backends (tmux, herdr) and exposes three levels: `pane:right` / `pane:down` (**Pane**), `tab` (**Tab**, the default), `workspace` (**Workspace**). `--at` **defaults to `tab`** — a new tab in the caller's current window, opened without stealing focus, so a spawned peer never shrinks the caller's pane by splitting it. `tab` maps to each backend's native Tab primitive (tmux `new-window -d`, herdr `tab create --no-focus`), never a split. tmux, having no Workspace level, maps `workspace` onto its next-widest unit, a new Session. There is no `window` value — "window" is tmux's local name for the Tab concept, already covered by `tab`.
+
 ## Capabilities
 
 | Node | Verbs | Owns |

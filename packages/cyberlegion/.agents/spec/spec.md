@@ -4,26 +4,26 @@ project-path: packages/cyberlegion
 approval:
   impl:
     verdict: approve
-    by: agent
+    by: unional
     cause: dimension
     why:
-      floor: none
-      blast: low — a `validatePin` allowlist guard in install.ts (called at the top of install() before any write) + a try/catch → fail() wrap of the init install call in cli.ts; 310/310 cyberlegion tests, full pnpm verify green.
-      novelty: low — faithful impl of the two frozen validation scenarios; the guard is an allowlist token regex (`/^[0-9A-Za-z][0-9A-Za-z._+-]*$/`) so every dangerous class is excluded structurally.
-      confidence: high — cold sdd-impl-judge: all scenarios PASS, IMPLEMENTATION_PASS true; validation runs before writeJson (a rejected pin leaves no config); added a `spec:cyberlegion/init` e2e block (first init e2e coverage) binding the two scenarios through the real CLI exit path. Exercise-backstop: removing validatePin() or loosening the regex flips every malformed-pin it.each case. Diff scoped to install.ts/cli.ts/install.test.ts/cli.e2e.test.ts.
-      judge: cold sdd-impl-judge — all scenarios PASS, IMPLEMENTATION_PASS true, BLOCKER null.
-      cr: validate-pin
+      floor: none — no frozen scenario weakened; the code fixes (tmux `new-window -d`, herdr `tab create --no-focus`) satisfy the re-frozen no-focus-steal contract.
+      blast: low — `unit spawn --at` placement default (pane:right → tab) + herdr `tab` fidelity fix + dropping the `window` value; scoped to the `mux/` node's two `console/` adapters + the CLI option. 300/300 cyberlegion tests; root `pnpm verify` 19/19.
+      novelty: low — teaches the herdr adapter its existing native `tab create` primitive and adds `-d` to the tmux tab path; tmux already mapped `tab` → `new-window`.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; every frozen placement scenario verified with exercise-backstop (drop `-d` / drop `--no-focus` / revert the default → a test fails); no regression in the unchanged mux scenarios; diff scoped to placement.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all placement scenarios PASS, exercise-backstop confirmed.
+      cr: at-default-tab
   spec:
     verdict: approve
-    by: agent
+    by: unional
     cause: dimension
     why:
-      floor: none — two additive scenarios on the already-`@frozen` init/init.feature (a malformed `--pin` is rejected before any hook is registered; a version-or-dist-tag `--pin` is accepted); `gherkin-cli diff` addOnly=true, so they self-clear and stay frozen with no re-open.
-      blast: low — hardens the public `init --pin` flag against a malformed value; the shipped path (bundle-stamped concrete version from .plugin/pins.json) is unaffected; no existing scenario narrowed, no capability removed.
-      novelty: low — closes the malformed-`--pin` validation gap the hook-npx-pin spec gate deferred as a follow-up (#109); validation lives at the single install() choke point, covering any caller.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no blocker); enriched init/README Subject to name the `--pin` validation symmetrically with `--agent`. Non-blocking observation (prose "or"-bundling vs a Scenario Outline) left as house style.
+      floor: none — the one frozen-scenario rewrite (`omitting --at defaults to pane:right` → `tab`) is a ratified re-open, a value change rather than a weakening/deletion of coverage; the user explicitly requested the default flip. The other three touched mux scenarios are purely additive (self-clearing).
+      blast: low — the `unit spawn --at` placement default (pane:right → tab) plus the herdr-adapter fidelity fix it depends on (teach `tab` its native `herdr tab create`, previously mis-routed to a split) and dropping the redundant `window` value; scoped to the `mux/` node and the `console/` adapters.
+      novelty: low — flips a documented default and wires the herdr adapter to its existing native `tab create` primitive; tmux already mapped `tab` → `new-window`. Vocabulary aligned to the canonical Session › Workspace › Tab › Pane concepts, captured as README reference.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no open markers); added a focus-fidelity scenario to close the judge's one non-blocking content gap.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: validate-pin
+      cr: at-default-tab
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

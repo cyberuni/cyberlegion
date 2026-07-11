@@ -5,18 +5,23 @@ export const tmuxSessionAdapter: SessionAdapter = {
 	name: 'tmux',
 
 	open(exec, opts) {
-		// tmux has no native "tab" concept — a new window is the closest analogue. 'workspace' maps to
-		// a new detached session (`-d`, no `-t`) — genuinely separate from the caller's current
-		// session, unlike every other placement, which targets it. Omitting `-s` lets tmux assign the
-		// session name, avoiding any collision; the returned pane id is globally unique server-wide, so
-		// every other adapter method keeps working unchanged regardless of which session a pane is in.
+		// tmux has no native "tab" concept — a new window is the closest analogue, and it's the
+		// default placement. 'workspace' maps to a new detached session (`-d`, no `-t`) — genuinely
+		// separate from the caller's current session, unlike every other placement, which targets it.
+		// Omitting `-s` lets tmux assign the session name, avoiding any collision; the returned pane
+		// id is globally unique server-wide, so every other adapter method keeps working unchanged
+		// regardless of which session a pane is in.
+		const at = opts.at ?? 'tab'
 		const args =
-			opts.at === 'workspace'
+			at === 'workspace'
 				? ['new-session', '-d', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
-				: opts.at === 'pane:down'
+				: at === 'pane:down'
 					? ['split-window', '-v', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
-					: opts.at === 'tab' || opts.at === 'window'
-						? ['new-window', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+					: at === 'tab'
+						? // `-d` keeps focus on the caller (opens the tab in the background) — without it
+							// tmux switches the attached client to the new window, stealing the caller's focus.
+							// The returned pane id and subsequent `send-keys -t` still target the new pane.
+							['new-window', '-d', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
 						: ['split-window', '-h', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
 		const pane = exec('tmux', args)
 		if (!pane) throw new Error(`tmux ${args[0]} failed`)

@@ -18,10 +18,34 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 			result: { pane: { pane_id: 'w3:pB', tab_id: 'w3:t1', workspace_id: 'w3' }, type: 'pane_info' },
 		})
 		const exec = fakeExec(calls, { 'pane split': splitOut })
-		const target = herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })
+		const target = herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'pane:right' })
 		expect(target).toEqual({ id: 'w3:pB' })
 		expect(calls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', '/unit'])
 		expect(calls[1]).toEqual(['pane', 'run', 'w3:pB', 'claude'])
+	})
+
+	it("open() at 'tab' opens a real herdr tab without stealing focus, extracting the pane id the same way as workspace create", () => {
+		const calls: string[][] = []
+		const tabOut = JSON.stringify({
+			result: { root_pane: { pane_id: 'w3:pT' }, tab: { tab_id: 'w3:t2' }, type: 'tab_created' },
+		})
+		const exec = fakeExec(calls, { 'tab create': tabOut })
+		const target = herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'tab' })
+		expect(target).toEqual({ id: 'w3:pT' })
+		expect(calls[0]).toEqual(['tab', 'create', '--cwd', '/unit', '--no-focus'])
+		expect(calls[1]).toEqual(['pane', 'run', 'w3:pT', 'claude'])
+	})
+
+	it('open() with no --at defaults to opening a tab (not a split pane)', () => {
+		const calls: string[][] = []
+		const tabOut = JSON.stringify({
+			result: { root_pane: { pane_id: 'w3:pT' }, tab: { tab_id: 'w3:t2' }, type: 'tab_created' },
+		})
+		const exec = fakeExec(calls, { 'tab create': tabOut })
+		const target = herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })
+		expect(target).toEqual({ id: 'w3:pT' })
+		expect(calls[0]).toEqual(['tab', 'create', '--cwd', '/unit', '--no-focus'])
+		expect(calls[1]).toEqual(['pane', 'run', 'w3:pT', 'claude'])
 	})
 
 	it("open() at 'workspace' creates a separate workspace instead of splitting the current one", () => {
@@ -116,12 +140,23 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 
 	it('open() throws when herdr reports no pane id', () => {
 		const exec: Exec = () => null
-		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/herdr pane split/)
+		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'pane:right' })).toThrow(
+			/herdr pane split/,
+		)
 	})
 
 	it('open() throws when herdr output lacks result.pane.pane_id', () => {
 		const exec = fakeExec([], { 'pane split': JSON.stringify({ id: 'cli:pane:split', result: {} }) })
-		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/pane_id/)
+		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'pane:right' })).toThrow(
+			/pane_id/,
+		)
+	})
+
+	it('open() throws when herdr reports no tab root pane id', () => {
+		const exec: Exec = () => null
+		expect(() => herdrSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'tab' })).toThrow(
+			/herdr tab create/,
+		)
 	})
 
 	it('send() runs text in the target pane', () => {

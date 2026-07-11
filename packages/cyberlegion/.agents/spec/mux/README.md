@@ -19,8 +19,11 @@ session opens through, independent of any unit's identity or lifecycle:
 
 - **The session backend is selected by environment** — tmux when `$TMUX` is set, herdr when
   `$HERDR_ENV` is set and `$TMUX` is not; an environment with neither throws asking for one.
-- **Placement defaults to pane:right** — `--at pane:right|pane:down|tab|window|workspace` chooses
-  where the new session opens; omitting it defaults to `pane:right`.
+- **Placement defaults to tab** — `--at pane:right|pane:down|tab|workspace` chooses where the new
+  session opens; omitting it defaults to `tab` (a new tab in the caller's current window, opened
+  without stealing focus), so a spawned peer never shrinks the caller's pane by splitting it. `tab`
+  maps to each backend's native Tab primitive — tmux `new-window`, herdr `tab create` — never a
+  split pane.
 - **Multiplexer detection is two-mode** — `probeMultiplexer` first trusts `$CYBERLEGION_MUX`
   (`tmux`|`herdr`|`screen`|`none`) outright — this doubles as an override (`=none` forces no-mux even
   inside a real multiplexer). Failing that it walks the process ancestry from `$$` looking for a
@@ -36,11 +39,30 @@ gateway/Legate routing brain that actually calls `selectWakePath` and drives a t
 (`legion-gateway-legate`, CR-5); the mail primitives and hook surfacing that ride on top of a pane
 once opened (`mail/`) — this node owns only backend selection, placement, and multiplexer detection.
 
+## Multiplexer concept vocabulary
+
+`--at` names a **placement concept**, not a backend-specific command. Every multiplexer nests the
+same four levels — **Session › Workspace › Tab › Pane** — but each calls them something different
+(notably: a tmux/screen "Window" is the **Tab** level, not a workspace). The adapter maps the
+concept onto whatever the live backend calls it:
+
+| Concept       | tmux    | screen | zellij  | cmux                          | Orca                  | herdr     |
+| ------------- | ------- | ------ | ------- | ----------------------------- | --------------------- | --------- |
+| **Session**   | Session | Session| Session | App (state saved on restart)  | ----                  | Session   |
+| **Workspace** | ----    | ----   | ----    | Window/Workspace              | Worktree (git branch) | Workspace |
+| **Tab**       | Window  | Window | Tab     | Vertical Tab (w/ git status)  | Tab                   | Tab       |
+| **Pane**      | Pane    | Region | Pane    | Split Pane                    | Pane                  | Pane      |
+
+cyberlegion drives two of these backends (tmux, herdr). `--at` exposes three of the levels —
+`pane:right`/`pane:down` (**Pane**), `tab` (**Tab**), `workspace` (**Workspace**); tmux, having no
+Workspace level, maps `workspace` onto its next-widest unit, a new **Session**. There is no `window`
+value — "window" is tmux's local name for the **Tab** concept, already covered by `tab`.
+
 Every scenario in [`mux.feature`](./mux.feature) maps to one of these behaviors:
 
 | Behavior | What it covers |
 |---|---|
 | **backend selected by environment** | tmux vs herdr selection; neither present errors |
-| **placement** | `--at` choices; default pane:right |
+| **placement** | `--at` choices; default tab; tab honored per backend, never a split |
 | **multiplexer detection is two-mode** | `$CYBERLEGION_MUX` fast-path + override; ancestry walk; hint fallback; `mux doctor` hint; `unit spawn` propagation |
 | **mux mode** | reports the detected session backend; "none" (exit 0) when no adapter is selectable |

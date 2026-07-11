@@ -1,0 +1,3 @@
+{"seq":1,"kind":"leash","cr":"at-default-tab","leash":"auto-none","by":"derived","blast":"low","approach":["herdr-tab-primitive","default-flip-pane-right-to-tab","reopen-default-scenario","spike-herdr-tab-create","user-ratifies-gates"]}
+{"seq":2,"kind":"gate","cr":"at-default-tab","gate":"spec","verdict":"approve","by":"unional","cause":"dimension","frozen":["mux/mux.feature"],"why":{"floor":"none","blast":"low","novelty":"low","confidence":"high"}}
+{"seq":3,"kind":"gate","cr":"at-default-tab","gate":"impl","verdict":"approve","by":"unional","cause":"dimension","why":{"floor":"none","blast":"low","novelty":"low","confidence":"high"}}
