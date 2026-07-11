@@ -16,6 +16,7 @@ import {
 	loadAgent,
 	prune,
 	realExec,
+	reconcile,
 	register,
 	registerStanding,
 	resolveAgent,
@@ -156,9 +157,10 @@ withGlobals(unit.command('whoami'))
 		})
 	})
 
-function runWho(opts: GlobalOpts & { all?: boolean }): void {
+function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
+	if (opts.reconcile) reconcile(ctx)
 	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== 'exited')
 	emit(formatOf(opts), {
 		toon: toonList(
@@ -181,6 +183,7 @@ function runWho(opts: GlobalOpts & { all?: boolean }): void {
 withGlobals(unit.command('who'))
 	.description('list the addressable units')
 	.option('--all', 'include exited units')
+	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
 	.action(runWho)
 
 withGlobals(unit.command('prune'))
@@ -734,6 +737,7 @@ withGlobals(program.command('inbox'))
 withGlobals(program.command('who'))
 	.description('list the addressable units (alias of `unit who`)')
 	.option('--all', 'include exited units')
+	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
 	.action(runWho)
 
 // -------------------------------------------------------------------------------------------
