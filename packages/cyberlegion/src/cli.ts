@@ -307,7 +307,10 @@ withGlobals(unit.command('nudge'))
 		const target = resolveTarget(ctx, ref)
 		const message = opts.message || DEFAULT_NUDGE_MESSAGE
 		selectSessionAdapter(ctx.env ?? process.env).send(realExec, target, message)
-		emit(formatOf(opts), { toon: toonObject({ nudged: ref, pane: target.id }), json: { ref, pane: target.id, message } })
+		emit(formatOf(opts), {
+			toon: toonObject({ nudged: ref, pane: target.id }),
+			json: { ref, pane: target.id, message },
+		})
 	})
 
 withGlobals(unit.command('read'))
