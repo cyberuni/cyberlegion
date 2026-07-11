@@ -22,12 +22,16 @@ inbox is `unit/registry` and binding the read-pane is `attach/`.
 which harness it runs under:
 
 - **init resolves the harness and registers the surfacing hook** — `cyberlegion init [--agent
-  claude|cursor|codex] [--dir <path>]` resolves the harness — an explicit `--agent` (validated against
-  `claude | cursor | codex`, throwing on anything else) always wins; absent it, the same layered
-  harness detection `unit register` uses auto-detects it — and registers the SessionStart hook
-  (plus PostToolUse where the harness supports it) into that harness's project-local config under
-  `--dir` (default the current directory), through the shared idempotent installer. It reports each
-  registration as `registered` or `already present`.
+  claude|cursor|codex] [--dir <path>] [--pin <version>]` resolves the harness — an explicit `--agent`
+  (validated against `claude | cursor | codex`, throwing on anything else) always wins; absent it, the
+  same layered harness detection `unit register` uses auto-detects it — and registers the SessionStart
+  hook (plus PostToolUse where the harness supports it) into that harness's project-local config under
+  `--dir` (default the current directory), through the shared idempotent installer. The registered
+  command is the **npx** form — `npx cyberlegion@<version> mail hook --event <event>` when `--pin`
+  supplies the project's declared version (the version is **injected**, not read from the running
+  binary, so it matches the bundled plugin's pin), or the unpinned `npx cyberlegion mail hook
+  --event <event>` when no `--pin` is given. It reports each registration as `registered` or
+  `already present`.
 - **init auto-detects; installation is otherwise explicit** — `init` adds auto-detection and an
   owner-binding next-step for onboarding, on top of the low-level installer (see the TODO above for
   where that installer's own pending scenarios currently live). `init` never chooses a harness by
@@ -40,6 +44,9 @@ which harness it runs under:
   advises the binding step (which the human confirms).
 - **init is idempotent** — re-running `init` for an already-installed project re-reports `already
   present` for each hook rather than duplicating an entry, exactly as the underlying installer does.
+  Matching is by the dedicated `mail hook --event <event>` command, not the exact string, so an
+  existing **legacy bare** `cyberlegion mail hook …` entry is **rewritten in place** to the npx form
+  rather than duplicated.
 
 **Non-goals** — the hook injection payload and owner-mail surfacing gate (`mail/surface`);
 multiplexer/harness self-diagnosis via `mux doctor` (`mux/`); minting the standing owner inbox and

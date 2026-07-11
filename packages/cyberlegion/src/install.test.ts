@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -17,13 +17,13 @@ describe('per-vendor registration', () => {
 		install('cursor', dir)
 		install('codex', dir)
 		expect(readCfg('.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
-			'cyberlegion mail hook --event SessionStart',
+			'npx cyberlegion mail hook --event SessionStart',
 		)
 		expect(readCfg('.cursor/hooks.json').hooks.sessionStart[0].command).toBe(
-			'cyberlegion mail hook --event SessionStart',
+			'npx cyberlegion mail hook --event SessionStart',
 		)
 		expect(readCfg('.codex/hooks.json').hooks.SessionStart[0].command).toBe(
-			'cyberlegion mail hook --event SessionStart',
+			'npx cyberlegion mail hook --event SessionStart',
 		)
 	})
 
@@ -37,11 +37,39 @@ describe('per-vendor registration', () => {
 	})
 })
 
+describe('pinned registration', () => {
+	it('registers a version-pinned npx command when --pin is given', () => {
+		install('claude', dir, '0.2.0')
+		expect(readCfg('.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
+			'npx cyberlegion@0.2.0 mail hook --event SessionStart',
+		)
+	})
+})
+
 describe('idempotent registration', () => {
 	it('does not duplicate on re-register', () => {
 		install('claude', dir)
 		const second = install('claude', dir)
 		expect(second.every((r) => r.status === 'already present')).toBe(true)
 		expect(readCfg('.claude/settings.json').hooks.SessionStart).toHaveLength(1)
+	})
+
+	it('rewrites a legacy bare-command entry to the npx form in place', () => {
+		const file = join(dir, '.claude/settings.json')
+		mkdirSync(join(dir, '.claude'), { recursive: true })
+		writeFileSync(
+			file,
+			JSON.stringify({
+				hooks: {
+					SessionStart: [{ hooks: [{ type: 'command', command: 'cyberlegion mail hook --event SessionStart' }] }],
+				},
+			}),
+		)
+		const results = install('claude', dir)
+		expect(readCfg('.claude/settings.json').hooks.SessionStart).toHaveLength(1)
+		expect(readCfg('.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
+			'npx cyberlegion mail hook --event SessionStart',
+		)
+		expect(results.find((r) => r.event === 'SessionStart')?.status).toBe('already present')
 	})
 })

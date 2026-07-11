@@ -32,10 +32,10 @@ Feature: mail surface — inject unread mail into a session across harnesses
 
   # ── The dedicated hook command is used, not a generic exec ──
 
-  Scenario: only mail hook produces the injection payload
+  Scenario: only the dedicated mail hook command produces the injection payload
     Given a project with the surfacing hook installed
     When the harness fires SessionStart
-    Then the configured command is exactly "cyberlegion mail hook --event SessionStart"
+    Then the configured command runs the dedicated "mail hook --event SessionStart", not a generic exec
 
   # ── An unregistered caller injects nothing rather than erroring ──
 

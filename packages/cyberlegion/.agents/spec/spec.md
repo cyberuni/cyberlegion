@@ -4,18 +4,26 @@ project-path: packages/cyberlegion
 approval:
   impl:
     verdict: approve
-    by: unional
+    by: agent
+    cause: dimension
+    why:
+      floor: none
+      blast: low — a command-string change in install.ts + a new opt-in init `--pin` flag; the upsert migration matcher rewrites a legacy bare entry in place (never duplicates); 295/295 cyberlegion tests, full pnpm verify 19/19.
+      novelty: low — faithful impl of the frozen npx-form scenarios; `hookTarget` normalization collapses bare/unpinned/pinned to one target so re-init always rewrites in place.
+      confidence: high — cold sdd-impl-judge: all scenarios PASS, IMPLEMENTATION_PASS true, exercise-backstop confirmed (make hookCommand ignore pin → the --pin test fails; drop the rewrite-in-place branch → the migration test fails); diff scoped to install.ts/cli.ts. Non-blocking follow-ups: a pre-existing verify-scenarios.mts path-resolution bug (scenario-bridge unusable for cyberlegion until fixed); the deferred malformed-`--pin` validation scenario.
+      judge: cold sdd-impl-judge — all scenarios PASS, IMPLEMENTATION_PASS true, exercise-backstop confirmed.
+      cr: hook-npx-pin
   spec:
     verdict: approve
-    by: unional
+    by: agent
     cause: clearance
     why:
-      floor: clearance — CR-4 re-opened three frozen contracts. `dispatch/` retired entirely (result-slot dissolved: prep/collect/channel/verdict-schema); `agent.feature` narrowed (realizeSubagentInstruction group removed — cold-subagent instruction now composed caller-side from the resolve payload); `mux.feature` narrowed (selectWakePath group removed — routing relocates to the Legate plugin per CR-2 resolution #3). Design pre-authorized by the human (2 forks answered: dissolve dispatch; delete verdict validation now). agent + mux re-frozen this gate.
-      blast: high — deletes a whole capability node + narrows two; the CLI's public dispatch/result surface is removed (BREAKING at deliver). No new capability authored — Task-result + the untouched frozen mail/wait await cover the dropped return paths.
-      novelty: low — a deletion/relocation aligning to the established charter (mechanism→CLI, routing→plugin); no new node-shape.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no blocker); check-spec-state + check-suite green; retired dispatch contract carried into migration-map for CR-5.
-      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true; two non-blocking advisories (stale mail/wait pointer; carry-forward done).
-      cr: cyberlegion-cli-realign (CR-4)
+      floor: clearance — re-opened two frozen contracts (ratified by the user's approval of the cyberlegion surfacing-hook plan): mail/surface/surface.feature's dedicated-command scenario generalized (exact bare string → "runs the dedicated mail hook --event, not a generic exec", ceding the npx-prefix specifics to init); init/init.feature's two SessionStart-registration scenarios rewritten from the bare form to `npx cyberlegion mail hook --event`. Both re-frozen this gate.
+      blast: low — a command-string form change to the surfacing hook plus a new opt-in `--pin` flag; additive pin/unpin/legacy-migration scenarios; no capability removed. Fixes a deployability gap (the bare command needed a global install; cyberlegion is unpublished + unlinked at the repo root).
+      novelty: low — aligns cyberlegion to the repo hook convention (`npx <pkg>@<version>`); the pinned version is injected by the init skill (Part C, via the bundle-emitted .plugin/pins.json), not runtime-read from the binary.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no blocker). One non-blocking content gap (no malformed-`--pin` validation scenario) deferred as a follow-up — the version comes from the trusted bundle-stamped pins map, not free user input. legion-publish dependency: the npx pin is dormant until cyberlegion publishes (not a defect).
+      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true; non-blocking: defer the `--pin` validation scenario.
+      cr: hook-npx-pin
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

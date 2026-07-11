@@ -10,7 +10,7 @@ Feature: init — the onboarding front door
   Scenario: init auto-detects the harness and registers the SessionStart hook
     Given a fresh project directory and a session whose harness is detectable as claude
     When it runs init with no --agent
-    Then claude's config registers "cyberlegion mail hook --event SessionStart" under its own event key
+    Then claude's config registers "npx cyberlegion mail hook --event SessionStart" under its own event key
     And the result reports the resolved harness as claude
 
   Scenario: init registers PostToolUse only where the resolved harness supports it
@@ -28,7 +28,19 @@ Feature: init — the onboarding front door
   Scenario: init registers the SessionStart hook for cursor and codex too
     Given a fresh project directory
     When init --agent cursor and init --agent codex each register
-    Then each harness's config registers "cyberlegion mail hook --event SessionStart" under its own event key
+    Then each harness's config registers "npx cyberlegion mail hook --event SessionStart" under its own event key
+
+  # ── the pinned form: --pin embeds the project's declared version ──
+
+  Scenario: init --pin registers a version-pinned npx command
+    Given a fresh project directory whose harness is claude
+    When it runs init --pin 0.2.0
+    Then claude's config registers "npx cyberlegion@0.2.0 mail hook --event SessionStart" under its own event key
+
+  Scenario: init without --pin registers the unpinned npx command
+    Given a fresh project directory whose harness is claude
+    When it runs init with no --pin
+    Then claude's config registers "npx cyberlegion mail hook --event SessionStart" and no "@" version pin
 
   # ── auto-detect vs explicit --agent ──
 
@@ -77,4 +89,10 @@ Feature: init — the onboarding front door
     Given a project where init has already installed the hook for claude
     When init runs again and resolves claude
     Then each hook reports "already present" rather than registering a second entry
+    And claude's hook list for SessionStart still has exactly one entry
+
+  Scenario: re-running init over a legacy bare-command entry rewrites it in place
+    Given a project whose claude config carries a legacy bare "cyberlegion mail hook --event SessionStart" entry
+    When init runs again and resolves claude
+    Then the entry is rewritten to the "npx cyberlegion mail hook --event SessionStart" form in place
     And claude's hook list for SessionStart still has exactly one entry

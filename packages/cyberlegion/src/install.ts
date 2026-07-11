@@ -4,7 +4,15 @@ import type { Harness } from './identity.ts'
 import type { HookEvent } from './runtime/inject-inbox.ts'
 
 // The command a harness hook runs to surface unread mail.
-const hookCommand = (event: HookEvent): string => `cyberlegion mail hook --event ${event}`
+const hookCommand = (event: HookEvent, pin?: string): string =>
+	pin ? `npx cyberlegion@${pin} mail hook --event ${event}` : `npx cyberlegion mail hook --event ${event}`
+
+// Strips a leading npx/bare cyberlegion prefix so hook commands from any generation
+// (legacy bare, unpinned npx, pinned npx) compare on their shared `mail hook --event <event>` core.
+function hookTarget(command: string): string | undefined {
+	const match = command.match(/^(?:npx cyberlegion(?:@[^\s]+)?|cyberlegion) (mail hook --event \S+)$/)
+	return match?.[1]
+}
 
 interface VendorSpec {
 	file: string
@@ -53,7 +61,7 @@ function writeJson(file: string, data: unknown): void {
 }
 
 /** Register the surfacing hook into one harness's config, idempotently. */
-export function install(harness: Harness, projectDir = process.cwd()): InstallResult[] {
+export function install(harness: Harness, projectDir = process.cwd(), pin?: string): InstallResult[] {
 	const spec = VENDORS[harness]
 	if (!spec) throw new Error(`unknown harness "${harness}" (expected claude | cursor | codex)`)
 	const file = join(projectDir, spec.file)
@@ -61,7 +69,7 @@ export function install(harness: Harness, projectDir = process.cwd()): InstallRe
 	const results: InstallResult[] = []
 
 	for (const [canonical, vendorEvent] of Object.entries(spec.events) as [HookEvent, string][]) {
-		const command = hookCommand(canonical)
+		const command = hookCommand(canonical, pin)
 		const status =
 			spec.shape === 'claude'
 				? upsertClaude(settings, vendorEvent, command)
@@ -84,7 +92,16 @@ interface ClaudeGroup {
 function upsertClaude(settings: Record<string, unknown>, event: string, command: string): InstallStatus {
 	const hooks = (settings.hooks ??= {}) as Record<string, ClaudeGroup[]>
 	const groups = (hooks[event] ??= [])
-	if (groups.some((g) => g.hooks?.some((h) => h.command === command))) return 'already present'
+	const target = hookTarget(command)
+	for (const g of groups) {
+		for (const h of g.hooks ?? []) {
+			if (h.command === command) return 'already present'
+			if (target && hookTarget(h.command) === target) {
+				h.command = command
+				return 'already present'
+			}
+		}
+	}
 	const group: ClaudeGroup = { hooks: [{ type: 'command', command }] }
 	if (event === 'PostToolUse') group.matcher = 'Write|Edit'
 	groups.push(group)
@@ -99,7 +116,14 @@ function upsertCursor(settings: Record<string, unknown>, event: string, command:
 	if (settings.version == null) settings.version = 1
 	const hooks = (settings.hooks ??= {}) as Record<string, CursorEntry[]>
 	const list = (hooks[event] ??= [])
-	if (list.some((h) => h.command === command)) return 'already present'
+	const target = hookTarget(command)
+	for (const h of list) {
+		if (h.command === command) return 'already present'
+		if (target && hookTarget(h.command) === target) {
+			h.command = command
+			return 'already present'
+		}
+	}
 	list.push({ command })
 	return 'registered'
 }
