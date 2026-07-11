@@ -42,9 +42,9 @@ present today.)
 
 - **No mid-run nudge.** Once dispatched, the parent does not ring the unit mid-flight; it is a pure
   request/response round-trip, not a conversation.
-- **No subagent inbox.** A cold unit has no mailbox of its own — it reads exactly the one brief file
-  and writes exactly the one result file. Any back-and-forth beyond that belongs to the **channel**
-  strategy, not this one.
+- **No subagent inbox.** A cold unit has no mailbox of its own — it takes the one brief inline and
+  returns its one result as its **Task-result** (no result file). Any back-and-forth beyond that
+  belongs to the **channel** strategy, not this one.
 - **One-shot only.** A single result, once. A role that needs multiple rounds was resolved wrong
   upstream — `dispatch-governance` should have picked **channel** or **run-inline**, not
   **subagent**, for an `interactive` role.
