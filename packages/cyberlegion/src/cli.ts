@@ -684,7 +684,12 @@ withGlobals(program.command('init'))
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}
-		const results = install(harness, opts.dir, opts.pin)
+		let results: ReturnType<typeof install>
+		try {
+			results = install(harness, opts.dir, opts.pin)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
 		emit(formatOf(opts), {
 			toon: toonList(
 				'hooks',

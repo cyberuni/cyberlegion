@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { install } from './install.ts'
+import { install, validatePin } from './install.ts'
 
 let dir: string
 beforeEach(() => {
@@ -43,6 +43,32 @@ describe('pinned registration', () => {
 		expect(readCfg('.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
 			'npx cyberlegion@0.2.0 mail hook --event SessionStart',
 		)
+	})
+
+	it.each(['0.2.0', '1.2.3-rc.1+build.5', 'latest', 'next'])('accepts the version-or-dist-tag pin %j', (pin) => {
+		expect(() => install('claude', dir, pin)).not.toThrow()
+		expect(readCfg('.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
+			`npx cyberlegion@${pin} mail hook --event SessionStart`,
+		)
+	})
+
+	it.each([
+		'',
+		' ',
+		'1.2.3 ',
+		'>=1 <2',
+		'1.2.3 && rm -rf /',
+		'0.2.0; echo hi',
+		'a@b',
+		'x/y',
+	])('rejects the malformed pin %j and writes no config', (pin) => {
+		expect(() => install('claude', dir, pin)).toThrow(/invalid --pin/)
+		expect(existsSync(join(dir, '.claude/settings.json'))).toBe(false)
+	})
+
+	it('validatePin accepts a concrete version and throws on a range', () => {
+		expect(() => validatePin('0.2.0')).not.toThrow()
+		expect(() => validatePin('^1.0.0')).toThrow(/invalid --pin/)
 	})
 })
 

@@ -42,6 +42,17 @@ Feature: init — the onboarding front door
     When it runs init with no --pin
     Then claude's config registers "npx cyberlegion mail hook --event SessionStart" and no "@" version pin
 
+  Scenario: a malformed --pin is rejected before any hook is registered
+    Given a fresh project directory whose harness is claude
+    When it runs init --pin with an empty, whitespace, range, or shell-metacharacter value
+    Then the command is rejected naming --pin as invalid
+    And no hook is registered into claude's config
+
+  Scenario: a --pin that is a version or dist-tag token is accepted
+    Given a fresh project directory whose harness is claude
+    When it runs init --pin with a semver, prerelease, or plain dist-tag value
+    Then the pinned npx hook is registered without error
+
   # ── auto-detect vs explicit --agent ──
 
   Scenario: init installs into the directory named by --dir

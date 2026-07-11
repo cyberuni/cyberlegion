@@ -1,6 +1,6 @@
 ---
 name: relay-governance
-description: "Internal skill: the Legion's report/ask contract — how a headless agent returns a result or surfaces a question it cannot answer, keyed on its OWN lifecycle (Task-spawned subagent vs spawned peer vs bare top-level/cron). A subagent returns needsInput to its caller frame; a bare cron session with no frame pushes mail to the standing owner and exits. Loaded by dispatch-governance and by any headless agent (headless-legate, sdd-automaton, cold judges). Not triggered by users directly."
+description: "Internal skill: the Legion's report/ask contract — how a headless agent returns a result or surfaces a question it cannot answer. Loaded by dispatch-governance and any headless agent. Not triggered by users directly."
 user-invocable: false
 ---
 
