@@ -43,7 +43,7 @@ const expectedWorktreePath = (id: string) =>
 
 describe('spawn opens a pane + pre-registers the peer', () => {
 	it('registers the peer (spawning, pane, spawnedBy) and writes its brief', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 'reply to alice', handle: 'bob' })
+		const res = spawn(ctx(), { harness: 'claude', task: 'reply to alice', handle: 'bob', at: 'pane:right' })
 		expect(res.pane).toBe('%9')
 		const rec = loadAgent(store, res.agent.id)
 		expect(rec).toMatchObject({ harness: 'claude', status: 'spawning', spawnedBy: 'spawner' })
@@ -55,7 +55,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 	it('takes the brief from a file too', () => {
 		const bf = join(store.root, '..', 'brief.txt')
 		writeFileSync(bf, 'from file')
-		const res = spawn(ctx(), { harness: 'codex', briefFile: bf })
+		const res = spawn(ctx(), { harness: 'codex', briefFile: bf, at: 'pane:right' })
 		expect(store.readBrief(res.agent.id)).toBe('from file')
 	})
 
@@ -75,7 +75,7 @@ describe('per-harness launch', () => {
 		['cursor', 'cursor-agent'],
 		['codex', 'codex'],
 	])('starts the %s pane with its own CLI', (harness, launch) => {
-		const res = spawn(ctx(), { harness, task: 't' })
+		const res = spawn(ctx(), { harness, task: 't', at: 'pane:right' })
 		expect(res.launch).toBe(launch)
 		// The mux fast-path env is prefixed onto the typed launch command, so the spawned peer
 		// inherits it and never re-runs its own ancestry discovery.
@@ -104,7 +104,7 @@ describe('spawn errors', () => {
 
 describe('spawn creates a real worktree unit, sibling to the primary checkout (not the global hub)', () => {
 	it('creates a git worktree distinct from the primary checkout and opens the session there', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't' })
+		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		const expectedPath = expectedWorktreePath(res.agent.id)
 		expect(res.agent.worktree?.root).toBe(expectedPath)
 		expect(res.agent.cwd).toBe(expectedPath)
@@ -114,12 +114,12 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 	})
 
 	it("never nests the default worktree inside the primary checkout's own tree", () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't' })
+		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.agent.worktree?.root.startsWith(`${resolve(primaryRoot)}/`)).toBe(false)
 	})
 
 	it('names the default worktree dir with the same 6-char id slice as the record handle', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', handle: 'bob' })
+		const res = spawn(ctx(), { harness: 'claude', task: 't', handle: 'bob', at: 'pane:right' })
 		expect(res.agent.worktree?.root).toBe(expectedWorktreePath(res.agent.id))
 		expect(res.agent.worktree?.root.endsWith(`legion-${res.agent.id.slice(0, 6)}`)).toBe(true)
 		// an explicit --handle doesn't rename the dir — only id-derived defaults do
@@ -140,26 +140,35 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			}
 			return null
 		}
-		const res = spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
+		const res = spawn(
+			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'pane:right' },
+		)
 		const expectedPath = expectedWorktreePath(res.agent.id)
 		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', expectedPath, '-P', '-F', '#{pane_id}'])
 	})
 
 	it('accepts an explicit --branch and --worktree-path', () => {
 		const custom = join(store.root, '..', 'custom-unit')
-		const res = spawn(ctx(), { harness: 'claude', task: 't', branch: 'my-branch', worktreePath: custom })
+		const res = spawn(ctx(), {
+			harness: 'claude',
+			task: 't',
+			branch: 'my-branch',
+			worktreePath: custom,
+			at: 'pane:right',
+		})
 		expect(res.agent.worktree).toEqual({ root: resolve(custom), branch: 'my-branch' })
 		const addCall = worktreeAddCalls[0]!
 		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '-b', 'my-branch', custom])
 	})
 
 	it('defaults the branch to cyberlegion/unit-<id>', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't' })
+		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.agent.worktree?.branch).toBe(`cyberlegion/unit-${res.agent.id}`)
 	})
 
 	it('stamps the new worktree-unit with its own tracked marker so it self-detects', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't' })
+		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		const marker = join(res.agent.worktree!.root, '.agents', 'cyberlegion', 'config.json')
 		expect(existsSync(marker)).toBe(true)
 	})
@@ -184,7 +193,7 @@ describe('refusing the primary checkout', () => {
 describe('--cwd spawns into an existing directory, creating no worktree', () => {
 	it('opens the session in that directory and registers it with no created worktree', () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
-		const res = spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir })
+		const res = spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' })
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(res.agent.cwd).toBe(resolve(existingDir))
 		expect(res.agent.worktree).toBeNull()
@@ -207,7 +216,10 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 			}
 			return null
 		}
-		spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't', cwd: existingDir })
+		spawn(
+			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
+			{ harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' },
+		)
 		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', resolve(existingDir), '-P', '-F', '#{pane_id}'])
 	})
 
@@ -263,7 +275,7 @@ describe('backend selection: herdr', () => {
 			}
 			return null
 		}
-		const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't' })
+		const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.pane).toBe('herdr-pane-1')
 		expect(herdrCalls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', res.agent.cwd])
 		expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBERLEGION_MUX=herdr claude'])

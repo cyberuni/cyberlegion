@@ -16,15 +16,22 @@ export const herdrSessionAdapter: SessionAdapter = {
 	name: 'herdr',
 
 	open(exec, opts) {
+		const at = opts.at ?? 'tab'
 		let id: string
-		if (opts.at === 'workspace') {
+		if (at === 'workspace') {
 			// A genuinely separate workspace, not a pane inside the caller's current one — `--no-focus`
 			// so spawning doesn't steal the caller's attention/focus.
 			const out = exec('herdr', ['workspace', 'create', '--cwd', opts.cwd, '--no-focus'])
 			if (!out) throw new Error('herdr workspace create failed')
-			id = parseWorkspaceRootPaneId(out)
+			id = parseRootPaneId(out, 'herdr workspace create')
+		} else if (at === 'tab') {
+			// A real tab in the current window, not a split pane — `--no-focus` so spawning doesn't
+			// steal the caller's attention/focus, matching workspace/worktree spawns.
+			const out = exec('herdr', ['tab', 'create', '--cwd', opts.cwd, '--no-focus'])
+			if (!out) throw new Error('herdr tab create failed')
+			id = parseRootPaneId(out, 'herdr tab create')
 		} else {
-			const direction = opts.at === 'pane:down' ? 'down' : 'right'
+			const direction = at === 'pane:down' ? 'down' : 'right'
 			const out = exec('herdr', ['pane', 'split', '--current', '--direction', direction, '--cwd', opts.cwd])
 			if (!out) throw new Error('herdr pane split failed')
 			id = parsePaneId(out)
@@ -106,18 +113,19 @@ function parsePaneId(out: string): string {
 }
 
 /**
- * `herdr workspace create` emits its new workspace's initial pane at `.result.root_pane.pane_id`
- * (a different path than `pane split`'s `.result.pane.pane_id`).
+ * `herdr workspace create` and `herdr tab create` both emit their new root pane at
+ * `.result.root_pane.pane_id` (a different path than `pane split`'s `.result.pane.pane_id`).
+ * `label` names the command in error messages (e.g. "herdr workspace create").
  */
-function parseWorkspaceRootPaneId(out: string): string {
+function parseRootPaneId(out: string, label: string): string {
 	let paneId: unknown
 	try {
 		paneId = JSON.parse(out)?.result?.root_pane?.pane_id
 	} catch {
-		throw new Error(`herdr workspace create returned unparseable output: ${out.slice(0, 200)}`)
+		throw new Error(`${label} returned unparseable output: ${out.slice(0, 200)}`)
 	}
 	if (typeof paneId !== 'string' || paneId === '') {
-		throw new Error(`herdr workspace create output had no result.root_pane.pane_id: ${out.slice(0, 200)}`)
+		throw new Error(`${label} output had no result.root_pane.pane_id: ${out.slice(0, 200)}`)
 	}
 	return paneId
 }

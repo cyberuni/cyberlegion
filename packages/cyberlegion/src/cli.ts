@@ -220,8 +220,8 @@ function defineSpawn(cmd: Command): Command {
 		)
 		.addOption(
 			new Option('--at <placement>', 'where to open the new session')
-				.choices(['pane:right', 'pane:down', 'tab', 'window', 'workspace'])
-				.default('pane:right'),
+				.choices(['pane:right', 'pane:down', 'tab', 'workspace'])
+				.default('tab'),
 		)
 		.action((opts) => {
 			const ctx = ctxOf(opts)

@@ -13,21 +13,29 @@ describe('tmuxSessionAdapter', () => {
 	it('open() splits a pane at the given cwd and launches the command in it', () => {
 		const calls: string[][] = []
 		const exec = fakeExec(calls, { 'split-window': '%9' })
-		const target = tmuxSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })
+		const target = tmuxSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'pane:right' })
 		expect(target).toEqual({ id: '%9' })
 		expect(calls[0]).toEqual(['split-window', '-h', '-c', '/unit', '-P', '-F', '#{pane_id}'])
 		expect(calls[1]).toEqual(['send-keys', '-t', '%9', 'claude', 'Enter'])
 	})
 
-	it('open() defaults to pane:right and honors pane:down / window / tab placement', () => {
+	it('open() defaults to tab and honors pane:right / pane:down / tab placement', () => {
 		const calls: string[][] = []
 		const exec = fakeExec(calls, { 'split-window': '%1', 'new-window': '%2' })
+		tmuxSessionAdapter.open(exec, { cwd: '/u', launch: 'x', at: 'pane:right' })
+		expect(calls[0]).toEqual(['split-window', '-h', '-c', '/u', '-P', '-F', '#{pane_id}'])
 		tmuxSessionAdapter.open(exec, { cwd: '/u', launch: 'x', at: 'pane:down' })
-		expect(calls[0]).toEqual(['split-window', '-v', '-c', '/u', '-P', '-F', '#{pane_id}'])
-		tmuxSessionAdapter.open(exec, { cwd: '/u', launch: 'x', at: 'window' })
-		expect(calls[2]).toEqual(['new-window', '-c', '/u', '-P', '-F', '#{pane_id}'])
+		expect(calls[2]).toEqual(['split-window', '-v', '-c', '/u', '-P', '-F', '#{pane_id}'])
 		tmuxSessionAdapter.open(exec, { cwd: '/u', launch: 'x', at: 'tab' })
-		expect(calls[4]).toEqual(['new-window', '-c', '/u', '-P', '-F', '#{pane_id}'])
+		expect(calls[4]).toEqual(['new-window', '-d', '-c', '/u', '-P', '-F', '#{pane_id}'])
+	})
+
+	it('open() with no --at defaults to a new background tab (-d, no focus steal), not a split pane', () => {
+		const calls: string[][] = []
+		const exec = fakeExec(calls, { 'new-window': '%2' })
+		const target = tmuxSessionAdapter.open(exec, { cwd: '/u', launch: 'x' })
+		expect(target).toEqual({ id: '%2' })
+		expect(calls[0]).toEqual(['new-window', '-d', '-c', '/u', '-P', '-F', '#{pane_id}'])
 	})
 
 	it("open() at 'workspace' opens a new detached session instead of a pane in the current one", () => {
@@ -41,7 +49,7 @@ describe('tmuxSessionAdapter', () => {
 
 	it('open() throws when tmux reports no pane', () => {
 		const exec: Exec = () => null
-		expect(() => tmuxSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/split-window/)
+		expect(() => tmuxSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude' })).toThrow(/new-window/)
 	})
 
 	it('send() types text into the target pane', () => {

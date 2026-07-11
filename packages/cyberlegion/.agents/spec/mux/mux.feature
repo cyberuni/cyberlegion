@@ -29,10 +29,31 @@ Feature: mux — the unit-agnostic pane abstraction
     When unit spawn runs
     Then the session opens at that placement
 
-  Scenario: omitting --at defaults to pane:right
+  Scenario: omitting --at defaults to tab
     Given a caller running unit spawn with no --at
     When unit spawn runs
-    Then the session opens at pane:right
+    Then the session opens at tab
+
+  Scenario Outline: --at tab opens a new tab in the current window, never a split pane
+    Given a caller running unit spawn --at tab with <env>
+    When unit spawn runs
+    Then the session opens as a new tab through the <adapter> adapter
+    And the caller's current pane is not split
+
+    Examples:
+      | env                         | adapter |
+      | $TMUX set                   | tmux    |
+      | $HERDR_ENV set and no $TMUX | herdr   |
+
+  Scenario: the tab placement opens in the background without stealing focus
+    Given a caller running unit spawn --at tab
+    When unit spawn runs
+    Then the new tab is opened without moving input focus off the caller's session
+
+  Scenario: --at accepts only pane:right, pane:down, tab, and workspace
+    Given a caller running unit spawn
+    When it passes an --at value outside pane:right|pane:down|tab|workspace
+    Then the command is rejected before any session opens
 
   # ── Multiplexer detection is two-mode ──
 

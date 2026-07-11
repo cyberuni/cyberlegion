@@ -13,7 +13,7 @@ The `cyberlegion` CLI is the cold, deterministic mechanism — dumb hands a rout
 
 | Command group | What it does |
 |---|---|
-| `unit` | Register and discover legion units, then spawn and reap warm sessions — `register` (`--standing` mints a session-independent owner inbox), `whoami`, `who` (lists peers + live sessions with their pane), `prune`, `spawn` (in its own git worktree, or `--cwd` into an existing one; `--at pane:right\|pane:down\|tab\|window\|workspace`), `focus`, `nudge`, `read`, `close` |
+| `unit` | Register and discover legion units, then spawn and reap warm sessions — `register` (`--standing` mints a session-independent owner inbox), `whoami`, `who` (lists peers + live sessions with their pane), `prune`, `spawn` (in its own git worktree, or `--cwd` into an existing one; `--at pane:right\|pane:down\|tab\|workspace`, default `tab`), `focus`, `nudge`, `read`, `close` |
 | `mail` | Durable inter-agent messaging — `send`, `inbox`, `read`, `ack`, `delete`, `await` (block for a reply), `watch`, `hook` |
 | `agent` | Resolve reusable agent definitions under `.agents/agents/` — `list`, `show`, `resolve`, `path` |
 | `mux` | The unit-agnostic pane layer — `doctor` (probe harness/multiplexer/hub root/self-id), `mode` (report the detected session backend) |

@@ -40,7 +40,7 @@ export interface SpawnInput {
 	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
 	cwd?: string
-	/** Placement relative to the caller; defaults to 'pane:right'. */
+	/** Placement relative to the caller; defaults to 'tab'. */
 	at?: SessionPlacement
 }
 

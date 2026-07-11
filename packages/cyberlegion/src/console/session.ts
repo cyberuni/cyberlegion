@@ -7,14 +7,14 @@ import type { Worktree } from './worktree.ts'
  * `'workspace'` opens a genuinely separate workspace/session (herdr: `workspace create`; tmux: a
  * new detached session) — the caller's current workspace/session is left untouched, unlike every
  * other placement, which adds a pane/window inside it. */
-export type SessionPlacement = 'pane:right' | 'pane:down' | 'tab' | 'window' | 'workspace'
+export type SessionPlacement = 'pane:right' | 'pane:down' | 'tab' | 'workspace'
 
 interface SessionOpenOptions {
 	/** Working directory the new pane/window/session should start in. */
 	cwd: string
 	/** Command line to launch inside the new pane once it is open. */
 	launch: string
-	/** Placement relative to the caller; defaults to 'pane:right'. */
+	/** Placement relative to the caller; defaults to 'tab'. */
 	at?: SessionPlacement
 }
 
