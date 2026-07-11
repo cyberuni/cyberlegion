@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type Exec, type IdContext, loadAgent } from './identity.ts'
-import { resolveBrief, spawn } from './session.ts'
+import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
+import { clearUnit, resetCommandFor, resolveBrief, spawn } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -316,5 +316,103 @@ describe('backend selection: herdr', () => {
 		expect(res.agent.worktree).toEqual({ root: resolve(worktreeRoot), branch: `cyberlegion/unit-${res.agent.id}` })
 		expect(res.agent.cwd).toBe(resolve(worktreeRoot))
 		expect(res.pane).toBe('w9:p1')
+	})
+})
+
+// ── spec:cyberlegion/unit/lifecycle — clear resets a warm peer's context ────────────────────────
+
+/** Registers a unit record directly (no spawn) so `clear` scenarios start from a known-live peer. */
+function registerUnit(rec: Partial<AgentRecord> & { id: string }): AgentRecord {
+	const full: AgentRecord = {
+		handle: rec.id.slice(0, 6),
+		harness: 'claude',
+		cwd: '/somewhere',
+		worktree: { root: '/somewhere', branch: `cyberlegion/unit-${rec.id}` },
+		status: 'active',
+		createdAt: '2026-01-01T00:00:00.000Z',
+		lastSeen: '2026-01-01T00:00:00.000Z',
+		pane: { mux: 'tmux', id: '%9' },
+		...rec,
+	}
+	saveAgent(store, full)
+	return full
+}
+
+describe('resetCommandFor — the per-harness reset map', () => {
+	it.each([
+		['claude', '/clear'],
+		['codex', '/clear'],
+		['copilot', '/clear'],
+		['cursor', '/new-chat'],
+	])('resolves %s to %s', (harness, command) => {
+		expect(resetCommandFor(harness)).toBe(command)
+	})
+
+	it('throws naming gemini and its missing honest reset, for the known false-friend harness', () => {
+		expect(() => resetCommandFor('gemini')).toThrow(/gemini/)
+		expect(() => resetCommandFor('gemini')).toThrow(/context/)
+	})
+
+	it('throws naming the reset map for a truly unmapped harness', () => {
+		expect(() => resetCommandFor('grok')).toThrow(/grok/)
+		expect(() => resetCommandFor('grok')).toThrow(/reset map/)
+	})
+})
+
+describe('clear injects the harness reset into a warm peer and tears nothing down', () => {
+	it('sends "/clear" to a claude peer, leaving its record, pane, and worktree unchanged', () => {
+		registerUnit({ id: 'w1' })
+		const res = clearUnit(ctx(), 'w1')
+		expect(res).toEqual({ agent: expect.objectContaining({ id: 'w1' }), pane: '%9', command: '/clear' })
+		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', '/clear', 'Enter'])
+		// nothing torn down — record, pane index binding, and worktree are exactly as registered
+		const rec = loadAgent(store, 'w1')
+		expect(rec).toMatchObject({ id: 'w1', status: 'active', pane: { mux: 'tmux', id: '%9' } })
+		expect(rec?.worktree).toEqual({ root: '/somewhere', branch: 'cyberlegion/unit-w1' })
+	})
+})
+
+describe('clear resolves each harness own fresh-context command from the per-harness map', () => {
+	it.each([
+		['claude', '/clear'],
+		['codex', '/clear'],
+		['copilot', '/clear'],
+		['cursor', '/new-chat'],
+	])('sends "%s" for harness %s', (harness, command) => {
+		registerUnit({ id: `h-${harness}`, harness: harness as Harness })
+		const res = clearUnit(ctx(), `h-${harness}`)
+		expect(res.command).toBe(command)
+		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', command, 'Enter'])
+	})
+})
+
+describe('clear fails loud on a harness whose reset would not truly empty the context', () => {
+	it('throws naming gemini and sends nothing to its pane', () => {
+		registerUnit({ id: 'gem1', harness: 'gemini' as Harness })
+		expect(() => clearUnit(ctx(), 'gem1')).toThrow(/gemini/)
+		expect(sent).toHaveLength(0)
+	})
+})
+
+describe('clear errors on an unmapped harness rather than guessing a command', () => {
+	it('throws naming the reset map and sends nothing to its pane', () => {
+		registerUnit({ id: 'grok1', harness: 'grok' as Harness })
+		expect(() => clearUnit(ctx(), 'grok1')).toThrow(/reset map/)
+		expect(sent).toHaveLength(0)
+	})
+})
+
+describe('clear on an unknown id errors and sends nothing', () => {
+	it('throws that no unit is registered under that id', () => {
+		expect(() => clearUnit(ctx(), 'ghost')).toThrow(/no agent addressable/)
+		expect(sent).toHaveLength(0)
+	})
+})
+
+describe('clear on a unit with no known session pane errors and sends nothing', () => {
+	it('throws that the unit has no known session pane', () => {
+		registerUnit({ id: 'nopane1', pane: null })
+		expect(() => clearUnit(ctx(), 'nopane1')).toThrow(/no known session pane/)
+		expect(sent).toHaveLength(0)
 	})
 })

@@ -28,7 +28,7 @@ import { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
-import { spawn } from './session.ts'
+import { clearUnit, spawn } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -317,6 +317,26 @@ withGlobals(unit.command('read'))
 		} else {
 			console.log(text)
 		}
+	})
+
+withGlobals(unit.command('clear'))
+	.description(
+		"reset a warm peer's context to cold by injecting its own harness fresh-context command — keeps the pane/session warm; tears down nothing",
+	)
+	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.action((ref, opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		let res: ReturnType<typeof clearUnit>
+		try {
+			res = clearUnit(ctx, ref)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), {
+			toon: toonObject({ cleared: ref, pane: res.pane, command: res.command }),
+			json: { cleared: ref, pane: res.pane, command: res.command },
+		})
 	})
 
 // -------------------------------------------------------------------------------------------
