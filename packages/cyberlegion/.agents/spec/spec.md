@@ -7,23 +7,23 @@ approval:
     by: unional
     cause: dimension
     why:
-      floor: none — no frozen scenario weakened; the code fixes (tmux `new-window -d`, herdr `tab create --no-focus`) satisfy the re-frozen no-focus-steal contract.
-      blast: low — `unit spawn --at` placement default (pane:right → tab) + herdr `tab` fidelity fix + dropping the `window` value; scoped to the `mux/` node's two `console/` adapters + the CLI option. 300/300 cyberlegion tests; root `pnpm verify` 19/19.
-      novelty: low — teaches the herdr adapter its existing native `tab create` primitive and adds `-d` to the tmux tab path; tmux already mapped `tab` → `new-window`.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; every frozen placement scenario verified with exercise-backstop (drop `-d` / drop `--no-focus` / revert the default → a test fails); no regression in the unchanged mux scenarios; diff scoped to placement.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all placement scenarios PASS, exercise-backstop confirmed.
-      cr: at-default-tab
+      floor: none newly weakened — the one removed frozen scenario (nudge `empty keystroke`) is a ratified re-open replaced by two scenarios covering more ground (default message + `--message` override), not a coverage cut; Clearance authorized in-session.
+      blast: low — `unit nudge` now delivers a check-mail message (default, `--message` override) instead of `send(target, '')`; scoped to the nudge command block in `cli.ts` (+13/-3), the session adapters unchanged. 315/315 cyberlegion tests.
+      novelty: low — corrects a factual bug (an empty ring is a no-op on the herdr adapter — `pane run <id> ""` submits nothing — and a live agent session takes a turn only on real input).
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; both nudge scenarios verified by oracle re-derivation. Noted gap: both scenarios UNBOUND on the junit bridge (reverting to `''` still passes 315/315), so verdict rests on source re-derivation — follow-up CR filed to bind them with a CLI test.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; both nudge scenarios PASS, diff scoped, no bleed.
+      cr: nudge-carries-message
   spec:
     verdict: approve
     by: unional
-    cause: dimension
+    cause: clearance
     why:
-      floor: none — the one frozen-scenario rewrite (`omitting --at defaults to pane:right` → `tab`) is a ratified re-open, a value change rather than a weakening/deletion of coverage; the user explicitly requested the default flip. The other three touched mux scenarios are purely additive (self-clearing).
-      blast: low — the `unit spawn --at` placement default (pane:right → tab) plus the herdr-adapter fidelity fix it depends on (teach `tab` its native `herdr tab create`, previously mis-routed to a split) and dropping the redundant `window` value; scoped to the `mux/` node and the `console/` adapters.
-      novelty: low — flips a documented default and wires the herdr adapter to its existing native `tab create` primitive; tmux already mapped `tab` → `new-window`. Vocabulary aligned to the canonical Session › Workspace › Tab › Pane concepts, captured as README reference.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no open markers); added a focus-fidelity scenario to close the judge's one non-blocking content gap.
+      floor: Clearance — the removed frozen `empty keystroke` nudge scenario is a narrowing (deletion), authorized in-session by the human conductor; replaced by two scenarios covering the default and `--message` paths (net +1, more ground than the one removed).
+      blast: low — scoped to the `unit/lifecycle` node (README + `lifecycle.feature`); 24 of 26 scenarios unchanged.
+      novelty: low — corrects the doorbell contract from a no-op empty keystroke to a delivered message pointing the peer at its inbox.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no open markers). Non-blocking observation: nudge/focus/read carry no error-case scenario (pre-existing gap symmetric across the cluster) — follow-up CR.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: at-default-tab
+      cr: nudge-carries-message
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
