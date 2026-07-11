@@ -8,11 +8,11 @@ approval:
     cause: dimension
     why:
       floor: none
-      blast: low — a command-string change in install.ts + a new opt-in init `--pin` flag; the upsert migration matcher rewrites a legacy bare entry in place (never duplicates); 295/295 cyberlegion tests, full pnpm verify 19/19.
-      novelty: low — faithful impl of the frozen npx-form scenarios; `hookTarget` normalization collapses bare/unpinned/pinned to one target so re-init always rewrites in place.
-      confidence: high — cold sdd-impl-judge: all scenarios PASS, IMPLEMENTATION_PASS true, exercise-backstop confirmed (make hookCommand ignore pin → the --pin test fails; drop the rewrite-in-place branch → the migration test fails); diff scoped to install.ts/cli.ts. Non-blocking follow-ups: a pre-existing verify-scenarios.mts path-resolution bug (scenario-bridge unusable for cyberlegion until fixed); the deferred malformed-`--pin` validation scenario.
-      judge: cold sdd-impl-judge — all scenarios PASS, IMPLEMENTATION_PASS true, exercise-backstop confirmed.
-      cr: hook-npx-pin
+      blast: low — a `validatePin` allowlist guard in install.ts (called at the top of install() before any write) + a try/catch → fail() wrap of the init install call in cli.ts; 310/310 cyberlegion tests, full pnpm verify green.
+      novelty: low — faithful impl of the two frozen validation scenarios; the guard is an allowlist token regex (`/^[0-9A-Za-z][0-9A-Za-z._+-]*$/`) so every dangerous class is excluded structurally.
+      confidence: high — cold sdd-impl-judge: all scenarios PASS, IMPLEMENTATION_PASS true; validation runs before writeJson (a rejected pin leaves no config); added a `spec:cyberlegion/init` e2e block (first init e2e coverage) binding the two scenarios through the real CLI exit path. Exercise-backstop: removing validatePin() or loosening the regex flips every malformed-pin it.each case. Diff scoped to install.ts/cli.ts/install.test.ts/cli.e2e.test.ts.
+      judge: cold sdd-impl-judge — all scenarios PASS, IMPLEMENTATION_PASS true, BLOCKER null.
+      cr: validate-pin
   spec:
     verdict: approve
     by: agent

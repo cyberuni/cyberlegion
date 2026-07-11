@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -436,5 +436,21 @@ describe('admin group', () => {
 		const out = JSON.parse(legion(['admin', 'migrate', '--from', src, '--to', dst, '--format', 'json']))
 		expect(out).toMatchObject({ agents: 2, messages: 1 })
 		expect(legionAt(dst, ['unit', 'who', '--all'])).toContain('alice')
+	})
+})
+
+describe('spec:cyberlegion/init', () => {
+	it('a malformed --pin is rejected before any hook is registered', () => {
+		const proj = mkdtempSync(join(tmpdir(), 'cl-init-'))
+		// execFileSync throws on a non-zero exit — a rejected pin must fail cleanly, not stack-trace.
+		expect(() => legion(['init', '--agent', 'claude', '--dir', proj, '--pin', '1.2.3 && evil'])).toThrow()
+		expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false)
+	})
+
+	it('a --pin that is a version or dist-tag token is accepted', () => {
+		const proj = mkdtempSync(join(tmpdir(), 'cl-init-'))
+		expect(() => legion(['init', '--agent', 'claude', '--dir', proj, '--pin', '0.2.0'])).not.toThrow()
+		const cfg = JSON.parse(readFileSync(join(proj, '.claude/settings.json'), 'utf8'))
+		expect(cfg.hooks.SessionStart[0].hooks[0].command).toBe('npx cyberlegion@0.2.0 mail hook --event SessionStart')
 	})
 })
