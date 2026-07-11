@@ -21,7 +21,7 @@ collects my return value?** — and the transport follows.
 | Lifecycle | Who collects | Report / ask transport | Resume |
 |---|---|---|---|
 | **Subagent** — Task-spawned; a caller frame awaits the return | the spawner | Return a `DispatchResult` / verdict packet with `needsInput` populated. **Cannot** `mail await` — the context dies at return. | The spawner collects, gathers answers, re-invokes. |
-| **Spawned peer / channel** — a spawner `dispatch channel --wait`s, or a wrapper reads stdout | the spawner / wrapper | Return the packet, **or** reply on the mail thread the spawner awaits. | The spawner relays. |
+| **Spawned peer / channel** — a spawner `unit spawn`s then `mail await`s on the thread, or a wrapper reads stdout | the spawner / wrapper | Return the packet, **or** reply on the mail thread the spawner awaits. | The spawner relays. |
 | **Bare top-level / cron** — a scheduler started this session; **no frame** reads the return | nobody | **Push `mail send` to the standing owner, then exit.** This is the Slack/PR analog. | A later tick (cron) or the owner's reply on the thread re-reads it; state lives in the thread, not the process. |
 
 The rule mirrors `run-inline`: a cold subagent **must** return (it cannot await); a bare cron session
@@ -44,7 +44,7 @@ exiting. Resolve the owner recipient in this order:
 
 1. an explicit `--report-to <handle>` / brief-carried handle;
 2. else `$CYBERLEGION_OWNER`;
-3. else the hub's standing owner (`cyberlegion identity owner` with no handle lists them; a single
+3. else the hub's standing owner (`cyberlegion unit register --standing` with no handle lists them; a single
    standing record is the owner).
 
 Then:
@@ -63,7 +63,7 @@ from it.
 **Fail loud — never drop the report.** If no standing owner resolves (no `--report-to`, no
 `$CYBERLEGION_OWNER`, no standing record on the hub), do **not** silently succeed or invent a
 recipient. Surface the failure (nonzero exit, a clear message naming the missing owner and the fix:
-`cyberlegion identity owner --handle <h>`). A report with nowhere to go is a stop, not a no-op.
+`cyberlegion unit register --standing --handle <h>`). A report with nowhere to go is a stop, not a no-op.
 
 ## Read is a deliberate act — surfacing is not a receipt
 
@@ -83,5 +83,5 @@ loop, and it arrives on a later turn, not this one.
   `headless-legate` and in `dispatch-governance`'s result section — those load this contract now
   rather than restating it.
 - The frameless→owner branch depends on the standing owner identity and owner-mail surfacing shipped
-  in the `cyberlegion` CLI (`identity owner`, `mail send/--owner`, the surfacing hook). It states the
+  in the `cyberlegion` CLI (`unit register --standing`, `mail send/--owner`, the surfacing hook). It states the
   *transport*; the CLI carries the mechanism.

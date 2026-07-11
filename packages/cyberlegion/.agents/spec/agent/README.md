@@ -6,7 +6,7 @@ concept: [cyberlegion]
 # agent — resolve reusable agent definitions
 
 Resolve a universal agent-definition `.md` file (YAML frontmatter + Markdown body, as used under
-`.agents/agents/*.md` and `plugins/*/agents/*.md`) into launch flags or a subagent instruction.
+`.agents/agents/*.md` and `plugins/*/agents/*.md`) into a machine payload or a channel launch command.
 `model`/`description`/`effort` are the ordinary agent-def tags; `harness`/`warm`/`interactive` are
 cyberlegion-only routing tags a future gateway (`legion-gateway-legate`, CR-5) reads to choose
 between a warm peer, an inline run, and a cold subagent. Resolving a def reads a **file only** — no
@@ -37,12 +37,10 @@ surface that inspects a def before that:
 - **realizeLaunch turns a def into a CHANNEL launch invocation** — applies the def's `model` +
   `instructions` (and any `harness`) into the harness's own launch command (`claude`/`cursor-agent`/
   `codex`), for the warm-peer / channel family. An explicit `model`/`harness` override (passed by the
-  caller) wins over the def's own tags, which win over the harness default (`claude`).
-- **realizeSubagentInstruction turns a def into a SUBAGENT spawn instruction** — for the
-  in-process Task-tool family cyberlegion cannot invoke itself: names `subagent_type: <def.name>`
-  for a harness that recognizes it, and always inlines the def's `model`/`effort`/`instructions`
-  plus the brief-file/result-file paths, so the same instruction string still works when the
-  harness has no such named subagent type.
+  caller) wins over the def's own tags, which win over the harness default (`claude`). This realizes
+  the **channel** (warm-peer) launch only; a caller composing a cold Task subagent builds that
+  instruction itself from the `resolve` payload (there is no CLI subagent-instruction realizer — the
+  result-slot and its instruction builder were dropped in CR-4).
 - **agent list / show / resolve / path** — `list` enumerates every resolvable def under
   `.agents/agents/` (name/model/harness rows, a definitive empty state); `show` prints the resolved
   model/effort/harness/warm/interactive plus the instructions body, truncated unless `--full`;
@@ -53,9 +51,10 @@ surface that inspects a def before that:
 
 **Non-goals** — the gateway/Legate routing brain that decides warm-peer vs run-inline vs subagent
 from a def's `warm`/`interactive` tags and mux availability (`legion-gateway-legate`, CR-5); actually
-spawning anything (`realizeLaunch`/`realizeSubagentInstruction` are pure string builders — the CLI
-never invokes a Task tool or opens a session itself); plugin/SDD def discovery conventions (an
-upward dependency cyberlegion never takes on).
+spawning anything (`realizeLaunch` is a pure string builder — the CLI never invokes a Task tool or
+opens a session itself); building the cold-subagent instruction (a caller composes that from the
+`resolve` payload — the CLI has no subagent-instruction realizer since CR-4); plugin/SDD def
+discovery conventions (an upward dependency cyberlegion never takes on).
 
 Every scenario in [`agent.feature`](./agent.feature) maps to one of these behaviors:
 
@@ -65,6 +64,5 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `--agent-file`/`file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness launch command; explicit override precedence |
-| **realizeSubagentInstruction** | subagent_type naming + inlined model/effort/instructions + brief/result paths |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |

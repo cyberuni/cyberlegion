@@ -188,7 +188,7 @@ function preferStanding(matches: AgentRecord[]): AgentRecord | undefined {
 export function resolveStandingOwner(store: Store, handle: string): string {
 	const match = listAgents(store).find((a) => a.handle === handle && a.kind === 'standing')
 	if (!match) {
-		throw new Error(`no standing owner "${handle}" — run 'cyberlegion identity owner --handle ${handle}'`)
+		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
 	}
 	return match.id
 }
@@ -200,7 +200,7 @@ export function resolveRecipient(store: Store, to: string): string {
 	const match = preferStanding(matches)
 	if (!match) {
 		throw new Error(
-			`no agent addressable as "${to}" — run 'cyberlegion identity owner --handle ${to}' to create a standing inbox`,
+			`no agent addressable as "${to}" — run 'cyberlegion unit register --standing --handle ${to}' to create a standing inbox`,
 		)
 	}
 	return match.id

@@ -1,9 +1,9 @@
 @frozen
 Feature: init-cyberlegion — onboard a session into the Legion
   Unit suite for the init-cyberlegion skill: a thin, user-invocable onboarding wrapper that drives the
-  cyberlegion CLI through probe (admin doctor) -> register the surfacing hook (init) -> detect a root
+  cyberlegion CLI through probe (mux doctor) -> register the surfacing hook (init) -> detect a root
   session (!spawnedBy) -> ask before binding this pane as the durable legate owner inbox -> on an
-  explicit yes, mint the owner (identity owner --handle legate) and bind the pane (identity bind-main).
+  explicit yes, mint the owner (unit register --standing --handle legate) and bind the pane (attach).
   Every mechanic is a cyberlegion CLI call; the skill never touches the filesystem or hub state directly
   and never invents a config format. Spawning/mailing/dispatching a peer is legate; reading or acking
   owner mail is manage-inbox; the CLI mechanics themselves live in the sibling packages/cyberlegion
@@ -52,11 +52,11 @@ Feature: init-cyberlegion — onboard a session into the Legion
   Scenario: the skill probes the environment before acting
     Given a user asks to set up cyberlegion in a fresh session
     When init-cyberlegion begins
-    Then it runs cyberlegion admin doctor before registering the hook or minting any identity
+    Then it runs cyberlegion mux doctor before registering the hook or minting any identity
 
   @behavior
   Scenario: root detection is derived from the probe, not guessed
-    Given cyberlegion admin doctor reports a selfId whose spawnedBy is unset
+    Given cyberlegion mux doctor reports a selfId whose spawnedBy is unset
     When init-cyberlegion determines whether this is a root session
     Then it treats the session as root based on the probe rather than asking the user to declare it
 
@@ -76,13 +76,13 @@ Feature: init-cyberlegion — onboard a session into the Legion
 
   @behavior
   Scenario: the agent flag is passed only when detection needs it
-    Given cyberlegion admin doctor cannot auto-detect the harness or the user named one
+    Given cyberlegion mux doctor cannot auto-detect the harness or the user named one
     When init-cyberlegion registers the surfacing hook
     Then it runs cyberlegion init --agent with the resolved harness rather than plain cyberlegion init
 
   @behavior
   Scenario: the agent flag is omitted when auto-detect succeeds
-    Given cyberlegion admin doctor auto-detects the harness and the user named none
+    Given cyberlegion mux doctor auto-detects the harness and the user named none
     When init-cyberlegion registers the surfacing hook
     Then it runs plain cyberlegion init without an --agent flag
 
@@ -112,7 +112,7 @@ Feature: init-cyberlegion — onboard a session into the Legion
   Scenario: the skill never mints or binds the owner without an explicit yes
     Given a root session where init-cyberlegion has asked whether to bind and the user declines
     When init-cyberlegion continues
-    Then it runs neither cyberlegion identity owner nor cyberlegion identity bind-main and leaves the registered hook in place
+    Then it runs neither cyberlegion unit register --standing nor cyberlegion attach and leaves the registered hook in place
 
   @behavior
   Scenario: a root session that already has a legate bound is not re-asked
@@ -126,7 +126,7 @@ Feature: init-cyberlegion — onboard a session into the Legion
   Scenario: an explicit yes mints the owner and binds the pane
     Given a root session with no legate bound where the user agrees to bind this pane
     When init-cyberlegion performs the bind
-    Then it runs cyberlegion identity owner --handle legate and then cyberlegion identity bind-main
+    Then it runs cyberlegion unit register --standing --handle legate and then cyberlegion attach
 
   # ── Non-mux parity ──
 
@@ -134,7 +134,7 @@ Feature: init-cyberlegion — onboard a session into the Legion
   Scenario: a no-pane environment still mints the owner and does not error
     Given a root session whose probe reports no multiplexer or pane and the user agrees to bind
     When init-cyberlegion performs the bind
-    Then it still runs cyberlegion identity owner --handle legate, bind-main is a no-op, and the skill completes without erroring
+    Then it still runs cyberlegion unit register --standing --handle legate, attach is a no-op, and the skill completes without erroring
 
   @behavior
   Scenario: the skill never touches hub state or a config format directly

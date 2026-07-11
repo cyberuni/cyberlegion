@@ -19,11 +19,11 @@ the one owner mailbox from wherever they are.
 The owner mailbox is a **standing** identity. Find it first:
 
 ```bash
-npx cyberlegion@<version> identity owner            # lists the standing owner record(s)
+npx cyberlegion@<version> unit register --standing            # lists the standing owner record(s)
 ```
 
 Use `$CYBERLEGION_OWNER` if set, else the single standing handle listed. If **no** standing owner
-exists, there is no owner mailbox yet — create one with `identity owner --handle <name>` (that is a
+exists, there is no owner mailbox yet — create one with `unit register --standing --handle <name>` (that is a
 deliberate act; do not auto-create it while just checking mail).
 
 ## List — what is waiting

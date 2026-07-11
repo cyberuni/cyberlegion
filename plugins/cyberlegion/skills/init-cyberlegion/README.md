@@ -6,7 +6,7 @@ explicit yes) bind this pane as the durable `legate` owner inbox.
 
 User-facing. Triggers on "set up cyberlegion", "onboard the legion", "register the cyberlegion
 surfacing hook", "make this pane my main legion inbox", "get cyberlegion working in this repo". Wraps
-`cyberlegion admin doctor` / `init` / `identity owner` / `identity bind-main` — every mechanic is a
+`cyberlegion mux doctor` / `init` / `unit register --standing` / `attach` — every mechanic is a
 CLI call, no filesystem or hub state touched directly.
 
 Distinct from `legate` (spawn/mail/dispatch a peer) and `manage-inbox` (read/ack owner mail once

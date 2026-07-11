@@ -132,17 +132,3 @@ describe('main pane (hub-level owner-presence pointer)', () => {
 		expect(store.getMainPane()).toBe('%9')
 	})
 })
-
-describe('result (dispatch result slot)', () => {
-	it('resultPath is computed only — no IO, no existence implied', () => {
-		expect(store.resultPath('d1')).toBe(join(store.root, 'data', 'd1', 'result.json'))
-		expect(store.readResult('d1')).toBeUndefined()
-	})
-
-	it('writeResult then readResult round-trips as JSON text', () => {
-		store.writeResult('d1', { status: 'ok', count: 2 })
-		const text = store.readResult('d1')
-		expect(text).toBeDefined()
-		expect(JSON.parse(text as string)).toEqual({ status: 'ok', count: 2 })
-	})
-})

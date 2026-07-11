@@ -1,9 +1,10 @@
 @frozen
-Feature: surfacing — inject unread mail into a session across harnesses
-  mail hook emits the harness hook injection payload for a spawned peer's pending brief and its
-  unread mail; admin install wires that hook into a project's harness config. The mail primitives
-  themselves live in mail; the doorbell nudge lives in session; thread correlation and the bounded
-  mail await/watch live in wake.
+Feature: mail surface — inject unread mail into a session across harnesses
+  mail hook emits the harness hook injection payload for a spawned peer's pending brief, its unread
+  mail, and the standing owner's unread mail when this session is the hub's main pane. The mail
+  primitives themselves live in mail/core; thread correlation and the bounded mail await/watch live
+  in mail/wait; the doorbell nudge lives in unit/lifecycle; installing the hook into a project's
+  harness config lives in init.
 
   # ── mail hook emits brief + unread mail ──
 
@@ -71,25 +72,6 @@ Feature: surfacing — inject unread mail into a session across harnesses
     Given a caller running mail hook --event PreToolUse
     When the hook runs
     Then it throws naming SessionStart and PostToolUse as the supported events
-
-  # ── install wires the hook per harness, idempotently, event-scoped by vendor support ──
-
-  Scenario: install registers SessionStart for every harness
-    Given a fresh project directory
-    When admin install --agent claude, admin install --agent cursor, and admin install --agent codex each run
-    Then each harness's own config registers "cyberlegion mail hook --event SessionStart" under its own event key
-
-  Scenario: install registers PostToolUse only where the harness supports it
-    Given the same fresh project directory
-    When admin install runs for claude, cursor, and codex
-    Then claude's and codex's configs register a PostToolUse hook
-    And cursor's config has no PostToolUse entry
-
-  Scenario: re-running install for the same harness does not duplicate the entry
-    Given a harness already installed once
-    When admin install runs again for that harness
-    Then the result reports "already present" rather than registering a second entry
-    And the config's hook list for that event still has exactly one entry
 
   # ── Owner mail surfaces into the bound main pane; falls back to any root session when unbound ──
 

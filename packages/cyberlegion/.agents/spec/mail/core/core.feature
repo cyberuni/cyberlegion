@@ -1,8 +1,8 @@
 @frozen
-Feature: mail — durable inter-agent messaging
-  Send, list, and read/ack durable mail over the global hub's file queue. Thread correlation
-  (send --thread/--reply-to, inbox --thread), mail delete, mail await, and mail watch are wake-shaped
-  behaviors layered on top of this plain send/inbox/read/ack and are spec'd in wake, not here.
+Feature: mail core — durable inter-agent messaging
+  Send, list, and read/ack/delete durable mail over the global hub's file queue. Thread correlation
+  (send --thread/--reply-to, inbox --thread), mail await, and mail watch are wake-shaped behaviors
+  layered on top of this plain send/inbox/read/ack/delete and are spec'd in mail/wait, not here.
 
   # ── send writes exactly one collision-free, time-ordered message ──
 
@@ -103,6 +103,23 @@ Feature: mail — durable inter-agent messaging
     Given a message id that does not exist in the caller's inbox
     When it runs mail ack <msg-id>
     Then the command errors rather than silently succeeding
+
+  # ── Delete removes mail permanently ──
+
+  Scenario: delete removes an unread message
+    Given the calling agent has an unread message <msg-id>
+    When it runs mail delete <msg-id>
+    Then the message no longer appears in mail inbox at all
+
+  Scenario: delete removes an already-acked message
+    Given the calling agent has an already-acked message <msg-id>
+    When it runs mail delete <msg-id>
+    Then the message no longer appears in mail inbox at all
+
+  Scenario: delete on an unknown message id errors rather than silently succeeding
+    Given a message id that is not in the calling agent's inbox at all
+    When it runs mail delete <msg-id>
+    Then the command reports the message is not in this inbox
 
   # ── The standing owner mailbox is readable and ackable from any session ──
 

@@ -7,8 +7,9 @@ and communicating over the filesystem.
 ## The console
 
 The `cyberlegion` CLI is the cold, deterministic mechanism: identity, warm peer sessions, durable
-mail, dispatch primitives, agent-definition resolution, and admin/diagnostics. It never decides
-*when* to spawn a peer versus a subagent — it only offers the primitive once a caller has decided.
+mail, agent-definition resolution, and admin/diagnostics. It never decides *when* to spawn a peer
+versus a subagent, and it carries no dispatch/result-slot primitives of its own — a cold subagent
+returns via the caller's own Task-result, a warm peer via `mail await`.
 
 ## The Legate
 
@@ -18,10 +19,10 @@ it is realized headless as the `headless-legate` agent. Given an intent (fulfill
 verdict), it reads the target agent-definition's `warm`/`interactive` tags and the environment's
 multiplexer availability, then picks exactly one strategy:
 
-- **channel** — a warm, interactive peer in its own pane (`dispatch channel`)
+- **channel** — a warm, interactive peer in its own pane (`unit spawn` + `mail await` on the thread)
 - **run-inline** — no multiplexer to host a peer, so the caller does the work itself, in-session
-- **subagent** — a cold, one-shot unit realized via the caller's own Task tool (`dispatch prep` /
-  `dispatch collect`)
+- **subagent** — a cold, one-shot unit realized via the caller's own Task tool, taking its
+  Task-result (final returned message) as the verdict
 
 ## The gateway
 

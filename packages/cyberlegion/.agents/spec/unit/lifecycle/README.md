@@ -3,11 +3,12 @@ spec-type: behavioral
 concept: [cyberlegion]
 ---
 
-# session — warm peer session lifecycle over a multiplexer
+# unit lifecycle — warm peer session lifecycle over a multiplexer
 
-Spawn, place (`--at pane/tab/window`), scrape, focus, nudge, and close a warm interactive peer via
-tmux/herdr. Migrated from cyberfleet's `spawn` + `decommission` nodes in `legion-extract-core`
-(CR-2).
+Spawn, scrape, focus, nudge, and close a warm interactive peer via tmux/herdr. Migrated CR-2 from
+`session/` (`cyberlegion-cli-realign`, ADR-0024): the lifecycle half of `unit` — registration and
+discovery live in the sibling `unit/registry` node; backend selection and placement moved to the new
+`mux/` node (a real architectural layer, not a command noun).
 
 ## Use Cases
 
@@ -15,15 +16,16 @@ tmux/herdr. Migrated from cyberfleet's `spawn` + `decommission` nodes in `legion
 existing directory a caller supplies (`--cwd`) — and its session pane, then tearing it back down
 cleanly — the deterministic inverse pair:
 
-- **spawn opens a new peer session and registers it as spawning before it starts** — `session spawn
+- **spawn opens a new peer session and registers it as spawning before it starts** — `unit spawn
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
-  primary checkout, opens a session backend (tmux or herdr, selected by environment) with its cwd set
-  to that worktree, pre-registers the peer (`status: spawning`, `spawnedBy` the caller's own id when
-  it has one) and writes its pane pointer and brief file BEFORE the session backend actually launches
-  the harness — the peer's own first-turn hook is what flips it to `active` (surfacing).
+  primary checkout, opens a session backend (tmux or herdr, selected by environment — see `mux/`)
+  with its cwd set to that worktree, pre-registers the peer (`status: spawning`, `spawnedBy` the
+  caller's own id when it has one) and writes its pane pointer and brief file BEFORE the session
+  backend actually launches the harness — the peer's own first-turn hook is what flips it to `active`
+  (`mail/surface`).
   - **The new worktree is always distinct from the primary checkout** — spawn refuses (throws) a
     `--worktree-path` that resolves onto the primary checkout rather than opening a session there.
-  - **Or spawn into an existing directory without a worktree (`--cwd`)** — `session spawn --cwd <dir>`
+  - **Or spawn into an existing directory without a worktree (`--cwd`)** — `unit spawn --cwd <dir>`
     opens the session in a directory that already exists, creating and removing no git worktree; the
     peer is registered with that directory as its cwd and no created worktree. `--cwd` requires the
     directory to already exist (cyberlegion creates no directory), refuses the primary checkout (the
@@ -31,17 +33,6 @@ cleanly — the deterministic inverse pair:
     worktree-creating flags (`--branch` / `--worktree-path`). This is the enabler that lets a caller
     (e.g. the `cyberfleet` fleet layer) own the worktree lifecycle and hand cyberlegion a ready
     directory to run in.
-  - **The session backend is selected by environment** — tmux when `$TMUX` is set, herdr when
-    `$HERDR_ENV` is set and `$TMUX` is not; an environment with neither throws asking for one.
-  - **Placement defaults to pane:right** — `--at pane:right|pane:down|tab|window|workspace` chooses
-    where the new session opens; omitting it defaults to `pane:right`. `workspace` opens a genuinely
-    separate workspace/session (herdr: `workspace create`; tmux: a new detached session) leaving the
-    caller's own workspace untouched, unlike every other placement, which adds a pane/window inside it.
-  - **`--at workspace` creates the worktree atomically when the backend supports it** — a backend
-    with a native combined primitive (herdr's `worktree create`, which both creates the git worktree
-    and nests it under the source workspace in one call) uses it instead of a separate
-    worktree-add-then-open; backends without one (tmux) fall back to creating the worktree and then
-    opening it with `at: 'workspace'`.
   - **The brief is delivered by file, never typed** — the resolved brief text is written to the peer's
     own brief file in the hub, never appended to the typed launch command.
   - **An unmapped harness errors before anything launches** — `--harness` outside the launch map
@@ -53,7 +44,7 @@ cleanly — the deterministic inverse pair:
     command in place of the harness's bare default binary; an explicit `--harness` still overrides the
     def's own harness tag.
 - **close tears down the worktree + session and reaps the state — spawn's deterministic inverse** —
-  `session close <ref>` removes the peer's git worktree, tears down its session pane, and reaps its
+  `unit close <ref>` removes the peer's git worktree, tears down its session pane, and reaps its
   registry record, pane pointer, and stored data (brief).
   - **Refuses the primary checkout even with --force** — a unit whose worktree root equals the
     primary checkout is refused; `--force` never overrides this refusal.
@@ -72,31 +63,27 @@ cleanly — the deterministic inverse pair:
   - **close on a `--cwd` unit removes no worktree** — a unit spawned with `--cwd` has a recorded cwd
     and no created worktree; close tears down its session pane and reaps its record but attempts no
     worktree removal.
-- **list shows the live peers** — `session list` lists agents whose `status` is not `exited` as a
-  TOON list (id, handle, status, pane) with a `<N> sessions` aggregate.
-- **focus moves input focus to a peer's session** — `session focus <ref>` resolves the peer (by id,
+- **focus moves input focus to a peer's session** — `unit focus <ref>` resolves the peer (by id,
   handle, or worktree branch/CR ref) to its pane and focuses it via the session adapter.
-- **nudge rings a peer's session — a dumb doorbell** — `session nudge <ref>` sends an empty
+- **nudge rings a peer's session — a dumb doorbell** — `unit nudge <ref>` sends an empty
   keystroke to the peer's pane through the session adapter; it carries no payload itself (the mail is
-  the payload — surfacing/wake read it on the peer's next turn).
-- **read scrapes a peer's session screen** — `session read <ref> [--lines <n>]` captures the target
+  the payload — `mail/surface`/`mail/wait` read it on the peer's next turn).
+- **read scrapes a peer's session screen** — `unit read <ref> [--lines <n>]` captures the target
   pane's current output through the session adapter.
 
-**Non-goals** — mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
-await`/`watch` (`wake/`), hook-based mail/brief injection into a harness turn (`surfacing/`) — this
-node only owns the session lifecycle (spawn/close/list/focus/nudge/read) and the worktree it creates
+**Non-goals** — the unit registry and self/peer discovery (`unit/registry`), backend selection and
+placement (`mux/`), mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
+await`/`watch` (`mail/wait`), hook-based mail/brief injection into a harness turn (`mail/surface`) —
+this node only owns the session lifecycle (spawn/close/focus/nudge/read) and the worktree it creates
 (when it creates one — a `--cwd` spawn opens into a caller-supplied directory and owns no worktree).
 
-Every scenario in [`session.feature`](./session.feature) maps to one of these behaviors:
+Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of these behaviors:
 
 | Behavior | What it covers |
 |---|---|
 | **spawn registers as spawning before it starts** | pre-registration, brief/pane pointer written before launch |
 | **worktree distinct from primary** | refuses a `--worktree-path` resolving onto the primary checkout |
 | **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
-| **backend selected by environment** | tmux vs herdr selection; neither present errors |
-| **placement** | `--at` choices; default pane:right |
-| **`--at workspace` atomic worktree create** | backend with a combined primitive creates the worktree and opens it in one call; others fall back to create-then-open |
 | **brief delivered by file** | never typed into the launch command |
 | **unmapped harness errors** | before any worktree/session opens |
 | **no brief source errors** | `--task`/`--task -`/`--brief-file` required |
@@ -109,7 +96,6 @@ Every scenario in [`session.feature`](./session.feature) maps to one of these be
 | **close on unknown id errors** | nothing reaped |
 | **close reaps only the targeted unit** | other units' state untouched |
 | **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
-| **list** | live (non-exited) peers |
 | **focus** | move input focus to a peer's pane |
 | **nudge** | doorbell send-keys, no payload |
 | **read** | scrape a peer's session screen |

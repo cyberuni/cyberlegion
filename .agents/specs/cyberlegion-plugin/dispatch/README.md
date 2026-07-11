@@ -34,13 +34,13 @@ warm interactive peer, a cold one-shot subagent, or inline in the caller's own s
 executing that choice with the `cyberlegion` CLI primitives.
 
 **Non-goals** — the CLI primitives themselves (`dispatch prep`/`channel`/`collect`,
-`agent resolve`, `admin doctor` — those are the sibling `cyberlegion` CLI project); auto-routing
+`agent resolve`, `mux doctor` — those are the sibling `cyberlegion` CLI project); auto-routing
 inside the CLI (there is no `--backend auto` — the CLI never chooses on its own); a mid-flight
 strategy switch once one is picked.
 
 | Behavior | Trigger | Outcome |
 |---|---|---|
-| **resolve tags + environment** | any dispatch intent reaches this node | `agent resolve <R>` for `warm`/`interactive`; `admin doctor` for multiplexer presence |
+| **resolve tags + environment** | any dispatch intent reaches this node | `agent resolve <R>` for `warm`/`interactive`; `mux doctor` for multiplexer presence |
 | **pick channel** | `warm` + `interactive` + a multiplexer is present | `dispatch channel --agent R --brief-file B [--verdict-schema V] --wait` — a warm peer that can converse over rounds |
 | **pick run-inline (attended)** | `warm` + `interactive` + no multiplexer, in-session | returns a `run-inline` verdict; the caller does the work itself — no cold subagent substitute |
 | **pick run-inline has no seat (headless)** | `warm` + `interactive` + no multiplexer, under `headless-legate` | the Legate cannot run the work itself; returns `needsInput` naming the role + brief for its own relay to resolve |

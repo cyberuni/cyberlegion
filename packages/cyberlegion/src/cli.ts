@@ -7,9 +7,6 @@ import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolv
 import { selectSessionAdapter } from './console/index.ts'
 import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
 import { decommission } from './decommission.ts'
-import { type DispatchResult, DispatchWaitingError, channel as dispatchChannel } from './dispatch/channel.ts'
-import { collect as dispatchCollect } from './dispatch/collect.ts'
-import { type DispatchEnvelope, prep as dispatchPrep } from './dispatch/prep.ts'
 import {
 	bumpLastSeen,
 	detectHarness,
@@ -37,8 +34,10 @@ import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
 
 // cyberlegion — the CLI is pure mechanism (dumb hands a routing layer composes). Routing
-// (warm-peer vs cold-subagent vs run-inline) is never decided here. Command groups:
-//   identity · session · mail · dispatch · agent · admin
+// (warm-peer vs cold-subagent vs run-inline), the wake-matrix decision, and result collection are
+// never decided here — a cold subagent returns via the caller's own Task-result, a warm peer via
+// `mail await`; the Legate plugin governance composes those primitives. Command groups (ADR-0024):
+//   mux · unit · mail · agent · attach · init · admin
 
 const VERSION = '0.0.0'
 
@@ -58,7 +57,7 @@ function formatOf(opts: GlobalOpts): Format {
 
 function requireSelf(ctx: IdContext): string {
 	const id = resolveSelfId(ctx)
-	if (!id) fail('no identity in this session — run `cyberlegion identity register` first')
+	if (!id) fail('no identity in this session — run `cyberlegion unit register` first')
 	bumpLastSeen(ctx, id)
 	return id
 }
@@ -79,7 +78,7 @@ function withGlobals(cmd: Command): Command {
 const program = new Command()
 program
 	.name('cyberlegion')
-	.description('Harness-agnostic agent session spawning, messaging, and dispatch over the filesystem')
+	.description('Harness-agnostic agent session spawning and messaging over the filesystem')
 	.version(VERSION)
 	// The program carries --space/--format for the bare-status default action; the same names are
 	// declared on every leaf subcommand. Positional options keep a post-verb --space bound to the
@@ -87,16 +86,55 @@ program
 	.enablePositionalOptions()
 
 // -------------------------------------------------------------------------------------------
-// identity — self-identify and discover peers
+// unit — legion units: register/discover the instance registry, spawn/reap warm sessions
+// (identity + session dissolved here, ADR-0024)
 // -------------------------------------------------------------------------------------------
-const identity = program.command('identity').description('self-identify and discover peers')
+const unit = program.command('unit').description('legion units — register, discover, spawn, and reap')
 
-withGlobals(identity.command('register'))
-	.description('register or refresh this session identity')
+/** The standing-owner branch of `unit register --standing` (folds the old `identity owner`). */
+function runStanding(ctx: IdContext, opts: GlobalOpts & { handle?: string }): void {
+	if (!opts.handle) {
+		const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
+		emit(formatOf(opts), {
+			toon: toonList(
+				'agents',
+				standing,
+				[
+					{ key: 'id', get: (a) => a.id },
+					{ key: 'handle', get: (a) => a.handle },
+					{ key: 'harness', get: (a) => a.harness ?? '-' },
+					{ key: 'status', get: (a) => a.status },
+				],
+				`${standing.length} standing`,
+			),
+			json: standing,
+		})
+		return
+	}
+	const liveClaim = listAgents(ctx.store).find(
+		(a) => a.handle === opts.handle && a.kind !== 'standing' && a.status !== 'exited',
+	)
+	const rec = registerStanding(ctx, { handle: opts.handle })
+	if (liveClaim) {
+		console.error(`a live session already claims handle "${opts.handle}"`)
+	}
+	emit(formatOf(opts), {
+		toon: toonObject({ id: rec.id, handle: rec.handle, kind: rec.kind, status: rec.status }),
+		json: rec,
+	})
+}
+
+withGlobals(unit.command('register'))
+	.description('register or refresh this session identity (or --standing: a session-independent owner inbox)')
 	.option('--handle <name>', 'human handle for this agent')
 	.option('--harness <h>', 'claude | cursor | codex (else auto-detected)')
+	.option('--standing', 'mint a standing, session-independent owner inbox (bare, with no --handle: list them)')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
+		if (opts.standing) {
+			runStanding(ctx, opts)
+			return
+		}
 		const rec = register(ctx, { handle: opts.handle, harness: opts.harness })
 		emit(formatOf(opts), {
 			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
@@ -104,12 +142,12 @@ withGlobals(identity.command('register'))
 		})
 	})
 
-withGlobals(identity.command('whoami'))
+withGlobals(unit.command('whoami'))
 	.description('print this session own identity')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		const id = resolveSelfId(ctx)
-		if (!id) fail('no identity in this session — run `cyberlegion identity register` first')
+		if (!id) fail('no identity in this session — run `cyberlegion unit register` first')
 		const rec = loadAgent(ctx.store, id)
 		if (!rec) fail(`registered self id "${id}" has no agent record`)
 		emit(formatOf(opts), {
@@ -118,94 +156,35 @@ withGlobals(identity.command('whoami'))
 		})
 	})
 
-withGlobals(identity.command('owner'))
-	.description('mint (or refresh) a standing, session-independent owner inbox')
-	.option('--handle <name>', 'the owner handle to claim')
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		if (!opts.handle) {
-			const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
-			emit(formatOf(opts), {
-				toon: toonList(
-					'agents',
-					standing,
-					[
-						{ key: 'id', get: (a) => a.id },
-						{ key: 'handle', get: (a) => a.handle },
-						{ key: 'harness', get: (a) => a.harness ?? '-' },
-						{ key: 'status', get: (a) => a.status },
-					],
-					`${standing.length} agents`,
-				),
-				json: standing,
-			})
-			return
-		}
-		const liveClaim = listAgents(ctx.store).find(
-			(a) => a.handle === opts.handle && a.kind !== 'standing' && a.status !== 'exited',
-		)
-		const rec = registerStanding(ctx, { handle: opts.handle })
-		if (liveClaim) {
-			console.error(`a live session already claims handle "${opts.handle}"`)
-		}
-		emit(formatOf(opts), {
-			toon: toonObject({ id: rec.id, handle: rec.handle, kind: rec.kind, status: rec.status }),
-			json: rec,
-		})
-	})
-
-withGlobals(identity.command('bind-main'))
-	.description("bind (or move) the hub's single main pane — the standing owner's live presence")
-	.option('--clear', 'unbind the main pane (a no-op when nothing is bound)')
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		if (opts.clear) {
-			ctx.store.setMainPane(null)
-			emit(formatOf(opts), { toon: toonObject({ mainPane: 'none' }), json: { mainPane: null } })
-			return
-		}
-		const cur = currentPane(ctx.env ?? process.env)
-		if (!cur) fail('no multiplexer pane to bind — run this from inside a tmux or herdr pane')
-		ctx.store.setMainPane(cur.pane)
-		emit(formatOf(opts), { toon: toonObject({ mainPane: cur.pane }), json: { mainPane: cur.pane } })
-	})
-
-withGlobals(identity.command('main'))
-	.description("print the hub's bound main pane")
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		const pane = ctx.store.getMainPane()
-		emit(formatOf(opts), { toon: toonObject({ mainPane: pane ?? 'none' }), json: { mainPane: pane ?? null } })
-	})
-
 function runWho(opts: GlobalOpts & { all?: boolean }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
 	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== 'exited')
 	emit(formatOf(opts), {
 		toon: toonList(
-			'agents',
+			'units',
 			agents,
 			[
 				{ key: 'id', get: (a) => a.id },
 				{ key: 'handle', get: (a) => a.handle },
 				{ key: 'harness', get: (a) => a.harness ?? '-' },
 				{ key: 'status', get: (a) => a.status },
+				{ key: 'pane', get: (a) => a.pane?.id ?? '-' },
 			],
-			`${agents.length} agents`,
+			`${agents.length} units`,
 		),
 		json: agents,
 	})
-	if (agents.length === 0) nextStep('cyberlegion identity register to join')
+	if (agents.length === 0) nextStep('cyberlegion unit register to join')
 }
 
-withGlobals(identity.command('who'))
-	.description('list the addressable peers')
-	.option('--all', 'include exited agents')
+withGlobals(unit.command('who'))
+	.description('list the addressable units')
+	.option('--all', 'include exited units')
 	.action(runWho)
 
-withGlobals(identity.command('prune'))
-	.description('mark dead agents exited and sweep')
+withGlobals(unit.command('prune'))
+	.description('mark dead units exited and sweep')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
@@ -223,11 +202,6 @@ withGlobals(identity.command('prune'))
 			json: changed,
 		})
 	})
-
-// -------------------------------------------------------------------------------------------
-// session — warm peer session lifecycle over a multiplexer
-// -------------------------------------------------------------------------------------------
-const session = program.command('session').description('warm peer session lifecycle over a multiplexer')
 
 function defineSpawn(cmd: Command): Command {
 	return withGlobals(cmd)
@@ -265,7 +239,7 @@ function defineSpawn(cmd: Command): Command {
 				harness = realized.harness
 				command = realized.command
 			}
-			if (!harness) fail('session spawn needs --harness, or --agent/--agent-file resolving one')
+			if (!harness) fail('unit spawn needs --harness, or --agent/--agent-file resolving one')
 			const res = spawn(ctx, {
 				harness,
 				command,
@@ -287,12 +261,12 @@ function defineSpawn(cmd: Command): Command {
 				}),
 				json: res,
 			})
-			nextStep(`cyberlegion session read ${res.agent.id}`)
+			nextStep(`cyberlegion unit read ${res.agent.id}`)
 		})
 }
-defineSpawn(session.command('spawn'))
+defineSpawn(unit.command('spawn'))
 
-withGlobals(session.command('close'))
+withGlobals(unit.command('close'))
 	.description("tear down a unit's worktree + session and reap its state (the inverse of spawn)")
 	.argument('<id>', 'unit id, handle, or worktree branch/CR ref')
 	.option('--force', 'discard uncommitted changes in the worktree (never overrides refusing the primary checkout)')
@@ -307,29 +281,7 @@ withGlobals(session.command('close'))
 		})
 	})
 
-withGlobals(session.command('list'))
-	.description('list live peer sessions')
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		touch(ctx)
-		const agents = listAgents(ctx.store).filter((a) => a.status !== 'exited')
-		emit(formatOf(opts), {
-			toon: toonList(
-				'sessions',
-				agents,
-				[
-					{ key: 'id', get: (a) => a.id },
-					{ key: 'handle', get: (a) => a.handle },
-					{ key: 'status', get: (a) => a.status },
-					{ key: 'pane', get: (a) => a.pane?.id ?? '-' },
-				],
-				`${agents.length} sessions`,
-			),
-			json: agents,
-		})
-	})
-
-withGlobals(session.command('focus'))
+withGlobals(unit.command('focus'))
 	.description("move input focus to a peer's session")
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
 	.action((ref, opts) => {
@@ -340,7 +292,7 @@ withGlobals(session.command('focus'))
 		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane: target.id }), json: { ref, pane: target.id } })
 	})
 
-withGlobals(session.command('nudge'))
+withGlobals(unit.command('nudge'))
 	.description("ring a peer's session (a dumb doorbell — the mail is the payload)")
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
 	.action((ref, opts) => {
@@ -351,7 +303,7 @@ withGlobals(session.command('nudge'))
 		emit(formatOf(opts), { toon: toonObject({ nudged: ref, pane: target.id }), json: { ref, pane: target.id } })
 	})
 
-withGlobals(session.command('read'))
+withGlobals(unit.command('read'))
 	.description("scrape a peer's session screen")
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
 	.option('--lines <n>', 'trailing lines to capture', (v) => Number.parseInt(v, 10))
@@ -539,124 +491,6 @@ withGlobals(mail.command('hook'))
 	})
 
 // -------------------------------------------------------------------------------------------
-// dispatch — result-slot primitives; routing (warm peer vs cold subagent) is never decided here
-// -------------------------------------------------------------------------------------------
-const dispatch = program.command('dispatch').description('delegate work and await a result (result-slot primitives)')
-
-function definePrepOptions(cmd: Command): Command {
-	return withGlobals(cmd)
-		.option('--agent <name>', 'resolve an agent def to build the instruction/launch from')
-		.option('--agent-file <path>', 'read an exact agent def file instead of resolving by name')
-		.option('--role <name>', 'role label folded into the generic instruction when no agent def is given')
-		.option('--brief-text <text>', 'brief body text')
-		.option('--brief-file <path>', 'read the brief from a file, or - for stdin')
-		.option('--verdict-schema <path>', 'JSON schema file (required keys + primitive types) the result must satisfy')
-		.option('--thread <id>', 'thread id (defaults to the minted dispatch id)')
-}
-
-function dispatchResultFields(r: DispatchResult) {
-	return { id: r.id, verdict: r.verdict != null ? JSON.stringify(r.verdict) : undefined, body: r.body, ts: r.ts }
-}
-
-definePrepOptions(dispatch.command('prep'))
-	.description('allocate an id + brief + result slot and return the envelope — spawns nothing, never invokes Task')
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		let envelope: DispatchEnvelope
-		try {
-			envelope = dispatchPrep(
-				{ store: ctx.store },
-				{
-					agent: opts.agent,
-					agentFile: opts.agentFile,
-					role: opts.role,
-					briefText: opts.briefText,
-					briefFile: opts.briefFile,
-					thread: opts.thread,
-				},
-			)
-		} catch (err) {
-			fail(err instanceof Error ? err.message : String(err))
-		}
-		emit(formatOf(opts), { toon: toonObject({ ...envelope }), json: envelope })
-		nextStep(
-			`spawn a subagent with the instruction, then \`cyberlegion dispatch collect ${envelope.id}\` — ` +
-				`or on the channel path, \`cyberlegion mail await --thread ${envelope.thread}\``,
-		)
-	})
-
-definePrepOptions(dispatch.command('channel'))
-	.description(
-		'prep + spawn a peer session + (--wait) await the mail-thread reply — the one CLI-driven convenience ' +
-			'(needs --agent or --agent-file to realize the peer launch)',
-	)
-	.addOption(
-		new Option('--at <placement>', 'where to open the new session')
-			.choices(['pane:right', 'pane:down', 'tab', 'window', 'workspace'])
-			.default('pane:right'),
-	)
-	.option('--wait', 'block for the mail-thread reply and print the validated result')
-	.option(
-		'--timeout <ms>',
-		'give up after this many ms with no reply (0 = wait forever)',
-		(v) => Number.parseInt(v, 10),
-		600_000,
-	)
-	.option(
-		'--max-wait <s>',
-		'self-cap for one internal poll cycle, in seconds (re-arm by re-running with --wait)',
-		(v) => Number.parseInt(v, 10),
-		240,
-	)
-	.action(async (opts) => {
-		const ctx = ctxOf(opts)
-		touch(ctx)
-		let result: DispatchResult | DispatchEnvelope
-		try {
-			result = await dispatchChannel(ctx, {
-				agent: opts.agent,
-				agentFile: opts.agentFile,
-				role: opts.role,
-				briefText: opts.briefText,
-				briefFile: opts.briefFile,
-				verdictSchema: opts.verdictSchema,
-				thread: opts.thread,
-				at: opts.at,
-				wait: opts.wait,
-				timeoutMs: opts.timeout,
-				maxWaitS: opts.maxWait,
-			})
-		} catch (err) {
-			if (err instanceof DispatchWaitingError) {
-				console.error(err.message)
-				return
-			}
-			fail(err instanceof Error ? err.message : String(err))
-		}
-		if ('ts' in result) {
-			emit(formatOf(opts), { toon: toonObject(dispatchResultFields(result)), json: result })
-			return
-		}
-		emit(formatOf(opts), { toon: toonObject({ ...result }), json: result })
-		nextStep(`cyberlegion mail await --thread ${result.thread} to collect the reply later`)
-	})
-
-withGlobals(dispatch.command('collect'))
-	.description("read + validate a subagent's result file (the subagent path's counterpart to mail await)")
-	.argument('<id>', 'dispatch id')
-	.option('--verdict-schema <path>', 'JSON schema file the result must satisfy')
-	.action((id, opts) => {
-		const ctx = ctxOf(opts)
-		let result: DispatchResult
-		try {
-			result = dispatchCollect({ store: ctx.store }, id, opts.verdictSchema)
-		} catch (err) {
-			fail(err instanceof Error ? err.message : String(err))
-		}
-		emit(formatOf(opts), { toon: toonObject(dispatchResultFields(result)), json: result })
-	})
-
-// -------------------------------------------------------------------------------------------
 // agent — resolve reusable agent definitions (.agents/agents/*.md)
 // -------------------------------------------------------------------------------------------
 const agent = program.command('agent').description('resolve reusable agent definitions')
@@ -750,32 +584,11 @@ withGlobals(agent.command('path'))
 	})
 
 // -------------------------------------------------------------------------------------------
-// admin — setup and diagnostics
+// mux — the unit-agnostic pane layer: multiplexer detection and diagnostics (ADR-0024)
 // -------------------------------------------------------------------------------------------
-const admin = program.command('admin').description('setup and diagnostics')
+const mux = program.command('mux').description('the unit-agnostic pane layer — multiplexer detection and diagnostics')
 
-withGlobals(admin.command('install'))
-	.description('wire the mail-surfacing hook into a harness config')
-	.requiredOption('--agent <harness>', 'claude | cursor | codex')
-	.option('--dir <path>', 'project dir to write config into', process.cwd())
-	.action((opts) => {
-		const results = install(opts.agent as Harness, opts.dir)
-		emit(formatOf(opts), {
-			toon: toonList(
-				'hooks',
-				results,
-				[
-					{ key: 'event', get: (r) => r.event },
-					{ key: 'status', get: (r) => r.status },
-					{ key: 'file', get: (r) => r.file },
-				],
-				`${results.length} hooks`,
-			),
-			json: results,
-		})
-	})
-
-withGlobals(admin.command('doctor'))
+withGlobals(mux.command('doctor'))
 	.description('probe harness, multiplexer (ancestry-discovered), hub root, and self-id')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
@@ -794,17 +607,49 @@ withGlobals(admin.command('doctor'))
 		}
 	})
 
-withGlobals(admin.command('mode'))
+withGlobals(mux.command('mode'))
 	.description('report the detected session-backend mode')
 	.action((opts) => {
-		let mux = 'none'
+		const ctx = ctxOf(opts)
+		let mode = 'none'
 		try {
-			mux = selectSessionAdapter(process.env).name
+			mode = selectSessionAdapter(ctx.env ?? process.env).name
 		} catch {
 			// no multiplexer detected — reported as 'none'
 		}
-		emit(formatOf(opts), { toon: toonObject({ mode: mux }), json: { mode: mux } })
+		emit(formatOf(opts), { toon: toonObject({ mode }), json: { mode } })
 	})
+
+// -------------------------------------------------------------------------------------------
+// attach — the human's read-pane: bind (bare) / --clear / --show the hub's single main pane
+// (was identity bind-main / main, ADR-0024)
+// -------------------------------------------------------------------------------------------
+withGlobals(program.command('attach'))
+	.description("bind this pane as the hub's main pane (the owner's live presence); --show reads it, --clear unbinds")
+	.option('--clear', 'unbind the main pane (a no-op when nothing is bound)')
+	.option('--show', 'print the bound main pane instead of binding')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		if (opts.show) {
+			const pane = ctx.store.getMainPane()
+			emit(formatOf(opts), { toon: toonObject({ mainPane: pane ?? 'none' }), json: { mainPane: pane ?? null } })
+			return
+		}
+		if (opts.clear) {
+			ctx.store.setMainPane(null)
+			emit(formatOf(opts), { toon: toonObject({ mainPane: 'none' }), json: { mainPane: null } })
+			return
+		}
+		const cur = currentPane(ctx.env ?? process.env)
+		if (!cur) fail('no multiplexer pane to bind — run this from inside a tmux or herdr pane')
+		ctx.store.setMainPane(cur.pane)
+		emit(formatOf(opts), { toon: toonObject({ mainPane: cur.pane }), json: { mainPane: cur.pane } })
+	})
+
+// -------------------------------------------------------------------------------------------
+// admin — hub-state maintenance (multiplexer diagnostics live in mux; install folded into init)
+// -------------------------------------------------------------------------------------------
+const admin = program.command('admin').description('hub-state maintenance')
 
 withGlobals(admin.command('migrate'))
 	.description('merge one hub root state into another (e.g. an old project-local root into the global hub)')
@@ -822,7 +667,7 @@ withGlobals(admin.command('migrate'))
 
 // -------------------------------------------------------------------------------------------
 // init — the onboarding front door: resolve the harness, register the surfacing hook, and point
-// at binding the durable owner inbox. `admin install` stays the explicit low-level verb.
+// at binding the durable owner inbox. init owns hook installation directly (ADR-0024).
 // -------------------------------------------------------------------------------------------
 withGlobals(program.command('init'))
 	.description('resolve this session harness, register the Legion surfacing hook, and advise owner binding')
@@ -854,8 +699,8 @@ withGlobals(program.command('init'))
 		})
 		const hasStandingOwner = listAgents(ctx.store).some((a) => a.kind === 'standing')
 		if (!hasStandingOwner) {
-			nextStep('cyberlegion identity owner --handle legate to mint the durable owner inbox')
-			nextStep('cyberlegion identity bind-main to bind this pane as the owner live presence')
+			nextStep('cyberlegion unit register --standing --handle legate to mint the durable owner inbox')
+			nextStep('cyberlegion attach to bind this pane as the owner live presence')
 		}
 	})
 
@@ -871,8 +716,8 @@ withGlobals(program.command('inbox'))
 	.option('--thread <id>', 'filter to messages carrying this thread id')
 	.action(runInbox)
 withGlobals(program.command('who'))
-	.description('list the addressable peers (alias of `identity who`)')
-	.option('--all', 'include exited agents')
+	.description('list the addressable units (alias of `unit who`)')
+	.option('--all', 'include exited units')
 	.action(runWho)
 
 // -------------------------------------------------------------------------------------------
@@ -890,7 +735,7 @@ withGlobals(program).action((opts: GlobalOpts) => {
 		toon: toonObject({ self: rec?.handle ?? id ?? '-', harness: rec?.harness ?? '-', unread, units }),
 		json: { self: rec ? { id: rec.id, handle: rec.handle, harness: rec.harness } : null, unread, units },
 	})
-	if (!id) nextStep('cyberlegion identity register to join')
+	if (!id) nextStep('cyberlegion unit register to join')
 	else if (unread > 0) nextStep('cyberlegion mail inbox --unread')
 })
 

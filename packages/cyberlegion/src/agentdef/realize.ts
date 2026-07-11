@@ -1,7 +1,8 @@
 // Pure string builders that turn a resolved AgentDef into what a caller actually does with it —
-// never spawns anything itself. Two families: `realizeLaunch` for a CHANNEL (warm peer session,
-// its own harness process) and `realizeSubagentInstruction` for a SUBAGENT (the parent model's
-// own Task-tool spawn, in-process — cyberlegion cannot invoke that tool itself).
+// never spawns anything itself. `realizeLaunch` builds the launch invocation for a CHANNEL (warm
+// peer session, its own harness process). Building a SUBAGENT's Task-tool instruction is the
+// caller's own concern (see the subagent-backend-governance plugin skill) — cyberlegion cannot
+// invoke that tool itself and no longer carries a result-slot counterpart for it.
 
 import type { Harness } from '../identity.ts'
 import { LAUNCH_MAP } from '../session.ts'
@@ -38,26 +39,4 @@ export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): R
 	if (model) parts.push('--model', shellQuote(model))
 	if (def.instructions) parts.push('--append-system-prompt', shellQuote(def.instructions))
 	return { harness, command: parts.join(' ') }
-}
-
-export interface RealizeSubagentOptions {
-	/** File the spawned subagent reads its brief from. */
-	briefFile: string
-	/** File the spawned subagent writes its result JSON to. */
-	resultFile: string
-}
-
-/** Build the instruction string a parent model uses to spawn its OWN harness Task subagent for
- * `def` — cyberlegion never invokes the Task tool itself. Names `subagent_type: <def.name>` for a
- * harness that recognizes it, but always inlines the model + full instructions too so the same
- * instruction string is correct even when the harness has no such named subagent type. */
-export function realizeSubagentInstruction(def: AgentDef, opts: RealizeSubagentOptions): string {
-	const lines: string[] = [
-		`Spawn a subagent (subagent_type: ${def.name} if your harness recognizes that name, else a generic one).`,
-	]
-	if (def.model) lines.push(`Model: ${def.model}.`)
-	if (def.effort) lines.push(`Effort: ${def.effort}.`)
-	lines.push(`Read the brief at ${opts.briefFile} and write its result JSON to ${opts.resultFile}.`)
-	if (def.instructions) lines.push('', 'Instructions:', def.instructions)
-	return lines.join('\n')
 }

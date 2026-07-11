@@ -40,7 +40,7 @@ to the standing owner and exit. Read `relay-governance` for the full fork; do no
 
 The one thing genuinely the Legate's own, above single-dispatch routing: given a **batch** of briefs,
 resolve each one's strategy independently (a batch may mix channel and subagent units) and run them —
-subagent dispatches may run concurrently (each is its own `prep`/Task/`collect` round-trip); channel
+subagent dispatches may run concurrently (each is its own resolve/Task-invoke/Task-result round-trip); channel
 dispatches each occupy a pane, so cap concurrency to what the environment's multiplexer can host.
 Collect every unit's `DispatchResult` before returning.
 
@@ -48,7 +48,7 @@ Collect every unit's `DispatchResult` before returning.
 
 The Legate is spawned cold for each muster (one fan-out batch or one unattended trigger) and carries
 no memory across musters. Derive everything it needs from what it is handed — the brief(s), any
-verdict schema, and the environment it probes fresh via `admin doctor`. Never assume a prior
+verdict schema, and the environment it probes fresh via `mux doctor`. Never assume a prior
 muster's resolved strategy or environment probe still holds.
 
 ## Spawn depth

@@ -12,15 +12,18 @@ in-session on a dispatch intent, and by the `headless-legate` agent when there i
 ## What it does
 
 - Resolves the target agent definition's `warm`/`interactive` tags (`cyberlegion agent resolve`).
-- Probes the environment for a multiplexer (`cyberlegion admin doctor`).
-- Picks exactly one of three strategies — **channel** (warm peer), **run-inline** (caller does the
-  work itself), or **subagent** (cold, one-shot, via `subagent-backend-governance`) — and executes
-  it with the `cyberlegion` CLI primitives.
+- Probes the environment for a multiplexer (`cyberlegion mux doctor`).
+- Picks exactly one of three strategies — **channel** (warm peer: `unit spawn` + `mail await`),
+  **run-inline** (caller does the work itself), or **subagent** (cold, one-shot, via
+  `subagent-backend-governance`) — and executes it by composing the `cyberlegion` CLI primitives.
+- Folds in the wake-matrix decision (bounded await vs doorbell vs run-inline, gated on a verified
+  multiplexer) that the CLI no longer encodes.
 - Defines the `subagent | channel` seam a dependent (SDD, ADR-0023) references by intent, never by
   a literal command name.
 
 ## What it does not do
 
-- Never lets the CLI auto-route — there is no `--backend auto` flag.
+- Never lets the CLI auto-route — there is no `--backend auto` flag, and no `dispatch` command
+  group at all; `unit spawn`/`mail await`/`unit nudge` are composed here deliberately.
 - Never invokes a harness's Task tool directly (that happens inside `subagent-backend-governance`,
   using the caller's own tool).
