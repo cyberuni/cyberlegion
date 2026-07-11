@@ -182,3 +182,51 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a registered peer with a live session pane holding some output
     When a caller runs unit read <ref> --lines 20
     Then the captured trailing output from that pane is printed
+
+  # ── clear resets a warm peer's context while keeping its pane/process warm ──
+
+  Scenario: clear injects the harness's own in-session reset into a warm peer and tears nothing down
+    Given a registered peer with harness claude and a live session pane
+    When a caller runs unit clear <ref>
+    Then the session adapter sends "/clear" to that peer's pane
+    And no session pane is torn down
+    And no worktree is removed
+    And the unit's registry record, pane pointer, and worktree are unchanged
+
+  Scenario Outline: clear resolves each harness's own fresh-context command from a per-harness map
+    Given a registered peer with harness <harness> and a live session pane
+    When a caller runs unit clear on that peer
+    Then the session adapter sends "<command>" to that peer's pane
+
+    Examples:
+      | harness | command   |
+      | claude  | /clear    |
+      | codex   | /clear    |
+      | copilot | /clear    |
+      | cursor  | /new-chat |
+
+  # ── A harness with no honest fresh-context command fails loud ──
+
+  Scenario: clear fails loud on a harness whose reset would not truly empty the context
+    Given a registered peer with harness gemini and a live session pane
+    When a caller runs unit clear <ref>
+    Then it throws naming the harness and its missing reset mapping
+    And nothing is sent to that peer's pane
+
+  Scenario: clear errors on an unmapped harness rather than guessing a command
+    Given a registered peer with harness grok and a live session pane
+    When a caller runs unit clear <ref>
+    Then it throws naming the reset map
+    And nothing is sent to that peer's pane
+
+  # ── clear needs a live target, like nudge and focus ──
+
+  Scenario: clear on an unknown id errors and sends nothing
+    Given no unit registered under a given id
+    When a caller runs unit clear <ref>
+    Then it throws that no unit is registered under that id
+
+  Scenario: clear on a unit with no known session pane errors and sends nothing
+    Given a registered unit with no known session pane
+    When a caller runs unit clear <ref>
+    Then it throws that the unit has no known session pane

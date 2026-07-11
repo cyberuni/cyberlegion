@@ -7,23 +7,23 @@ approval:
     by: unional
     cause: dimension
     why:
-      floor: none — no frozen scenario weakened; the code fixes (tmux `new-window -d`, herdr `tab create --no-focus`) satisfy the re-frozen no-focus-steal contract.
-      blast: low — `unit spawn --at` placement default (pane:right → tab) + herdr `tab` fidelity fix + dropping the `window` value; scoped to the `mux/` node's two `console/` adapters + the CLI option. 300/300 cyberlegion tests; root `pnpm verify` 19/19.
-      novelty: low — teaches the herdr adapter its existing native `tab create` primitive and adds `-d` to the tmux tab path; tmux already mapped `tab` → `new-window`.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; every frozen placement scenario verified with exercise-backstop (drop `-d` / drop `--no-focus` / revert the default → a test fails); no regression in the unchanged mux scenarios; diff scoped to placement.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all placement scenarios PASS, exercise-backstop confirmed.
-      cr: at-default-tab
+      floor: none — additive `unit clear` behavior; no frozen scenario weakened.
+      blast: low — a new `unit/lifecycle` verb + a string-keyed per-harness reset map in `session.ts` + the CLI command in `cli.ts`; touches no registry/worktree path. cyberlegion 330 tests; root `pnpm verify` 19/19.
+      novelty: low — mirrors the existing `nudge` send-into-pane idiom and the `LAUNCH_MAP` per-harness pattern; no `Harness`/`LAUNCH_MAP` widening.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 frozen clear scenarios verified; fail-loud-ordering (nothing sent before resolve) and no-teardown guarantees exercise-backstopped with reverted scratch mutations.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen clear scenario PASS, both risk-critical guarantees backstopped.
+      cr: cyberlegion-unit-reset
   spec:
     verdict: approve
     by: unional
     cause: dimension
     why:
-      floor: none — the one frozen-scenario rewrite (`omitting --at defaults to pane:right` → `tab`) is a ratified re-open, a value change rather than a weakening/deletion of coverage; the user explicitly requested the default flip. The other three touched mux scenarios are purely additive (self-clearing).
-      blast: low — the `unit spawn --at` placement default (pane:right → tab) plus the herdr-adapter fidelity fix it depends on (teach `tab` its native `herdr tab create`, previously mis-routed to a split) and dropping the redundant `window` value; scoped to the `mux/` node and the `console/` adapters.
-      novelty: low — flips a documented default and wires the herdr adapter to its existing native `tab create` primitive; tmux already mapped `tab` → `new-window`. Vocabulary aligned to the canonical Session › Workspace › Tab › Pane concepts, captured as README reference.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no open markers); added a focus-fidelity scenario to close the judge's one non-blocking content gap.
+      floor: none — the `unit clear` scenarios are purely additive to the frozen `lifecycle.feature` (self-clearing, stays `@frozen`, no re-open).
+      blast: low — one new warm-unit lifecycle verb scoped to the `unit/lifecycle` node; realized by injecting the harness's own fresh-context command via the existing `SessionAdapter.send` seam.
+      novelty: low — the warm/cold decoupling primitive (issue #122); a per-harness reset map keyed on genuine fresh-context semantics (claude/codex/copilot → `/clear`, cursor → `/new-chat`), fail-loud on a false-friend (gemini `/clear` = screen-only) or unmapped harness.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS) after a mechanical malformed-Outline fix; no open markers.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: at-default-tab
+      cr: cyberlegion-unit-reset
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
