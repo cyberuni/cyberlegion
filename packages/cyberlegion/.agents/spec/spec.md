@@ -7,12 +7,12 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — 6 additive error-case scenarios only; no frozen scenario weakened; no production code changed.
-      blast: low — spec/suite/test/docs only; the guard already existed in `resolveTarget` (`cli.ts`); deliver added one e2e verification per new frozen scenario. Root `pnpm verify` 19/19; cyberlegion 347 tests green.
-      novelty: low — mirrors the two frozen `unit clear` error scenarios; unresolvable ref → `no agent addressable`, no known pane → `no known session pane`, for each of focus/nudge/read.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 scenarios PASS with independently re-derived oracles; the "nothing focused/delivered/scraped" clause is structurally guaranteed by guard-before-adapter ordering, and the no-pane tests register a genuine `pane:null` unit (not a tautology).
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every new frozen scenario PASS; scope confined to spec/suite/test/docs, no drift.
-      cr: github-128-unit-error-scenarios
+      floor: none — additive boot-race scenarios only; no frozen scenario weakened.
+      blast: low-medium — a new `console/nudge.ts` verify+retry loop above the adapters + a bare-Enter `submit` primitive on the `SessionAdapter` interface (herdr `pane send-keys Enter`, tmux `send-keys Enter`) + the `unit nudge` action made async; touches no registry/worktree path. Judged on the tree rebased onto origin/main (incl. cr128 PR #152). Root `pnpm verify` 19/19; cyberlegion 356 tests green.
+      novelty: low-medium — submit-then-verify-then-retry: `send` once, read the pane back, flush the staged buffer (bare Enter, never re-typing) up to a bounded cap, fail loud if the turn is never taken; verify anchor is the caller's own staged text (harness-agnostic), mirroring the existing `wake/await` injectable-`sleep` poll idiom.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles and exercise-backstopped by two source mutations (submit→send, remove early-return) that each broke the bound tests — closing the prior UNBOUND nudge gap. Fail-loud propagation to `exit(1)` confirmed structurally.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every boot-race scenario PASS; diff confined to the nudge behavior, no bleed.
+      cr: 150-nudge-boot-race
   spec:
     verdict: approve
     by: agent
