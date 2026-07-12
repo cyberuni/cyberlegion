@@ -9,6 +9,7 @@ import {
 	type IdContext,
 	randomId,
 	realExec,
+	resolveAgent,
 	resolveSelfId,
 	saveAgent,
 } from './identity.ts'
@@ -19,6 +20,47 @@ export const LAUNCH_MAP: Record<Harness, string> = {
 	claude: 'claude',
 	cursor: 'cursor-agent',
 	codex: 'codex',
+}
+
+/**
+ * Per-harness fresh-context ("reset") command `clear` injects into a warm peer's pane to return
+ * its conversation to a cold context without tearing the pane/session down — keyed on genuine
+ * fresh-context semantics, never on the literal word "clear".
+ */
+const RESET_MAP: Record<string, string> = {
+	claude: '/clear',
+	codex: '/clear',
+	copilot: '/clear',
+	cursor: '/new-chat',
+}
+
+/**
+ * Harnesses whose apparent "clear" command does NOT truly empty the model context — e.g. gemini's
+ * `/clear` wipes only the terminal screen, leaving the model's own context stale. There is no
+ * honest fresh-context command for these, so they are refused explicitly rather than lumped in
+ * with a harness that is merely unmapped.
+ */
+const FALSE_FRIEND_HARNESSES = new Set(['gemini'])
+
+/**
+ * Resolve `harness`'s own fresh-context command from the reset map. String-keyed (not `Harness`)
+ * so it also guards a harness present in `LAUNCH_MAP`/`identity.ts`'s `Harness` union but not yet
+ * given an honest reset mapping here. Throws rather than guessing:
+ * - a known false-friend harness (its "clear" only clears the screen, not the context)
+ * - any harness absent from the map entirely
+ */
+export function resetCommandFor(harness: string): string {
+	const mapped = RESET_MAP[harness]
+	if (mapped) return mapped
+	if (FALSE_FRIEND_HARNESSES.has(harness)) {
+		throw new Error(
+			`"${harness}" has no honest fresh-context command — its own "/clear" clears only the terminal screen, ` +
+				'not the model context, so unit clear refuses to send a false-friend reset that would leave stale context behind',
+		)
+	}
+	throw new Error(
+		`"${harness}" is not in the reset map (${Object.keys(RESET_MAP).join(' | ')}) — unit clear refuses to guess a command`,
+	)
 }
 
 export interface SpawnInput {
@@ -163,6 +205,34 @@ function muxEnvPrefix(muxName: string): string {
 	if (muxName === 'tmux') return 'CYBERLEGION_MUX=tmux CYBERLEGION_MUX_PANE=$TMUX_PANE '
 	if (muxName === 'herdr') return 'CYBERLEGION_MUX=herdr '
 	return ''
+}
+
+export interface ClearResult {
+	agent: AgentRecord
+	pane: string
+	command: string
+}
+
+/**
+ * Reset a warm peer's context to cold WITHOUT tearing anything down — injects the peer's own
+ * harness fresh-context command (`resetCommandFor`) into its pane through the session adapter.
+ * Warmth is the unit (pane/process stays warm — no cold-start), coldness is the context. The
+ * command is resolved (and any false-friend/unmapped harness throws) BEFORE anything is sent, so
+ * a fail-loud harness never has anything typed into its pane. Touches neither the registry record
+ * nor the worktree — `close` (`decommission`) owns teardown.
+ */
+export function clearUnit(ctx: IdContext, ref: string): ClearResult {
+	const agent = resolveAgent(ctx.store, ref)
+	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
+	if (!pane) throw new Error(`unit "${ref}" has no known session pane`)
+	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`)
+	// Resolve (and validate) the reset command before sending anything — a false-friend or
+	// unmapped harness must fail loud with nothing injected into the pane.
+	const command = resetCommandFor(agent.harness)
+	const env = ctx.env ?? process.env
+	const exec = ctx.exec ?? realExec
+	selectSessionAdapter(env, exec).send(exec, { id: pane }, command)
+	return { agent, pane, command }
 }
 
 /** Resolve a spawn brief from --brief-file, --task -, or --task <text>; null if no source given. */

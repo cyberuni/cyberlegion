@@ -1,5 +1,11 @@
 import { resolve } from 'node:path'
-import type { OpenInNewWorktreeOptions, SessionAdapter, SessionReadOptions, SessionTarget } from './session.ts'
+import type {
+	LivePane,
+	OpenInNewWorktreeOptions,
+	SessionAdapter,
+	SessionReadOptions,
+	SessionTarget,
+} from './session.ts'
 import type { Worktree } from './worktree.ts'
 
 /**
@@ -90,6 +96,24 @@ export const herdrSessionAdapter: SessionAdapter = {
 		// and fails — Exec yields null — when the pane id no longer names a pane. A live pane is exactly
 		// the non-null case; an empty live pane ('') must NOT read as gone.
 		return exec('herdr', ['pane', 'read', target.id, '--source', 'visible']) !== null
+	},
+
+	listPanes(exec): LivePane[] {
+		const out = exec('herdr', ['pane', 'list'])
+		if (!out) return []
+		let panes: unknown
+		try {
+			panes = JSON.parse(out)?.result?.panes
+		} catch {
+			return []
+		}
+		if (!Array.isArray(panes)) return []
+		return panes
+			.filter(
+				(p): p is { pane_id: string; agent: string; cwd?: string } =>
+					typeof p?.pane_id === 'string' && typeof p?.agent === 'string' && p.agent !== '',
+			)
+			.map((p) => ({ id: p.pane_id, mux: 'herdr' as const, harness: p.agent, cwd: p.cwd }))
 	},
 }
 

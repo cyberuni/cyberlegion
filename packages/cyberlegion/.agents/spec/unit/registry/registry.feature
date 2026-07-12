@@ -252,3 +252,54 @@ Feature: unit registry — register, discover, and prune legion units
     Then both homa and ops are listed
     And no session agents are listed
 
+  # ── reconcile culls dead records against the live mux (cull half of reconcile-against-mux) ──
+
+  Scenario: reconcile marks a record exited when its pane is absent from the live set
+    Given a session inside a tmux pane and a registered agent whose tmux pane is not in the live tmux pane list
+    When it runs unit who --reconcile
+    Then that agent's status becomes exited
+    And the change is returned
+
+  Scenario: reconcile marks a record exited from within a herdr session too
+    Given a session inside a herdr pane and a registered agent whose herdr pane is not in the live herdr pane list
+    When it runs unit who --reconcile
+    Then that agent's status becomes exited
+
+  Scenario: reconcile is mux-scoped and never culls the other mux's records
+    Given a session inside a tmux pane and a registered agent whose pane is a herdr pane absent from any live set
+    When it runs unit who --reconcile
+    Then the herdr-paned agent's status remains unchanged
+
+  Scenario: reconcile never touches a standing record
+    Given a session inside a tmux pane and a standing identity homa
+    When it runs unit who --reconcile
+    Then homa's status remains active
+
+  Scenario: a pane-null record is not pane-culled by reconcile
+    Given a session inside a tmux pane and a registered agent with pane null
+    When it runs unit who --reconcile
+    Then that agent's status remains unchanged by reconcile
+
+  Scenario: reconcile outside any multiplexer pane culls nothing
+    Given a session in no multiplexer pane
+    When reconcile runs
+    Then it returns no changes
+
+  Scenario: prune reconcile-culls too
+    Given a session inside a tmux pane and a registered agent whose tmux pane is not in the live tmux pane list
+    When a session runs unit prune
+    Then that agent's status becomes exited
+
+  # ── listPanes: the bulk enumeration primitive per mux ──
+
+  Scenario: tmux listPanes reports every live pane's id and cwd
+    Given tmux list-panes -a reports two panes with their ids and cwds
+    When listPanes runs against the tmux adapter
+    Then it returns both panes with their id and cwd, and no harness
+
+  Scenario: herdr listPanes reports every live pane's id, harness, and cwd
+    Given herdr pane list reports panes, some with an agent and one scaffold pane with no agent
+    When listPanes runs against the herdr adapter
+    Then it returns only the panes with an agent, each with id, harness, and cwd
+    And the scaffold pane with no agent is dropped
+

@@ -75,6 +75,17 @@ is covered by the `@trigger` outline and the routing-defer scenarios.
   the user names a harness; otherwise plain `cyberlegion init`.
 - **Idempotent hook registration.** Re-running on an already-set-up session is a clean no-op
   (`already present`), never a duplicate or an error.
+- **The CLI version is read from the plugin's bundled map, never invented.** Before registering the
+  hook, `init-cyberlegion` resolves which `cyberlegion` CLI version to run by reading the plugin's own
+  bundled `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json`, which maps `cyberlegion` to a version. It never
+  invents a version number or scrapes one out of prose.
+- **The resolved pin is threaded into `init --pin`.** When `.plugin/pins.json` carries a `cyberlegion`
+  entry, the skill runs `cyberlegion init --pin <version>` with that version, so the installed hook is
+  version-pinned.
+- **A missing or unreadable map falls back to the unpinned CLI.** If `.plugin/pins.json` is absent,
+  carries no `cyberlegion` entry, or is malformed (an unbundled workspace checkout or a corrupt map),
+  the skill invokes the unpinned `cyberlegion` CLI and passes no `--pin` — it never invents a version
+  number to fill the gap.
 - **Root detection gates the bind ask.** Only a root session (`!spawnedBy`, derived from the probe /
   self-id) is ever offered the bind. A spawned unit stops after the hook.
 - **Never bind silently.** The skill mints the `legate` owner and binds the pane **only** after an

@@ -89,4 +89,18 @@ describe('tmuxSessionAdapter', () => {
 		// list-panes omits it → gone
 		expect(tmuxSessionAdapter.paneExists(fakeExec([], { 'list-panes': '%1\n%7' }), { id: '%3' })).toBe(false)
 	})
+
+	it('listPanes() reports every live pane with its id and cwd, no harness', () => {
+		const calls: string[][] = []
+		const exec = fakeExec(calls, { 'list-panes': '%1 claude /repo/a\n%3 zsh /repo/b' })
+		expect(tmuxSessionAdapter.listPanes(exec)).toEqual([
+			{ id: '%1', mux: 'tmux', cwd: '/repo/a' },
+			{ id: '%3', mux: 'tmux', cwd: '/repo/b' },
+		])
+		expect(calls[0]).toEqual(['list-panes', '-a', '-F', '#{pane_id} #{pane_current_command} #{pane_current_path}'])
+	})
+
+	it('listPanes() returns empty when tmux reports nothing', () => {
+		expect(tmuxSessionAdapter.listPanes(() => null)).toEqual([])
+	})
 })

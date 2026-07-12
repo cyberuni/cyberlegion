@@ -71,10 +71,26 @@ without being told it, and discovering its live peers:
   unknown recipient still throws (fail-loud); it does not auto-create an owner. Bare `unit register
   --standing` (no `--handle`) lists the registered standing records only, without any session agents.
 
+- **reconcile culls records against the live mux, mux-scoped** — `unit who --reconcile` (mirrors
+  `--all`, the settled seam that keeps `who` cheap by default) live-probes the current mux's panes via
+  the adapter's `listPanes` primitive and marks any non-`standing`, pane-bearing record whose pane is
+  absent from that live set as `exited`, returning the changes; `prune` reconcile-culls too. It is
+  **mux-scoped** — it enumerates only the multiplexer the caller is currently inside (tmux
+  `list-panes -a` or herdr `pane list`) and never declares the *other* mux's records dead, since it
+  cannot see them. A `kind: standing` record is never touched. A record whose `pane` is `null` cannot
+  be pane-culled by enumeration — it is left to the existing staleness timer. Outside any multiplexer
+  pane, reconcile has nothing to enumerate and culls nothing.
+- **`listPanes` is the bulk enumeration primitive** — a `SessionAdapter` method returning every live
+  pane the backend can currently see (`{ id, mux, harness?, cwd? }`), the counterpart to `paneExists`'s
+  single targeted query. herdr's `pane list` reports each pane's running agent; a pane with no agent
+  (a bare/scaffold pane) is dropped. tmux's `list-panes -a` reports id + command + cwd; harness is not
+  directly knowable from tmux, so it is omitted.
+
 **Non-goals** — sending/reading mail (`mail/`), spawning/closing a peer session (`unit/lifecycle`),
 backend selection and placement (`mux/`), hook-based injection of mail into a harness turn
-(`mail/surface`), the human's read-pane pointer (`attach/`) — this node only owns the registry:
-register, recover, discover, prune.
+(`mail/surface`), the human's read-pane pointer (`attach/`), adopting a live-but-unregistered pane
+(reconcile's adopt half, a separate CR), and exited-record retention/GC (also separate) — this node
+only owns the registry: register, recover, discover, prune, and the cull half of reconcile.
 
 Every scenario in [`registry.feature`](./registry.feature) maps to one of these behaviors:
 
@@ -89,3 +105,5 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `unit register --standing` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |
+| **reconcile cull** | `who --reconcile` / `prune` live-probe the current mux via `listPanes` and mark an absent-pane record exited; mux-scoped (never culls the other mux); standing exempt; `pane: null` not pane-culled |
+| **listPanes adapter contract** | herdr `pane list` JSON → `{id, mux, harness, cwd}`, drops agentless scaffold panes; tmux `list-panes -a -F` → `{id, mux, cwd}`, no harness |

@@ -16,6 +16,7 @@ import {
 	loadAgent,
 	prune,
 	realExec,
+	reconcile,
 	register,
 	registerStanding,
 	resolveAgent,
@@ -28,7 +29,7 @@ import { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
-import { spawn } from './session.ts'
+import { clearUnit, spawn } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -156,9 +157,10 @@ withGlobals(unit.command('whoami'))
 		})
 	})
 
-function runWho(opts: GlobalOpts & { all?: boolean }): void {
+function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
+	if (opts.reconcile) reconcile(ctx)
 	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== 'exited')
 	emit(formatOf(opts), {
 		toon: toonList(
@@ -181,6 +183,7 @@ function runWho(opts: GlobalOpts & { all?: boolean }): void {
 withGlobals(unit.command('who'))
 	.description('list the addressable units')
 	.option('--all', 'include exited units')
+	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
 	.action(runWho)
 
 withGlobals(unit.command('prune'))
@@ -327,6 +330,26 @@ withGlobals(unit.command('read'))
 		} else {
 			console.log(text)
 		}
+	})
+
+withGlobals(unit.command('clear'))
+	.description(
+		"reset a warm peer's context to cold by injecting its own harness fresh-context command — keeps the pane/session warm; tears down nothing",
+	)
+	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.action((ref, opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		let res: ReturnType<typeof clearUnit>
+		try {
+			res = clearUnit(ctx, ref)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), {
+			toon: toonObject({ cleared: ref, pane: res.pane, command: res.command }),
+			json: { cleared: ref, pane: res.pane, command: res.command },
+		})
 	})
 
 // -------------------------------------------------------------------------------------------
@@ -734,6 +757,7 @@ withGlobals(program.command('inbox'))
 withGlobals(program.command('who'))
 	.description('list the addressable units (alias of `unit who`)')
 	.option('--all', 'include exited units')
+	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
 	.action(runWho)
 
 // -------------------------------------------------------------------------------------------
