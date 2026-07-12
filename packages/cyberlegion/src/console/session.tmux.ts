@@ -1,4 +1,4 @@
-import type { SessionAdapter, SessionReadOptions, SessionTarget } from './session.ts'
+import type { LivePane, SessionAdapter, SessionReadOptions, SessionTarget } from './session.ts'
 
 /** tmux backend — detected via `$TMUX`. */
 export const tmuxSessionAdapter: SessionAdapter = {
@@ -53,5 +53,18 @@ export const tmuxSessionAdapter: SessionAdapter = {
 		// server-wide for the id (pane ids are globally unique across sessions).
 		if (exec('tmux', ['has-session', '-t', target.id]) !== null) return true
 		return (exec('tmux', ['list-panes', '-a', '-F', '#{pane_id}']) ?? '').split('\n').includes(target.id)
+	},
+
+	listPanes(exec): LivePane[] {
+		const out = exec('tmux', ['list-panes', '-a', '-F', '#{pane_id} #{pane_current_command} #{pane_current_path}'])
+		if (!out) return []
+		return out
+			.split('\n')
+			.filter(Boolean)
+			.map((line) => {
+				const [id, , ...cwdParts] = line.split(' ')
+				return { id: id ?? '', mux: 'tmux' as const, cwd: cwdParts.length ? cwdParts.join(' ') : undefined }
+			})
+			.filter((p) => p.id !== '')
 	},
 }

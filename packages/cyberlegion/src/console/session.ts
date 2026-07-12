@@ -23,6 +23,18 @@ export interface SessionTarget {
 	id: string
 }
 
+/** A pane the backend can currently see, as reported by `listPanes` (bulk enumeration). */
+export interface LivePane {
+	/** Backend-native pane id. */
+	id: string
+	/** Which multiplexer this pane belongs to. */
+	mux: 'tmux' | 'herdr'
+	/** The harness running in this pane, when the backend can report it (herdr only). */
+	harness?: string
+	/** The pane's working directory, when the backend reports it. */
+	cwd?: string
+}
+
 export interface SessionReadOptions {
 	/** How many trailing lines of output to capture; omit for the backend's default. */
 	lines?: number
@@ -67,4 +79,10 @@ export interface SessionAdapter {
 	 * probed with a tmux query (or vice versa).
 	 */
 	paneExists(exec: Exec, target: SessionTarget): boolean
+	/**
+	 * Enumerate every live pane this backend can currently see — the bulk counterpart to
+	 * `paneExists`'s single targeted query. `reconcile` uses this to cull dead records in one pass
+	 * against the mux the caller is actually inside; it never enumerates the other mux.
+	 */
+	listPanes(exec: Exec): LivePane[]
 }

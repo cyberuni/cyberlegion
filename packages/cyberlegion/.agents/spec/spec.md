@@ -8,7 +8,7 @@ approval:
     cause: dimension
     why:
       floor: none — additive `unit clear` behavior; no frozen scenario weakened.
-      blast: low — a new `unit/lifecycle` verb + a string-keyed per-harness reset map in `session.ts` + the CLI command in `cli.ts`; touches no registry/worktree path. cyberlegion 330 tests; root `pnpm verify` 19/19.
+      blast: low — a new `unit/lifecycle` verb + a string-keyed per-harness reset map in `session.ts` + the CLI command in `cli.ts`; touches no registry/worktree path. cyberlegion tests green; root `pnpm verify` 19/19.
       novelty: low — mirrors the existing `nudge` send-into-pane idiom and the `LAUNCH_MAP` per-harness pattern; no `Harness`/`LAUNCH_MAP` widening.
       confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 frozen clear scenarios verified; fail-loud-ordering (nothing sent before resolve) and no-teardown guarantees exercise-backstopped with reverted scratch mutations.
       judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen clear scenario PASS, both risk-critical guarantees backstopped.

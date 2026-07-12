@@ -198,4 +198,25 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		// gone pane — read fails (Exec yields null)
 		expect(herdrSessionAdapter.paneExists((): string | null => null, { id: 'w3:p4' })).toBe(false)
 	})
+
+	it('listPanes() reports only panes with an agent, dropping scaffold panes with none', () => {
+		const listOut = JSON.stringify({
+			result: {
+				panes: [
+					{ pane_id: 'w3:p1', agent: 'claude', cwd: '/repo/a' },
+					{ pane_id: 'w3:p2', agent: 'codex', cwd: '/repo/b' },
+					{ pane_id: 'w3:p3' }, // scaffold pane, no agent — dropped
+				],
+			},
+		})
+		expect(herdrSessionAdapter.listPanes(fakeExec([], { 'pane list': listOut }))).toEqual([
+			{ id: 'w3:p1', mux: 'herdr', harness: 'claude', cwd: '/repo/a' },
+			{ id: 'w3:p2', mux: 'herdr', harness: 'codex', cwd: '/repo/b' },
+		])
+	})
+
+	it('listPanes() returns empty when herdr reports nothing or unparseable output', () => {
+		expect(herdrSessionAdapter.listPanes((): string | null => null)).toEqual([])
+		expect(herdrSessionAdapter.listPanes(() => 'not json')).toEqual([])
+	})
 })

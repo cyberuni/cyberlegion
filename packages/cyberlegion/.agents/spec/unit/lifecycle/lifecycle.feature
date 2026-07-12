@@ -173,10 +173,15 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit focus <ref>
     Then the session adapter focuses that peer's pane
 
-  Scenario: nudge rings a peer's session as a payload-free doorbell
+  Scenario: nudge delivers a default check-mail doorbell message to a peer's session
     Given a registered peer with a live session pane
     When a caller runs unit nudge <ref>
-    Then the session adapter sends an empty keystroke to that peer's pane
+    Then the session adapter delivers the default check-mail message as a turn to that peer's pane
+
+  Scenario: nudge carries a caller-supplied message with --message
+    Given a registered peer with a live session pane
+    When a caller runs unit nudge <ref> --message "<text>"
+    Then the session adapter delivers that message as a turn to the peer's pane
 
   Scenario: read scrapes a peer's session screen
     Given a registered peer with a live session pane holding some output

@@ -16,6 +16,7 @@ import {
 	loadAgent,
 	prune,
 	realExec,
+	reconcile,
 	register,
 	registerStanding,
 	resolveAgent,
@@ -156,9 +157,10 @@ withGlobals(unit.command('whoami'))
 		})
 	})
 
-function runWho(opts: GlobalOpts & { all?: boolean }): void {
+function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
+	if (opts.reconcile) reconcile(ctx)
 	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== 'exited')
 	emit(formatOf(opts), {
 		toon: toonList(
@@ -181,6 +183,7 @@ function runWho(opts: GlobalOpts & { all?: boolean }): void {
 withGlobals(unit.command('who'))
 	.description('list the addressable units')
 	.option('--all', 'include exited units')
+	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
 	.action(runWho)
 
 withGlobals(unit.command('prune'))
@@ -292,15 +295,25 @@ withGlobals(unit.command('focus'))
 		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane: target.id }), json: { ref, pane: target.id } })
 	})
 
+// The doorbell must carry a message: a live agent session only takes a turn when it receives
+// actual input (an empty ring is a no-op). Default points the peer at its inbox; the mail it
+// already has is the real payload.
+const DEFAULT_NUDGE_MESSAGE = 'You have unread mail from the fleet — check your inbox and read it.'
+
 withGlobals(unit.command('nudge'))
-	.description("ring a peer's session (a dumb doorbell — the mail is the payload)")
+	.description("ring a peer's session (a doorbell that tells them to check their mail)")
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.option('--message <text>', 'the doorbell text delivered to the peer session', DEFAULT_NUDGE_MESSAGE)
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		const target = resolveTarget(ctx, ref)
-		selectSessionAdapter(ctx.env ?? process.env).send(realExec, target, '')
-		emit(formatOf(opts), { toon: toonObject({ nudged: ref, pane: target.id }), json: { ref, pane: target.id } })
+		const message = opts.message || DEFAULT_NUDGE_MESSAGE
+		selectSessionAdapter(ctx.env ?? process.env).send(realExec, target, message)
+		emit(formatOf(opts), {
+			toon: toonObject({ nudged: ref, pane: target.id }),
+			json: { ref, pane: target.id, message },
+		})
 	})
 
 withGlobals(unit.command('read'))
@@ -744,6 +757,7 @@ withGlobals(program.command('inbox'))
 withGlobals(program.command('who'))
 	.description('list the addressable units (alias of `unit who`)')
 	.option('--all', 'include exited units')
+	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
 	.action(runWho)
 
 // -------------------------------------------------------------------------------------------

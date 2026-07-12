@@ -241,11 +241,41 @@ const STALE_MS = 15 * 60 * 1000
  * backend primitive so a herdr pane is never probed with a tmux query, and vice versa. */
 const PANE_ADAPTERS = { tmux: tmuxSessionAdapter, herdr: herdrSessionAdapter } as const
 
-/** Mark agents whose pane is gone or whose last-seen is stale as exited. */
+/**
+ * Cull dead records against the current mux's live pane set (the mux the caller is actually inside,
+ * per `currentPane`) — mux-scoped: it never declares the *other* mux's records dead, since it can't
+ * enumerate them. Standing records are exempt; a `pane: null` record can't be pane-culled by
+ * enumeration (left to `prune`'s staleness timer). Outside any multiplexer pane there is nothing to
+ * enumerate, so it culls nothing.
+ */
+export function reconcile(ctx: IdContext): AgentRecord[] {
+	const exec = ctx.exec ?? realExec
+	const env = ctx.env ?? process.env
+	const cur = currentPane(env)
+	if (!cur) return []
+	const live = new Set(PANE_ADAPTERS[cur.mux].listPanes(exec).map((p) => p.id))
+	const changed: AgentRecord[] = []
+	for (const rec of listAgents(ctx.store)) {
+		if (rec.kind === 'standing') continue
+		if (rec.status === 'exited') continue
+		if (!rec.pane) continue
+		if (rec.pane.mux !== cur.mux) continue
+		if (!live.has(rec.pane.id)) {
+			rec.status = 'exited'
+			saveAgent(ctx.store, rec)
+			changed.push(rec)
+		}
+	}
+	return changed
+}
+
+/** Mark agents whose pane is gone or whose last-seen is stale as exited. Reconcile-culls against the
+ * current mux's live set first, then falls through to the per-record paneExists + staleness check
+ * (covers the other mux and sessions outside any multiplexer pane). */
 export function prune(ctx: IdContext): AgentRecord[] {
 	const exec = ctx.exec ?? realExec
 	const now = ctx.now?.() ?? Date.now()
-	const changed: AgentRecord[] = []
+	const changed: AgentRecord[] = reconcile(ctx)
 	for (const rec of listAgents(ctx.store)) {
 		if (rec.kind === 'standing') continue
 		if (rec.status === 'exited') continue
