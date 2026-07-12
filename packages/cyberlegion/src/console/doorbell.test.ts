@@ -135,20 +135,20 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 		expect(result.warning).toBeTruthy()
 	})
 
-	it('sending to the Bunker rings the bound main pane so the human is notified on arrival', async () => {
-		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'bunker' })
+	it('sending to a standing owner rings the bound main pane so the human is notified on arrival', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
 		store.setMainPane('%9')
 		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT])
-		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-bunker', fromId: 'alice' })
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
 		expect(result.rung).toBe(true)
 		expect(result.pane).toBe('%9')
 		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
 	})
 
-	it('Bunker mail with no bound main pane is a store-and-forward no-op', async () => {
-		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'bunker' })
+	it('standing-owner mail with no bound main pane is a store-and-forward no-op', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
 		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT])
-		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-bunker', fromId: 'alice' })
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
 		expect(result.rung).toBe(false)
 		expect(sendCalls).toEqual([])
 	})
@@ -161,12 +161,12 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 		expect(sendCalls).toEqual([])
 	})
 
-	it('--no-nudge suppresses the Bunker doorbell to the bound main pane', async () => {
-		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'bunker' })
+	it("--no-nudge suppresses the doorbell to a standing owner's bound main pane", async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
 		store.setMainPane('%9')
 		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT])
 		const result = await wakeRecipient(store, () => adapter, exec, {
-			toId: 'standing-bunker',
+			toId: 'standing-owner',
 			fromId: 'alice',
 			noNudge: true,
 		})

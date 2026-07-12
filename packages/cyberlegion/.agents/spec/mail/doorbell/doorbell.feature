@@ -2,14 +2,14 @@
 Feature: mail doorbell — wake the recipient on delivery
   The push counterpart to mail/surface's pull. On mail send, after the durable write, best-effort
   ring the recipient so it checks its inbox with no separate manual nudge — a peer agent's live
-  session pane, or the human's bound main pane for the Bunker (the standing owner inbox). The ring
-  reuses the unit/lifecycle nudge submit-verify path (a taken turn, not fire-and-forget). Durable
-  delivery is the guaranteed effect; the ring is best-effort on top — a recipient with no live pane,
-  no bound main pane, or a ring that never completes is a legitimate no-op that never fails the send
-  (mail stays store-and-forward and surfaces on the recipient's next SessionStart, mail/surface).
-  The plain send/inbox primitives live in mail/core; the pull-side hook injection lives in
-  mail/surface; the standalone unit nudge verb and its boot-race retry contract live in
-  unit/lifecycle.
+  session pane, or, for a standing owner recipient (which has no session pane of its own), the hub's
+  bound main pane. The ring reuses the unit/lifecycle nudge submit-verify path (a taken turn, not
+  fire-and-forget). Durable delivery is the guaranteed effect; the ring is best-effort on top — a
+  recipient with no live pane, a standing owner with no bound main pane, or a ring that never
+  completes is a legitimate no-op that never fails the send (mail stays store-and-forward and surfaces
+  on the recipient's next SessionStart, mail/surface). The plain send/inbox primitives live in
+  mail/core; the pull-side hook injection lives in mail/surface; the standalone unit nudge verb and
+  its boot-race retry contract live in unit/lifecycle.
 
   # ── A peer recipient with a live pane is rung on delivery ──
 
@@ -46,18 +46,18 @@ Feature: mail doorbell — wake the recipient on delivery
     Then the message still lands durably and the send succeeds
     And the failed ring is reported as a best-effort warning, not a send error
 
-  # ── The Bunker (human owner) is notified on live arrival ──
+  # ── A standing owner recipient is notified at the bound main pane ──
 
-  Scenario: sending to the Bunker rings the bound main pane so the human is notified on arrival
-    Given a standing owner inbox (the Bunker) and a session bound as the hub's main pane
-    When a session runs mail send --to <bunker> --body "report"
-    Then the message lands in the Bunker inbox
+  Scenario: sending to a standing owner rings the bound main pane so the human is notified on arrival
+    Given a standing owner inbox and a session bound as the hub's main pane
+    When a session runs mail send --to <owner> --body "report"
+    Then the message lands in the owner inbox
     And the bound main pane is rung with an owner-mail doorbell
 
-  Scenario: Bunker mail with no bound main pane is a store-and-forward no-op
-    Given a standing owner inbox (the Bunker) and no main pane bound
-    When a session runs mail send --to <bunker> --body "report"
-    Then the message lands durably in the Bunker inbox
+  Scenario: standing-owner mail with no bound main pane is a store-and-forward no-op
+    Given a standing owner inbox and no main pane bound
+    When a session runs mail send --to <owner> --body "report"
+    Then the message lands durably in the owner inbox
     And the send succeeds
     And no pane is rung
 
@@ -69,8 +69,8 @@ Feature: mail doorbell — wake the recipient on delivery
     Then the message lands durably in the peer's inbox
     And the peer's pane is not rung
 
-  Scenario: --no-nudge suppresses the Bunker doorbell to the bound main pane
-    Given a standing owner inbox (the Bunker) and a session bound as the hub's main pane
-    When a session runs mail send --to <bunker> --no-nudge
-    Then the message lands durably in the Bunker inbox
+  Scenario: --no-nudge suppresses the doorbell to a standing owner's bound main pane
+    Given a standing owner inbox and a session bound as the hub's main pane
+    When a session runs mail send --to <owner> --no-nudge
+    Then the message lands durably in the owner inbox
     And the bound main pane is not rung

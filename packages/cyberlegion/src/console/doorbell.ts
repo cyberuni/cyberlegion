@@ -32,12 +32,12 @@ function paneOf(store: Store, id: string): string | undefined {
 
 /**
  * Best-effort wake the recipient of a just-delivered message so it checks its inbox. A peer's live
- * session pane, or — for a standing owner (the Bunker) — the hub's bound main pane, is rung via the
- * nudge submit-verify path (a taken turn, not fire-and-forget). Durable delivery already happened;
- * the ring is opportunistic on top, so a legitimate no-op (`--no-nudge`, a headless/absent recipient
- * with no live pane, a Bunker send with no main pane bound, or a self-addressed send) rings nothing,
- * and a ring that never completes within nudge's retry cap is swallowed into a warning. This never
- * throws — it can never fail the send.
+ * session pane, or — for a standing owner (which has no session pane of its own) — the hub's bound
+ * main pane, is rung via the nudge submit-verify path (a taken turn, not fire-and-forget). Durable
+ * delivery already happened; the ring is opportunistic on top, so a legitimate no-op (`--no-nudge`, a
+ * headless/absent recipient with no live pane, a standing-owner send with no main pane bound, or a
+ * self-addressed send) rings nothing, and a ring that never completes within nudge's retry cap is
+ * swallowed into a warning. This never throws — it can never fail the send.
  *
  * The adapter is resolved lazily via `getAdapter`, invoked only once a pane to ring is confirmed and
  * inside the same swallowing try — so a session with no mux backend (where `selectSessionAdapter`
@@ -53,7 +53,7 @@ export async function wakeRecipient(
 	if (input.noNudge) return { rung: false }
 	const recipient = loadAgent(store, input.toId)
 	if (!recipient) return { rung: false }
-	// A standing owner (the Bunker) has no session pane of its own → ring the human's bound main pane.
+	// A standing owner has no session pane of its own → ring the human's bound main pane.
 	const pane = recipient.kind === 'standing' ? store.getMainPane() : paneOf(store, recipient.id)
 	if (!pane) return { rung: false }
 	// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).

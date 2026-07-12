@@ -13,7 +13,6 @@ import {
 	register,
 	registerStanding,
 	resolveAgent,
-	resolveBunker,
 	resolveRecipient,
 	resolveSelfId,
 	standingId,
@@ -388,32 +387,6 @@ describe('spec:cyberlegion/identity', () => {
 			const changed = prune({ store, env: {}, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
-		})
-	})
-
-	// spec: mail/core/core.feature — the Bunker resolution order backing `mail bunker` (CLI e2e
-	// covers the command-level scenarios; these cover resolveBunker's resolution/fallback/error
-	// directly at the unit level).
-	describe('resolveBunker', () => {
-		it('resolves the standing bunker record when one exists', () => {
-			const rec = registerStanding(ctx({}), { handle: 'bunker' })
-			expect(resolveBunker(store)).toBe(rec.id)
-		})
-
-		it('falls back to the legacy standing legate record when no bunker exists', () => {
-			const rec = registerStanding(ctx({}), { handle: 'legate' })
-			expect(resolveBunker(store)).toBe(rec.id)
-		})
-
-		it('prefers bunker over legate when both exist', () => {
-			registerStanding(ctx({}), { handle: 'legate' })
-			const bunker = registerStanding(ctx({}), { handle: 'bunker' })
-			expect(resolveBunker(store)).toBe(bunker.id)
-		})
-
-		it('throws naming how to mint one when neither bunker nor legate exists', () => {
-			expect(() => resolveBunker(store)).toThrow(/no Bunker owner inbox/)
-			expect(() => resolveBunker(store)).toThrow(/register --standing --handle bunker/)
 		})
 	})
 })

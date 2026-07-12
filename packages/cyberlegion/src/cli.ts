@@ -22,7 +22,6 @@ import {
 	register,
 	registerStanding,
 	resolveAgent,
-	resolveBunker,
 	resolveSelfId,
 	resolveStandingOwner,
 	touch,
@@ -401,8 +400,8 @@ defineSend(mail.command('send'))
 
 type InboxOpts = GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string }
 
-/** List a resolved inbox (the caller's own, an --owner mailbox, or the Bunker) as TOON with an
- * aggregate; `readCmd` is the follow-up read command prefix surfaced as the next step. */
+/** List a resolved inbox (the caller's own or an --owner mailbox) as TOON with an aggregate;
+ * `readCmd` is the follow-up read command prefix surfaced as the next step. */
 function emitInbox(ctx: IdContext, opts: InboxOpts, meId: string, readCmd: string): void {
 	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from, thread: opts.thread })
 	const unreadCount = items.filter((i) => !i.read).length
@@ -463,43 +462,6 @@ withGlobals(mail.command('ack'))
 		const ctx = ctxOf(opts)
 		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = ack({ store: ctx.store }, meId, msgId)
-		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
-	})
-
-// The Bunker — the human's durable report-up owner inbox, named for the Operator/dispatcher persona.
-// Sugar over `--owner`, resolving the standing owner under `bunker` (falling back to the legacy
-// `legate` handle); bare lists it, `read`/`ack` peek and consume it, the same as `--owner` does.
-const bunker = withGlobals(mail.command('bunker'))
-	.description('the Bunker — the human report-up owner inbox: bare lists it; read/ack peek and consume it')
-	.option('--unread', 'only un-acked mail')
-	.option('--from <id>', 'filter by sender')
-	.option('--thread <id>', 'filter to messages carrying this thread id')
-	.action((opts) => {
-		const ctx = ctxOf(opts)
-		touch(ctx)
-		emitInbox(ctx, opts, resolveBunker(ctx.store), 'cyberlegion mail bunker read')
-	})
-
-withGlobals(bunker.command('read'))
-	.description('peek at a Bunker message without acknowledging it')
-	.argument('<msg-id>', 'message id')
-	.action((msgId, opts) => {
-		const ctx = ctxOf(opts)
-		const msg = peek({ store: ctx.store }, resolveBunker(ctx.store), msgId)
-		if (!msg) fail(`"${msgId}" is not a message in the Bunker inbox`)
-		emit(formatOf(opts), {
-			toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body }),
-			json: msg,
-		})
-		nextStep(`cyberlegion mail bunker ack ${msg.id}`)
-	})
-
-withGlobals(bunker.command('ack'))
-	.description('acknowledge a Bunker message (moves it out of the unread set)')
-	.argument('<msg-id>', 'message id')
-	.action((msgId, opts) => {
-		const ctx = ctxOf(opts)
-		const msg = ack({ store: ctx.store }, resolveBunker(ctx.store), msgId)
 		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
 	})
 
@@ -802,9 +764,7 @@ withGlobals(program.command('init'))
 		})
 		const hasStandingOwner = listAgents(ctx.store).some((a) => a.kind === 'standing')
 		if (!hasStandingOwner) {
-			nextStep(
-				'cyberlegion unit register --standing --handle bunker to mint the Bunker (durable report-up owner inbox)',
-			)
+			nextStep('cyberlegion unit register --standing --handle <name> to mint the durable owner inbox')
 			nextStep('cyberlegion attach to bind this pane as the owner live presence')
 		}
 	})

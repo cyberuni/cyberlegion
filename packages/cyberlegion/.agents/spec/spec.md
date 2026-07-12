@@ -7,22 +7,22 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — additive `mail/doorbell` node + additive `mail/core` Bunker scenarios; no frozen non-CR scenario weakened (git diff main core.feature +37, append-only).
-      blast: low-medium — new `console/doorbell.ts` `wakeRecipient` (best-effort, lazy adapter) + `identity.resolveBunker` + `mail send --no-nudge`/`mail bunker` CLI wiring; reuses the shipped #150 `nudge` and the existing `emitInbox`/`peek`/`ack` primitives; touches no registry/worktree path. Root `pnpm verify` 20/20; cyberlegion 378 tests green.
-      novelty: low-medium — best-effort push doorbell layered over durable delivery: ring a peer's live pane or the Bunker's bound main pane on send; the adapter is selected lazily inside the swallowing try so a no-mux session never trips `selectSessionAdapter` and never fails the send. Verify-effect-or-fail-loud is the nudge's own for the live case; a no-target recipient is a legitimate no-op, not a failure (aligns sibling #158's attach-relative no-op framing).
-      confidence: high — fresh cold sdd-impl-judge IMPLEMENTATION_PASS true after one judge-iteration; every frozen scenario PASS with independently re-derived oracles; the `--no-nudge` CLI-flag binding is mutation-confirmed (both e2e tests fail under `noNudge:false`, restore clean). Fixed a latent eager-`selectSessionAdapter` throw that would have failed a no-mux send.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; 9 doorbell + 6 Bunker scenarios PASS; lazy-adapter refactor verified sound; diff confined to the doorbell + Bunker behavior, no bleed.
+      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; `mail/core` unchanged (its Bunker-addressing scenarios were reverted as a metaphor leak — see below); no frozen non-CR scenario weakened.
+      blast: low-medium — new `console/doorbell.ts` `wakeRecipient` (best-effort, lazy adapter) + `mail send --no-nudge` wiring; reuses the shipped #150 `nudge`; touches no registry/worktree path. Root `pnpm verify` green; cyberlegion tests green.
+      novelty: low-medium — best-effort push doorbell layered over durable delivery: ring a peer's live pane or a standing owner's bound main pane on send; the adapter is selected lazily inside the swallowing try so a no-mux session never trips `selectSessionAdapter` and never fails the send. Verify-effect-or-fail-loud is the nudge's own for the live case; a no-target recipient is a legitimate no-op, not a failure (aligns sibling #158's attach-relative no-op framing). Metaphor-free: the package knows only "standing owner" + "bound main pane" — no fleet/persona name; the "Bunker" naming for the owner inbox is re-homed to the cyberfleet plugin.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; every frozen doorbell scenario PASS with independently re-derived oracles; the `--no-nudge` CLI-flag binding is mutation-confirmed (e2e tests fail under `noNudge:false`, restore clean). Fixed a latent eager-`selectSessionAdapter` throw that would have failed a no-mux send.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every doorbell scenario PASS; lazy-adapter refactor verified sound; diff confined to the doorbell behavior, no bleed.
       cr: github-159-doorbell-bunker
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; the 6 `mail/core` Bunker scenarios are additive (gherkin-cli diff addOnly:true, self-clearing, stay `@frozen`, no re-open); no frozen scenario weakened.
-      blast: low-medium — new behavioral `mail/doorbell` node (push-doorbell-on-send) + additive `mail/core` Bunker-addressing scenarios; reuses the shipped #150 nudge submit-verify path and existing store primitives (`getMainPane`/`findPaneByAgentId`); touches no registry/worktree path.
-      novelty: low-medium — best-effort push doorbell layered over durable delivery: a peer's live pane or the Bunker's bound main pane is rung on send; no-live-target (headless / no main pane / ring past cap) is a legitimate no-op, never a send failure. Aligns with sibling #158's attach-relative no-op framing; #158's verify-effect-or-fail-loud rule is DEFERRED to a follow-up CR, so this notes the seam.
-      confidence: high — fresh cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS) after one judge-iteration correction round; no open markers; check-suite + check-spec-state OK.
-      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true (2nd pass, post-correction).
+      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; `mail/core` is unchanged; no frozen scenario weakened.
+      blast: low-medium — new behavioral `mail/doorbell` node (push-doorbell-on-send); reuses the shipped #150 nudge submit-verify path and existing store primitives (`getMainPane`/`findPaneByAgentId`); touches no registry/worktree path.
+      novelty: low-medium — best-effort push doorbell layered over durable delivery: a peer's live pane or a standing owner's bound main pane is rung on send; no-live-target (headless / no main pane / ring past cap) is a legitimate no-op, never a send failure. Metaphor-free — the package knows only "standing owner" + "bound main pane"; the owner-inbox naming (the fleet's "Bunker") is a cyberfleet concern. Aligns with sibling #158's attach-relative no-op framing; #158's verify-effect-or-fail-loud rule is DEFERRED to a follow-up CR, so this notes the seam.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; check-suite + check-spec-state OK.
+      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
       cr: github-159-doorbell-bunker
 ---
 
@@ -53,7 +53,7 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 |---|---|
 | [`mux/`](./mux/README.md) | the unit-agnostic pane abstraction — backend selection, placement, multiplexer detection |
 | [`unit/`](./unit/registry/README.md) | the instance registry (`unit/registry`) + warm session lifecycle (`unit/lifecycle`) |
-| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete plus the Bunker owner-inbox path (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing / the pull side (`mail/surface`), waking the recipient on delivery / the push-side doorbell (`mail/doorbell`) |
+| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing / the pull side (`mail/surface`), waking the recipient on delivery / the push-side doorbell (`mail/doorbell`) |
 | [`agent/`](./agent/README.md) | resolve reusable agent definitions |
 | [`attach/`](./attach/README.md) | the human's read-pane — an attention pointer to the hub's main pane |
 | [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook (owns the per-harness installer) |
