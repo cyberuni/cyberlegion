@@ -1,6 +1,6 @@
 ---
 name: subagent-backend-governance
-description: "Internal skill: the parent-side procedure for the cold-subagent dispatch path. Loaded by dispatch-governance when it picks the subagent strategy. Not triggered by users directly."
+description: "Internal skill: by name only — the parent-side procedure for the cold-subagent dispatch path. Loaded by dispatch-governance when it picks the subagent strategy. Not triggered by users directly."
 user-invocable: false
 ---
 
