@@ -34,6 +34,11 @@ export const tmuxSessionAdapter: SessionAdapter = {
 		exec('tmux', ['send-keys', '-t', target.id, text, 'Enter'])
 	},
 
+	submit(exec, target) {
+		// Bare Enter — flushes an already-staged buffer without re-typing it.
+		exec('tmux', ['send-keys', '-t', target.id, 'Enter'])
+	},
+
 	read(exec, target, opts?: SessionReadOptions) {
 		const args = ['capture-pane', '-p', '-t', target.id]
 		if (opts?.lines != null) args.push('-S', `-${opts.lines}`)

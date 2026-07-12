@@ -67,6 +67,13 @@ export interface SessionAdapter {
 	openInNewWorktree?(exec: Exec, opts: OpenInNewWorktreeOptions): { target: SessionTarget; worktree: Worktree }
 	/** Type text into the target session (submitted, not queued). */
 	send(exec: Exec, target: SessionTarget, text: string): void
+	/**
+	 * Submit the target's already-staged input buffer via a bare Enter keystroke — no new text is
+	 * typed. Used to complete a turn whose atomic `send` was swallowed by a booting harness (the
+	 * text staged in the input box, unsent); flushing never re-types the message, so a re-submit
+	 * cannot duplicate it.
+	 */
+	submit(exec: Exec, target: SessionTarget): void
 	/** Capture the target session's current output. */
 	read(exec: Exec, target: SessionTarget, opts?: SessionReadOptions): string
 	/** Move input focus to the target session; best-effort (may no-op if the backend can't). */
