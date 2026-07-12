@@ -27,7 +27,7 @@ import {
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
-import { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts'
+import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send } from './message.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
@@ -440,12 +440,21 @@ withGlobals(mail.command('inbox'))
 	.action(runInbox)
 
 withGlobals(mail.command('read'))
-	.description('peek at a message without acknowledging it')
+	.description('read a message; --ack consumes it in the same step, otherwise it only peeks')
 	.argument('<msg-id>', 'message id')
-	.option('--owner <handle>', "peek a standing owner's mailbox instead of this session's own")
+	.option('--ack', 'acknowledge the message in the same step (idempotent — no error if already acked)')
+	.option('--owner <handle>', "read a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
 		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
+		if (opts.ack) {
+			const { msg, acked } = readAck({ store: ctx.store }, meId, msgId)
+			emit(formatOf(opts), {
+				toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body, acked }),
+				json: { ...msg, acked },
+			})
+			return
+		}
 		const msg = peek({ store: ctx.store }, meId, msgId)
 		if (!msg) fail(`"${msgId}" is not a message in this inbox`)
 		emit(formatOf(opts), {

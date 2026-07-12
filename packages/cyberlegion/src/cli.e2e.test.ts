@@ -303,6 +303,28 @@ describe('mail group', () => {
 		expect(afterAck).toContain('0 messages (0 unread)')
 	})
 
+	it('mail read --ack prints the body and consumes the message in one step, idempotently', () => {
+		const alice = JSON.parse(
+			legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice', '--format', 'json']),
+		)
+		legion(['unit', 'register', '--harness', 'cursor', '--handle', 'bob'])
+		const who: { handle: string; id: string }[] = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+		const bobEnv = { CYBERLEGION_AGENT_ID: who.find((a) => a.handle === 'bob')!.id }
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', alice.id, '--to', 'bob', '--body', 'brief', '--format', 'json']),
+		)
+
+		const out = legion(['mail', 'read', sent.id, '--ack'], bobEnv)
+		expect(out).toContain('brief')
+		expect(out).toContain('acked: true')
+		expect(legion(['mail', 'inbox', '--unread'], bobEnv)).toContain('0 messages (0 unread)')
+
+		// idempotent: a second read --ack still prints the body and exits 0 (no double-ack error)
+		const again = JSON.parse(legion(['mail', 'read', sent.id, '--ack', '--format', 'json'], bobEnv))
+		expect(again.body).toBe('brief')
+		expect(again.acked).toBe(false)
+	})
+
 	it('inbox reports a definitive empty state and exits 0 for a registered caller with no mail', () => {
 		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
 		const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
@@ -355,6 +377,22 @@ describe('the standing owner mailbox — mail --owner', () => {
 		expect(readOut).toContain('peek me')
 		const afterRead = legion(['mail', 'inbox', '--owner', 'homa', '--unread'])
 		expect(afterRead).toContain('1 messages (1 unread)')
+	})
+
+	it('mail read <id> --ack --owner consumes an owner message in one step, idempotently', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'homa'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'consume me', '--format', 'json']),
+		)
+		const out = legion(['mail', 'read', sent.id, '--ack', '--owner', 'homa'])
+		expect(out).toContain('consume me')
+		expect(out).toContain('acked: true')
+		expect(legion(['mail', 'inbox', '--owner', 'homa', '--unread'])).toContain('0 messages (0 unread)')
+		// idempotent through the owner codepath: a second read --ack still prints, exits 0
+		const again = JSON.parse(legion(['mail', 'read', sent.id, '--ack', '--owner', 'homa', '--format', 'json']))
+		expect(again.body).toBe('consume me')
+		expect(again.acked).toBe(false)
 	})
 
 	it('mail ack <id> --owner moves the owner message to the read state', () => {

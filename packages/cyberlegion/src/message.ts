@@ -86,6 +86,19 @@ export function ack(ctx: MsgContext, meId: string, msgId: string): Message {
 	return ctx.store.ackMessage(meId, msgId)
 }
 
+/** Read and consume a message in one atomic step: returns the body and acks it if still unread.
+ * Idempotent — an already-acked message is returned with `acked: false` rather than erroring (unlike
+ * bare `ack`); an unknown message id throws. Backs `mail read --ack`. */
+export function readAck(ctx: MsgContext, meId: string, msgId: string): { msg: Message; acked: boolean } {
+	const snap = ctx.store.listInbox(meId)
+	if (snap.unread.some((m) => m.id === msgId)) {
+		return { msg: ctx.store.ackMessage(meId, msgId), acked: true }
+	}
+	const already = snap.read.find((m) => m.id === msgId)
+	if (already) return { msg: already, acked: false }
+	throw new Error(`"${msgId}" is not a message in this inbox`)
+}
+
 /** Permanently remove a message (unread or already-acked) from the caller's inbox. */
 export function deleteMessage(ctx: MsgContext, meId: string, msgId: string): void {
 	ctx.store.removeMessage(meId, msgId)

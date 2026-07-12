@@ -104,6 +104,37 @@ Feature: mail core — durable inter-agent messaging
     When it runs mail ack <msg-id>
     Then the command errors rather than silently succeeding
 
+  # ── read --ack peeks and consumes in one atomic step ──
+
+  Scenario: read --ack prints the body and acks in one step
+    Given a caller with one unread message
+    When it runs mail read <msg-id> --ack
+    Then the message body is printed
+    And that message no longer appears in mail inbox --unread
+
+  Scenario: read --ack on an already-acked message prints the body without erroring
+    Given a message the caller has already acked
+    When it runs mail read <msg-id> --ack
+    Then the message body is printed
+    And the command succeeds rather than erroring that the message is not unread
+
+  Scenario: read --ack on an unknown message id errors
+    Given a message id that does not exist in the caller's inbox
+    When it runs mail read <msg-id> --ack
+    Then the command errors that the message is not in this inbox
+
+  Scenario: read --ack --owner consumes an owner-mailbox message in one step
+    Given a standing owner homa with one unread message
+    When a session runs mail read <id> --ack --owner homa
+    Then it prints the message body
+    And the message moves into homa's read set
+
+  Scenario: read --ack --owner on an already-acked owner message prints the body without erroring
+    Given a standing owner homa with a message a session has already acked
+    When a session runs mail read <id> --ack --owner homa
+    Then it prints the message body
+    And the command succeeds rather than erroring that the message is not unread
+
   # ── Delete removes mail permanently ──
 
   Scenario: delete removes an unread message

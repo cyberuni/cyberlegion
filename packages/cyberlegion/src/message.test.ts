@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, register } from './identity.ts'
-import { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts'
+import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send } from './message.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -149,5 +149,28 @@ describe('ack acknowledges by move', () => {
 		ack({ store }, bob.id, m.id)
 		expect(() => ack({ store }, bob.id, m.id)).toThrow(/not an unread/)
 		expect(() => ack({ store }, bob.id, '9999-deadbe')).toThrow()
+	})
+})
+
+describe('readAck — reads and consumes in one atomic step', () => {
+	it('returns the body and acks an unread message', () => {
+		const m = send(at(1), { fromId: alice.id, to: 'bob', body: 'consume me' })
+		const { msg, acked } = readAck({ store }, bob.id, m.id)
+		expect(msg.body).toBe('consume me')
+		expect(acked).toBe(true)
+		expect(inbox({ store }, { meId: bob.id, unread: true })).toEqual([])
+		expect(store.listInbox(bob.id).read.map((x) => x.id)).toContain(m.id)
+	})
+
+	it('is idempotent — an already-acked message returns the body with acked:false, no throw', () => {
+		const m = send(at(1), { fromId: alice.id, to: 'bob', body: 'again' })
+		readAck({ store }, bob.id, m.id)
+		const second = readAck({ store }, bob.id, m.id)
+		expect(second.msg.body).toBe('again')
+		expect(second.acked).toBe(false)
+	})
+
+	it('throws on an unknown message id', () => {
+		expect(() => readAck({ store }, bob.id, '9999-deadbe')).toThrow(/not a message in this inbox/)
 	})
 })
