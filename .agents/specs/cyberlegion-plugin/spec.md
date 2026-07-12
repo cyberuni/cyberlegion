@@ -38,6 +38,7 @@ published CLI's contract.
 | [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `headless-legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent, and the `subagent-backend-governance` procedure for the subagent path |
 | [`init/`](./init/README.md) | behavioral | the `init-cyberlegion` onboarding skill — a thin CLI wrapper that probes the environment, registers the surfacing hook, and (root-only, on an explicit yes) binds this pane as the durable `legate` owner inbox |
 | [`inbox/`](./inbox/README.md) | behavioral | the `manage-inbox` skill — the human's on-demand surface for the standing owner mailbox (list/read/ack/reply) |
+| [`session-adapter/`](./session-adapter/README.md) | behavioral | the `session-adapter-governance` skill — the ratified verify-observable-effect-or-fail-loud rule for SessionAdapter mutating ops, its unconditional/attach-relative effect-class split, and the per-op conformance ledger |
 
 ## Placement map
 
@@ -56,6 +57,9 @@ Where a new concept lives — slot here, do not invent placement:
   mechanic a CLI call, never add production logic here.
 - **a new owner-mailbox review intent** (listing, reading, acking, or replying to owner mail once
   bound) → `inbox/` — the user-facing `manage-inbox` skill; never add routing/dispatch judgment here.
+- **a new conformance rule for a SessionAdapter mutating op** (what an op must verify, a new effect
+  class, a per-op conformance verdict) → `session-adapter/` — the governance holds the rule and the
+  conformance ledger; the operations themselves stay in the CLI project.
 - **a new identity / mail / session / dispatch-primitive CLI operation** → **not here** — that is
   the `cyberlegion` CLI project (`packages/cyberlegion`).
 - **a cross-capability e2e** (spans both gateway and dispatch) → this project's own e2e; a future
