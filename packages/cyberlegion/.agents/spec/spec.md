@@ -7,23 +7,23 @@ approval:
     by: unional
     cause: dimension
     why:
-      floor: none newly weakened — the one removed frozen scenario (nudge `empty keystroke`) is a ratified re-open replaced by two scenarios covering more ground (default message + `--message` override), not a coverage cut; Clearance authorized in-session.
-      blast: low — `unit nudge` now delivers a check-mail message (default, `--message` override) instead of `send(target, '')`; scoped to the nudge command block in `cli.ts` (+13/-3), the session adapters unchanged. 315/315 cyberlegion tests.
-      novelty: low — corrects a factual bug (an empty ring is a no-op on the herdr adapter — `pane run <id> ""` submits nothing — and a live agent session takes a turn only on real input).
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; both nudge scenarios verified by oracle re-derivation. Noted gap: both scenarios UNBOUND on the junit bridge (reverting to `''` still passes 315/315), so verdict rests on source re-derivation — follow-up CR filed to bind them with a CLI test.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; both nudge scenarios PASS, diff scoped, no bleed.
-      cr: nudge-carries-message
+      floor: none — additive `unit clear` behavior; no frozen scenario weakened.
+      blast: low — a new `unit/lifecycle` verb + a string-keyed per-harness reset map in `session.ts` + the CLI command in `cli.ts`; touches no registry/worktree path. cyberlegion tests green; root `pnpm verify` 19/19.
+      novelty: low — mirrors the existing `nudge` send-into-pane idiom and the `LAUNCH_MAP` per-harness pattern; no `Harness`/`LAUNCH_MAP` widening.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 frozen clear scenarios verified; fail-loud-ordering (nothing sent before resolve) and no-teardown guarantees exercise-backstopped with reverted scratch mutations.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen clear scenario PASS, both risk-critical guarantees backstopped.
+      cr: cyberlegion-unit-reset
   spec:
     verdict: approve
     by: unional
-    cause: clearance
+    cause: dimension
     why:
-      floor: Clearance — the removed frozen `empty keystroke` nudge scenario is a narrowing (deletion), authorized in-session by the human conductor; replaced by two scenarios covering the default and `--message` paths (net +1, more ground than the one removed).
-      blast: low — scoped to the `unit/lifecycle` node (README + `lifecycle.feature`); 24 of 26 scenarios unchanged.
-      novelty: low — corrects the doorbell contract from a no-op empty keystroke to a delivered message pointing the peer at its inbox.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS, no open markers). Non-blocking observation: nudge/focus/read carry no error-case scenario (pre-existing gap symmetric across the cluster) — follow-up CR.
+      floor: none — the `unit clear` scenarios are purely additive to the frozen `lifecycle.feature` (self-clearing, stays `@frozen`, no re-open).
+      blast: low — one new warm-unit lifecycle verb scoped to the `unit/lifecycle` node; realized by injecting the harness's own fresh-context command via the existing `SessionAdapter.send` seam.
+      novelty: low — the warm/cold decoupling primitive (issue #122); a per-harness reset map keyed on genuine fresh-context semantics (claude/codex/copilot → `/clear`, cursor → `/new-chat`), fail-loud on a false-friend (gemini `/clear` = screen-only) or unmapped harness.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS) after a mechanical malformed-Outline fix; no open markers.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: nudge-carries-message
+      cr: cyberlegion-unit-reset
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

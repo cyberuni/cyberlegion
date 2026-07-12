@@ -5,10 +5,10 @@ concept: [cyberlegion]
 
 # unit lifecycle — warm peer session lifecycle over a multiplexer
 
-Spawn, scrape, focus, nudge, and close a warm interactive peer via tmux/herdr. Migrated CR-2 from
-`session/` (`cyberlegion-cli-realign`, ADR-0024): the lifecycle half of `unit` — registration and
-discovery live in the sibling `unit/registry` node; backend selection and placement moved to the new
-`mux/` node (a real architectural layer, not a command noun).
+Spawn, scrape, focus, nudge, **clear**, and close a warm interactive peer via tmux/herdr. Migrated
+CR-2 from `session/` (`cyberlegion-cli-realign`, ADR-0024): the lifecycle half of `unit` —
+registration and discovery live in the sibling `unit/registry` node; backend selection and placement
+moved to the new `mux/` node (a real architectural layer, not a command noun).
 
 ## Use Cases
 
@@ -72,12 +72,28 @@ cleanly — the deterministic inverse pair:
   `mail/surface`/`mail/wait` read it on that turn.
 - **read scrapes a peer's session screen** — `unit read <ref> [--lines <n>]` captures the target
   pane's current output through the session adapter.
+- **clear resets a warm peer's context while keeping it warm** — `unit clear <ref>` injects the
+  peer's **own harness in-session fresh-context command** into its pane through the session adapter,
+  returning the conversation to a cold state **without** tearing down the session, removing the
+  worktree, or reaping the registry record — the pane/process stays warm (no cold-start cost), only
+  the context goes cold. This is the warm/cold decoupling primitive: warmth is the unit, coldness is
+  the context. The command is resolved from a **per-harness reset map** keyed on genuine
+  fresh-context semantics, never on the literal word `/clear`: `claude`/`codex`/`copilot` → `/clear`,
+  `cursor` → `/new-chat`. A harness whose apparent clear does **not** truly empty the model context
+  (e.g. `gemini`, where `/clear` wipes only the terminal screen), or any harness absent from the map,
+  **fails loud** naming the harness — never a silent no-op and never a false-friend command that
+  leaves stale context behind. Injection is best-effort like `nudge` (the harness owns the actual
+  reset); `clear` asserts the command was sent, not that the context is provably empty.
 
 **Non-goals** — the unit registry and self/peer discovery (`unit/registry`), backend selection and
 placement (`mux/`), mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
 await`/`watch` (`mail/wait`), hook-based mail/brief injection into a harness turn (`mail/surface`) —
-this node only owns the session lifecycle (spawn/close/focus/nudge/read) and the worktree it creates
-(when it creates one — a `--cwd` spawn opens into a caller-supplied directory and owns no worktree).
+this node only owns the session lifecycle (spawn/close/focus/nudge/read/clear) and the worktree it
+creates (when it creates one — a `--cwd` spawn opens into a caller-supplied directory and owns no
+worktree). `clear` owns only injecting the harness's fresh-context command into the pane — it never
+verifies the harness actually emptied its context (best-effort, the harness owns the reset), and the
+routing decision to reset a warm unit belongs to the caller (the Legate plugin / an SDD conductor),
+not this mechanism.
 
 Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of these behaviors:
 
@@ -101,3 +117,7 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **focus** | move input focus to a peer's pane |
 | **nudge** | doorbell that delivers a message as a turn; default points at the inbox, `--message` overrides |
 | **read** | scrape a peer's session screen |
+| **clear injects harness reset, keeps pane warm** | sends the harness's own fresh-context command; tears nothing down; record/pane/worktree unchanged |
+| **clear resolves the per-harness reset map** | claude/codex/copilot → `/clear`, cursor → `/new-chat` |
+| **clear fails loud on a false-friend / unmapped harness** | gemini (`/clear` = screen-only) or any unmapped harness throws; nothing sent |
+| **clear needs a live target** | unknown id or no known pane errors, sends nothing |
