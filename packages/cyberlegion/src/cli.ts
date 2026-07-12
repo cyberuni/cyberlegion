@@ -4,7 +4,7 @@ import { Command, Option } from 'commander'
 import { migrateStore } from './admin.ts'
 import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
-import { wakeRecipient } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
 import { selectSessionAdapter } from './console/index.ts'
 import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
 import { nudge } from './console/nudge.ts'
@@ -303,17 +303,15 @@ withGlobals(unit.command('focus'))
 // The doorbell must carry a message: a live agent session only takes a turn when it receives
 // actual input (an empty ring is a no-op). Default points the peer at its inbox; the mail it
 // already has is the real payload.
-const DEFAULT_NUDGE_MESSAGE = 'You have unread mail from the fleet — check your inbox and read it.'
-
 withGlobals(unit.command('nudge'))
 	.description("ring a peer's session (a doorbell that tells them to check their mail)")
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
-	.option('--message <text>', 'the doorbell text delivered to the peer session', DEFAULT_NUDGE_MESSAGE)
+	.option('--message <text>', 'the doorbell text delivered to the peer session', DELIVERY_DOORBELL)
 	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		const target = resolveTarget(ctx, ref)
-		const message = opts.message || DEFAULT_NUDGE_MESSAGE
+		const message = opts.message || DELIVERY_DOORBELL
 		const result = await nudge(selectSessionAdapter(ctx.env ?? process.env), realExec, target, message)
 		emit(formatOf(opts), {
 			toon: toonObject({ nudged: ref, pane: target.id }),

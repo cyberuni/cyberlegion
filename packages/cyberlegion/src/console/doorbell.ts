@@ -3,8 +3,8 @@ import type { Store } from '../store/store.ts'
 import { type NudgeOptions, nudge } from './nudge.ts'
 import type { SessionAdapter } from './session.ts'
 
-/** The doorbell text delivered to a woken recipient — mirrors the standalone `unit nudge` default. */
-export const DELIVERY_DOORBELL = 'You have unread mail from the fleet — check your inbox and read it.'
+/** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
+export const DELIVERY_DOORBELL = 'You have unread mail — check your inbox.'
 
 export interface WakeInput {
 	/** The delivered message's recipient id (its `to`). */
