@@ -1,5 +1,5 @@
 ---
-status: implemented
+status: approved
 project-path: packages/cyberlegion
 approval:
   impl:
@@ -15,15 +15,15 @@ approval:
       cr: cyberlegion-unit-reset
   spec:
     verdict: approve
-    by: unional
+    by: agent
     cause: dimension
     why:
-      floor: none — the `unit clear` scenarios are purely additive to the frozen `lifecycle.feature` (self-clearing, stays `@frozen`, no re-open).
-      blast: low — one new warm-unit lifecycle verb scoped to the `unit/lifecycle` node; realized by injecting the harness's own fresh-context command via the existing `SessionAdapter.send` seam.
-      novelty: low — the warm/cold decoupling primitive (issue #122); a per-harness reset map keyed on genuine fresh-context semantics (claude/codex/copilot → `/clear`, cursor → `/new-chat`), fail-loud on a false-friend (gemini `/clear` = screen-only) or unmapped harness.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS) after a mechanical malformed-Outline fix; no open markers.
+      floor: none — 6 error-case scenarios purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, 6 added/0 modified/0 removed; self-clears, stays `@frozen`, no re-open).
+      blast: low — spec/suite-only; mirrors the two frozen `unit clear` error scenarios; the guard already exists in `resolveTarget` (`cli.ts`) so no production code change is anticipated (deliver adds test coverage only).
+      novelty: low — closes the builder-spec-governance error-case gap issue #128 flagged; 2 error cases × 3 ops (`focus`/`nudge`/`read`): an unresolvable/unregistered ref, and a registered unit with no known session pane.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: cyberlegion-unit-reset
+      cr: github-128-unit-error-scenarios
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

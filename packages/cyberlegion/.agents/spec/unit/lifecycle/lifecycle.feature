@@ -188,6 +188,44 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit read <ref> --lines 20
     Then the captured trailing output from that pane is printed
 
+  # ── focus, nudge, read: error cases (unresolvable ref, no live pane) ──
+
+  Scenario: focus on an unresolvable ref errors and focuses nothing
+    Given no unit addressable under a given ref
+    When a caller runs unit focus <ref>
+    Then it throws that no unit is addressable under that ref
+    And no pane is focused
+
+  Scenario: focus on a unit with no known session pane errors and focuses nothing
+    Given a registered unit with no known session pane
+    When a caller runs unit focus <ref>
+    Then it throws that the unit has no known session pane
+    And no pane is focused
+
+  Scenario: nudge on an unresolvable ref errors and delivers nothing
+    Given no unit addressable under a given ref
+    When a caller runs unit nudge <ref>
+    Then it throws that no unit is addressable under that ref
+    And nothing is delivered to any pane
+
+  Scenario: nudge on a unit with no known session pane errors and delivers nothing
+    Given a registered unit with no known session pane
+    When a caller runs unit nudge <ref>
+    Then it throws that the unit has no known session pane
+    And nothing is delivered to any pane
+
+  Scenario: read on an unresolvable ref errors and scrapes nothing
+    Given no unit addressable under a given ref
+    When a caller runs unit read <ref>
+    Then it throws that no unit is addressable under that ref
+    And no pane output is captured
+
+  Scenario: read on a unit with no known session pane errors and scrapes nothing
+    Given a registered unit with no known session pane
+    When a caller runs unit read <ref>
+    Then it throws that the unit has no known session pane
+    And no pane output is captured
+
   # ── clear resets a warm peer's context while keeping its pane/process warm ──
 
   Scenario: clear injects the harness's own in-session reset into a warm peer and tears nothing down
