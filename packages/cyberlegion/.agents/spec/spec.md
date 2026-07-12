@@ -1,7 +1,18 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
+  impl:
+    verdict: approve
+    by: agent
+    cause: dimension
+    why:
+      floor: none — the implementation satisfies every new frozen scenario and weakens no existing one; the mux re-open's narrowing was already cleared at the spec gate (pre-authorized by #161).
+      blast: low — a placement-only change: `session.ts` resolves `--at` by spawn mode (new-worktree → `workspace`, `--cwd` → `tab`), `cli.ts` drops the hard `tab` default, `console/session.tmux.ts` maps `workspace` → `new-window -d` and removes the `new-session` mapping entirely. herdr adapter untouched; no registry/mail/worktree-lifecycle/CLI-contract bleed (git diff --stat: 3 source files + 2 test files).
+      novelty: low — flips one spawn default and remaps one tmux verb; reinforces #158's `select-window` beam (a ship lands in a visible window, never a detached session). Judged on the tree rebased onto origin/main (be7f3092).
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 7 new frozen scenarios BOUND and discriminating (the tmux `workspace` test fails against the pre-fix `new-session` mapping; the new-worktree-default test fails if the default were still `tab`, verified by tracing the diff's pre-fix counterfactual); herdr nested-workspace + `--at tab`/pane + the `--at accepts only ...` validation + #158 focus-beaming all regression-confirmed untouched; `new-session` fully removed (grep shows only comments + negative assertions). cyberlegion 364 tests green; root `pnpm verify` green (20/20 tasks).
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen placement scenario PASS; scope confined to placement (session.ts/cli.ts/tmux adapter); no blocker, no unbound scenario.
+      cr: github-161-spawn-visible-space
   spec:
     verdict: approve
     by: agent

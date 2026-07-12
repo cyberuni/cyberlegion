@@ -319,6 +319,105 @@ describe('backend selection: herdr', () => {
 	})
 })
 
+// ── spec:cyberlegion/unit/lifecycle — spawn resolves the default placement by mode ──────────────
+describe('spawn resolves the default --at by spawn mode (own visible space vs current space)', () => {
+	// herdr is the discriminating backend — 'workspace' → `worktree create` (own nested workspace),
+	// 'tab' → `tab create` (a tab in the caller's current space) are distinct herdr verbs.
+	function herdrExec(calls: string[][], worktreeRoot: string): Exec {
+		return (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) return ''
+				return null
+			}
+			calls.push(args)
+			if (args[0] === 'worktree' && args[1] === 'create') {
+				const branch = args[args.indexOf('--branch') + 1]
+				return JSON.stringify({
+					id: 'cli:worktree:create',
+					result: { root_pane: { pane_id: 'w9:p1' }, worktree: { branch, path: worktreeRoot } },
+				})
+			}
+			if (args[0] === 'tab' && args[1] === 'create') {
+				return JSON.stringify({ result: { root_pane: { pane_id: 'w3:pT' }, type: 'tab_created' } })
+			}
+			if (args[0] === 'workspace' && args[1] === 'create') {
+				return JSON.stringify({ result: { root_pane: { pane_id: 'w5:pW' }, type: 'workspace_created' } })
+			}
+			if (args[0] === 'pane' && args[1] === 'split') {
+				return JSON.stringify({ result: { pane: { pane_id: 'w3:pS' }, type: 'pane_info' } })
+			}
+			return null
+		}
+	}
+
+	it('a new-worktree spawn with no --at defaults to its own visible workspace (herdr nested worktree)', () => {
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'default-ws-unit')
+		const res = spawn(
+			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
+			{ harness: 'claude', task: 't' },
+		)
+		// No mux placement passed by the caller, yet it lands in its own nested workspace — deterministic.
+		expect(calls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+		expect(calls.some((c) => c[0] === 'tab' && c[1] === 'create')).toBe(false)
+		expect(res.agent.cwd).toBe(resolve(worktreeRoot))
+	})
+
+	it('a new-worktree spawn with no --at lands a VISIBLE tmux window, never a detached session', () => {
+		const calls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) return ''
+				return null
+			}
+			calls.push(args)
+			if (args[0] === 'new-window') return '%42'
+			return null
+		}
+		const res = spawn({ store, env: { CYBERLEGION_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
+		expect(calls[0]!.slice(0, 2)).toEqual(['new-window', '-d'])
+		expect(calls.some((c) => c[0] === 'new-session')).toBe(false)
+		expect(res.pane).toBe('%42')
+	})
+
+	it("a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace", () => {
+		const calls: string[][] = []
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-cwd-'))
+		spawn(
+			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
+			{ harness: 'claude', task: 't', cwd: existingDir },
+		)
+		expect(calls[0]!.slice(0, 2)).toEqual(['tab', 'create'])
+		expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
+	})
+
+	it('an explicit --at overrides the new-worktree default (new-worktree spawn honoring --at tab)', () => {
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'override-unit')
+		spawn(
+			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'tab' },
+		)
+		// Explicit tab wins even though the new-worktree default would have been workspace.
+		expect(calls[0]!.slice(0, 2)).toEqual(['tab', 'create'])
+		expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
+	})
+
+	it('an explicit --at overrides the --cwd default (--cwd spawn honoring --at workspace)', () => {
+		const calls: string[][] = []
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-cwd-'))
+		spawn(
+			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
+			{ harness: 'claude', task: 't', cwd: existingDir, at: 'workspace' },
+		)
+		// Explicit workspace wins even though the --cwd default would have been tab.
+		expect(calls[0]!.slice(0, 2)).toEqual(['workspace', 'create'])
+		expect(calls.some((c) => c[0] === 'tab' && c[1] === 'create')).toBe(false)
+	})
+})
+
 // ── spec:cyberlegion/unit/lifecycle — clear resets a warm peer's context ────────────────────────
 
 /** Registers a unit record directly (no spawn) so `clear` scenarios start from a known-live peer. */

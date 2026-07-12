@@ -38,12 +38,15 @@ describe('tmuxSessionAdapter', () => {
 		expect(calls[0]).toEqual(['new-window', '-d', '-c', '/u', '-P', '-F', '#{pane_id}'])
 	})
 
-	it("open() at 'workspace' opens a new detached session instead of a pane in the current one", () => {
+	it("open() at 'workspace' opens a visible background window in the current session, never a detached session", () => {
 		const calls: string[][] = []
-		const exec = fakeExec(calls, { 'new-session': '%20' })
+		const exec = fakeExec(calls, { 'new-window': '%20' })
 		const target = tmuxSessionAdapter.open(exec, { cwd: '/unit', launch: 'claude', at: 'workspace' })
 		expect(target).toEqual({ id: '%20' })
-		expect(calls[0]).toEqual(['new-session', '-d', '-c', '/unit', '-P', '-F', '#{pane_id}'])
+		// A window (visible in the status bar, select-window-able), not a new-session -d detached
+		// session that the attached client can't see or beam to.
+		expect(calls[0]).toEqual(['new-window', '-d', '-c', '/unit', '-P', '-F', '#{pane_id}'])
+		expect(calls.some((c) => c[0] === 'new-session')).toBe(false)
 		expect(calls[1]).toEqual(['send-keys', '-t', '%20', 'claude', 'Enter'])
 	})
 

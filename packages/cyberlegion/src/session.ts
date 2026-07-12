@@ -137,13 +137,20 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		cwd = resolve(input.cwd)
 		assertDistinctFromPrimary(cwd, primaryRoot)
 		worktree = null
-		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at })
+		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
+		// the caller opted into an existing dir, not into carving out an isolated space.
+		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at ?? 'tab' })
 	} else {
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
+		// A spawn that CREATES A NEW WORKTREE gets its own isolated, VISIBLE space by default — the
+		// fleet-layer caller expresses that intent as `workspace`, never a mux-specific placement.
+		// Mapped per-mux: herdr nests a new workspace under its source; tmux (no Workspace tier) opens
+		// a visible window. Deterministic — independent of whichever workspace is currently focused.
+		const at = input.at ?? 'workspace'
 		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
 		// the directory name lines up with what's already shown to the caller.
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
-		if (input.at === 'workspace' && sessionAdapter.openInNewWorktree) {
+		if (at === 'workspace' && sessionAdapter.openInNewWorktree) {
 			// The backend can create the worktree and open its new workspace in one atomic call —
 			// a real organizational improvement (herdr nests the worktree under its source workspace)
 			// over a separate worktree-add followed by a disconnected open().
@@ -167,7 +174,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
 			cwd = added.root
 			worktree = added
-			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at })
+			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at })
 		}
 	}
 

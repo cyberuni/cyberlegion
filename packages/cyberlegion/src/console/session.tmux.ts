@@ -5,24 +5,23 @@ export const tmuxSessionAdapter: SessionAdapter = {
 	name: 'tmux',
 
 	open(exec, opts) {
-		// tmux has no native "tab" concept — a new window is the closest analogue, and it's the
-		// default placement. 'workspace' maps to a new detached session (`-d`, no `-t`) — genuinely
-		// separate from the caller's current session, unlike every other placement, which targets it.
-		// Omitting `-s` lets tmux assign the session name, avoiding any collision; the returned pane
-		// id is globally unique server-wide, so every other adapter method keeps working unchanged
-		// regardless of which session a pane is in.
+		// tmux has fewer tiers than herdr: no Workspace level, and "window" is its name for the Tab
+		// concept. So both 'workspace' (own visible space) and 'tab' collapse to a new WINDOW — the
+		// finest "own visible space" unit tmux offers, visible in the status bar and reachable by
+		// `select-window` (which cross-window beaming/focus relies on). `-d` opens it in the
+		// background without stealing the caller's focus. A ship is never placed in a detached
+		// (`new-session -d`) session — that is invisible to the attached client and unreachable by
+		// beaming; a truly-detached session would be a separate explicit intent, not a ship spawn.
 		const at = opts.at ?? 'tab'
 		const args =
-			at === 'workspace'
-				? ['new-session', '-d', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+			at === 'workspace' || at === 'tab'
+				? // `-d` keeps focus on the caller (opens the window in the background) — without it tmux
+					// switches the attached client to the new window, stealing the caller's focus. The
+					// returned pane id and subsequent `send-keys -t` still target the new pane.
+					['new-window', '-d', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
 				: at === 'pane:down'
 					? ['split-window', '-v', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
-					: at === 'tab'
-						? // `-d` keeps focus on the caller (opens the tab in the background) — without it
-							// tmux switches the attached client to the new window, stealing the caller's focus.
-							// The returned pane id and subsequent `send-keys -t` still target the new pane.
-							['new-window', '-d', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
-						: ['split-window', '-h', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
+					: ['split-window', '-h', '-c', opts.cwd, '-P', '-F', '#{pane_id}']
 		const pane = exec('tmux', args)
 		if (!pane) throw new Error(`tmux ${args[0]} failed`)
 		const target: SessionTarget = { id: pane }
