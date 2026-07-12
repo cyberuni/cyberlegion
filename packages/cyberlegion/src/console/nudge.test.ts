@@ -4,7 +4,7 @@ import { isStaged, nudge } from './nudge.ts'
 import type { SessionAdapter, SessionTarget } from './session.ts'
 
 const target: SessionTarget = { id: 'p-1' }
-const MESSAGE = 'You have unread mail from the fleet — check your inbox and read it.'
+const MESSAGE = 'You have unread mail — check your inbox.'
 const noopSleep = async () => {}
 
 /** A fake adapter whose `read` returns queued values across successive calls (send/submit are spies). */

@@ -13,7 +13,8 @@ sub-nodes, each a real mail sub-command group:
 |---|---|
 | [`core/`](./core/README.md) | plain send/inbox/read/ack/delete |
 | [`wait/`](./wait/README.md) | thread correlation, bounded await, watch |
-| [`surface/`](./surface/README.md) | hook injection payload + owner-mail surfacing gate |
+| [`surface/`](./surface/README.md) | hook injection payload + owner-mail surfacing gate (the pull side) |
+| [`doorbell/`](./doorbell/README.md) | wake the recipient on delivery — the push side: ring a peer's pane, or a standing owner's bound main pane, best-effort/never fails the send |
 
 **Non-goals** — the unit registry and lifecycle (`unit/`), backend selection and placement (`mux/`),
 the human's read-pane pointer (`attach/`), the per-harness installer (pending dedup into `init/`, see

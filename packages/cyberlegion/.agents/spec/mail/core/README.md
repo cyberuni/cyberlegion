@@ -48,8 +48,9 @@ consume, or permanently remove it, without losing or duplicating anything:
 
 **Non-goals** — thread correlation (`send --thread/--reply-to`, `inbox --thread`), `mail await`, and
 `mail watch` — all spec'd in [`mail/wait`](../wait/README.md); the hook injection payload and
-owner-mail surfacing gate — spec'd in [`mail/surface`](../surface/README.md); this node is plain
-send/inbox/read/ack/delete only.
+owner-mail surfacing gate — spec'd in [`mail/surface`](../surface/README.md); waking the recipient on
+delivery (the push-side doorbell) — spec'd in [`mail/doorbell`](../doorbell/README.md); this node is
+plain send/inbox/read/ack/delete only.
 
 Every scenario in [`core.feature`](./core.feature) maps to one of these behaviors:
 

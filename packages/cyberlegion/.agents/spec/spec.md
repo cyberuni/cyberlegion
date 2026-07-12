@@ -7,23 +7,23 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — the implementation satisfies every new frozen scenario and weakens no existing one; the mux re-open's narrowing was already cleared at the spec gate (pre-authorized by #161).
-      blast: low — a placement-only change: `session.ts` resolves `--at` by spawn mode (new-worktree → `workspace`, `--cwd` → `tab`), `cli.ts` drops the hard `tab` default, `console/session.tmux.ts` maps `workspace` → `new-window -d` and removes the `new-session` mapping entirely. herdr adapter untouched; no registry/mail/worktree-lifecycle/CLI-contract bleed (git diff --stat: 3 source files + 2 test files).
-      novelty: low — flips one spawn default and remaps one tmux verb; reinforces #158's `select-window` beam (a ship lands in a visible window, never a detached session). Judged on the tree rebased onto origin/main (be7f3092).
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 7 new frozen scenarios BOUND and discriminating (the tmux `workspace` test fails against the pre-fix `new-session` mapping; the new-worktree-default test fails if the default were still `tab`, verified by tracing the diff's pre-fix counterfactual); herdr nested-workspace + `--at tab`/pane + the `--at accepts only ...` validation + #158 focus-beaming all regression-confirmed untouched; `new-session` fully removed (grep shows only comments + negative assertions). cyberlegion 364 tests green; root `pnpm verify` green (20/20 tasks).
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen placement scenario PASS; scope confined to placement (session.ts/cli.ts/tmux adapter); no blocker, no unbound scenario.
-      cr: github-161-spawn-visible-space
+      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; `mail/core` unchanged (its Bunker-addressing scenarios were reverted as a metaphor leak — see below); no frozen non-CR scenario weakened.
+      blast: low-medium — new `console/doorbell.ts` `wakeRecipient` (best-effort, lazy adapter) + `mail send --no-nudge` wiring; reuses the shipped #150 `nudge`; touches no registry/worktree path. Root `pnpm verify` green; cyberlegion tests green.
+      novelty: low-medium — best-effort push doorbell layered over durable delivery: ring a peer's live pane or a standing owner's bound main pane on send; the adapter is selected lazily inside the swallowing try so a no-mux session never trips `selectSessionAdapter` and never fails the send. Verify-effect-or-fail-loud is the nudge's own for the live case; a no-target recipient is a legitimate no-op, not a failure (aligns sibling #158's attach-relative no-op framing). Metaphor-free: the package knows only "standing owner" + "bound main pane" — no fleet/persona name; the "Bunker" naming for the owner inbox is re-homed to the cyberfleet plugin.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; every frozen doorbell scenario PASS with independently re-derived oracles; the `--no-nudge` CLI-flag binding is mutation-confirmed (e2e tests fail under `noNudge:false`, restore clean). Fixed a latent eager-`selectSessionAdapter` throw that would have failed a no-mux send.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every doorbell scenario PASS; lazy-adapter refactor verified sound; diff confined to the doorbell behavior, no bleed.
+      cr: github-159-doorbell-bunker
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: clearance (pre-authorized) — the frozen mux scenario `omitting --at defaults to tab` was re-opened and removed (a narrowing/rewrite, gherkin-cli 3 added/1 removed), pre-authorized by issue #161 which mandates flipping the new-worktree spawn default; the 4 new `lifecycle.feature` scenarios are purely additive (gherkin-cli addOnly:true, 4/0/0, self-clear, stay `@frozen`); the 3 new mux workspace scenarios are additive. No frozen scenario weakened without the CR's own authorization.
-      blast: low — a scoped placement-default fix: `session.ts` resolves `--at` by spawn mode (new-worktree → `workspace`, `--cwd` → `tab`), `cli.ts` drops the hard `tab` default so the mode-keyed default owns it, and the tmux adapter maps `workspace` → `new-window` (visible window) not `new-session` (detached). Touches `session.ts` + `cli.ts` + `console/session.tmux.ts`; herdr adapter already correct; no registry/mail/worktree-lifecycle/CLI-contract bleed.
-      novelty: low — the `--at` placement seam and both adapters already existed; this flips one default and remaps one tmux verb, reinforcing #158's `select-window` beam (a ship must land in a visible window, never a detached session the attached client can't see or beam to).
-      confidence: high — two independent cold sdd-spec-judges: a fresh judge returned ALIGNED (oracle/builder/architect all PASS); a second judge caught one architect-lens spec/.feature drift (mux README still claimed the dropped no-placement fallback as a covered behavior) which was then reconciled; check-suite + check-spec-state green; the placement change is exercise-backstopped by session + adapter tests (the tmux `workspace` test fails against the pre-fix `new-session` mapping).
-      judge: cold sdd-spec-judge ×2 — round-1 builder blockers (orphan lifecycle scenarios, phantom mux no-placement scenario) and the round-2 architect blocker (mux README/.feature drift) all cleared; ALIGNED.
-      cr: github-161-spawn-visible-space
+      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; `mail/core` is unchanged; no frozen scenario weakened.
+      blast: low-medium — new behavioral `mail/doorbell` node (push-doorbell-on-send); reuses the shipped #150 nudge submit-verify path and existing store primitives (`getMainPane`/`findPaneByAgentId`); touches no registry/worktree path.
+      novelty: low-medium — best-effort push doorbell layered over durable delivery: a peer's live pane or a standing owner's bound main pane is rung on send; no-live-target (headless / no main pane / ring past cap) is a legitimate no-op, never a send failure. Metaphor-free — the package knows only "standing owner" + "bound main pane"; the owner-inbox naming (the fleet's "Bunker") is a cyberfleet concern. Aligns with sibling #158's attach-relative no-op framing; #158's verify-effect-or-fail-loud rule is DEFERRED to a follow-up CR, so this notes the seam.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; check-suite + check-spec-state OK.
+      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
+      cr: github-159-doorbell-bunker
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
@@ -53,7 +53,7 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 |---|---|
 | [`mux/`](./mux/README.md) | the unit-agnostic pane abstraction — backend selection, placement, multiplexer detection |
 | [`unit/`](./unit/registry/README.md) | the instance registry (`unit/registry`) + warm session lifecycle (`unit/lifecycle`) |
-| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing (`mail/surface`) |
+| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing / the pull side (`mail/surface`), waking the recipient on delivery / the push-side doorbell (`mail/doorbell`) |
 | [`agent/`](./agent/README.md) | resolve reusable agent definitions |
 | [`attach/`](./attach/README.md) | the human's read-pane — an attention pointer to the hub's main pane |
 | [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook (owns the per-harness installer) |

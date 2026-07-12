@@ -387,6 +387,50 @@ describe('the standing owner mailbox — mail --owner', () => {
 	})
 })
 
+// The push-side doorbell, driven through the real CLI flag (not wakeRecipient directly), so the
+// --no-nudge → behavior wiring is actually exercised. A live-pane recipient without --no-nudge
+// attempts the ring; the mux is pinned to tmux and the pane does not exist, so the ring fails and
+// surfaces a best-effort "doorbell not confirmed" warning on stderr (never failing the send). That
+// warning is the observable that separates "ring attempted" from "ring suppressed": with --no-nudge
+// no ring is attempted and no warning appears. The slow baseline send exhausts nudge's retry cap
+// (~4s), hence the widened timeouts.
+describe('spec:cyberlegion/mail/doorbell — CLI --no-nudge', () => {
+	const muxEnv = { CYBERLEGION_MUX: 'tmux' }
+
+	it('--no-nudge suppresses the delivery doorbell to a peer (the flag reaches the behavior)', () => {
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'], { TMUX: 't', TMUX_PANE: '%77' })
+		// Baseline (non-vacuity): a live-pane peer without --no-nudge attempts the ring → stderr warning,
+		// send still succeeds.
+		const attempted = legionOut(['mail', 'send', '--from', 'alice', '--to', 'bob', '--body', 'wake'], muxEnv)
+		expect(attempted.stdout).toContain('sent:')
+		expect(attempted.stderr).toMatch(/doorbell/i)
+		// --no-nudge suppresses the ring → no warning, message still delivered.
+		const suppressed = legionOut(
+			['mail', 'send', '--from', 'alice', '--to', 'bob', '--no-nudge', '--body', 'quiet'],
+			muxEnv,
+		)
+		expect(suppressed.stdout).toContain('sent:')
+		expect(suppressed.stderr).not.toMatch(/doorbell/i)
+	}, 20_000)
+
+	it("--no-nudge suppresses the doorbell to a standing owner's bound main pane", () => {
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--standing', '--handle', 'owner'])
+		legion(['attach'], { TMUX: 't', TMUX_PANE: '%9' }) // bind the main pane — the human's live presence
+		// Baseline (non-vacuity): a standing-owner send with a bound main pane attempts the ring → stderr warning.
+		const attempted = legionOut(['mail', 'send', '--from', 'alice', '--to', 'owner', '--body', 'report'], muxEnv)
+		expect(attempted.stderr).toMatch(/doorbell/i)
+		// --no-nudge suppresses the ring to the bound main pane → no warning.
+		const suppressed = legionOut(
+			['mail', 'send', '--from', 'alice', '--to', 'owner', '--no-nudge', '--body', 'quiet'],
+			muxEnv,
+		)
+		expect(suppressed.stdout).toContain('sent:')
+		expect(suppressed.stderr).not.toMatch(/doorbell/i)
+	}, 20_000)
+})
+
 describe('AXI fail-loud behavior', () => {
 	it('an unknown flag fails loud with a nonzero exit', () => {
 		expect(() => legion(['unit', 'who', '--bogus'])).toThrow()
