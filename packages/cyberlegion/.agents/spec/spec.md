@@ -1,5 +1,5 @@
 ---
-status: implemented
+status: approved
 project-path: packages/cyberlegion
 approval:
   impl:
@@ -18,12 +18,12 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — the 4 nudge boot-race scenarios are purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, self-clearing, stays `@frozen`, no re-open); existing scenarios untouched.
-      blast: low-medium — hardens the existing `nudge` verb in the `unit/lifecycle` node; contract is adapter-general (herdr + tmux) and lives above the adapter as a verify+retry loop plus a bare-submit primitive; touches no registry/worktree path.
-      novelty: low — submit-then-verify-then-retry (issue #150 option b) chosen over verify-readiness-before-submit (option a) for adapter-generality and a harness-agnostic verify anchor (the caller's own staged text); fail-loud on cap exhaustion kills the silent idle-at-$0.00 mode.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; check-suite + check-spec-state OK.
+      floor: none — the 2 focus-beaming scenarios are purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, 2 added/0 modified/0 removed; self-clears, stays `@frozen`, no re-open); existing scenarios (incl. the frozen same-workspace focus and the #128 no-known-pane error case) untouched.
+      blast: low-medium — a real production change to `SessionAdapter.focus` on both backends: resolve the target pane's own `workspace_id` + `tab_id` from the backend and drive the full beam (herdr `workspace focus` → `tab focus` → pane; tmux `switch-client` → `select-window` → `select-pane`), plus a fail-loud-on-unresolvable-pane path. Touches only the two `console/session.*.ts` adapters (+ a parse helper); no registry/worktree/CLI-contract path.
+      novelty: low-medium — extends the single-pane focus into a workspace→tab→pane beam using herdr `pane get`'s already-returned `workspace_id`/`tab_id` (and the tmux `list-panes -F` equivalent); the stale-pane fail-loud mirrors the #128 `resolveTarget` fail-loud floor, killing the silent-no-op / false-`focused` mode issue #158 flags. Best-effort within, no observable-effect re-read (lighter than nudge's verify loop).
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; gherkin-cli addOnly:true; check-spec-state + check-suite green.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: 150-nudge-boot-race
+      cr: github-158-focus-cross-workspace
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
