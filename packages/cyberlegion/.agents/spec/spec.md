@@ -7,23 +7,23 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; `mail/core` unchanged (its Bunker-addressing scenarios were reverted as a metaphor leak — see below); no frozen non-CR scenario weakened.
-      blast: low-medium — new `console/doorbell.ts` `wakeRecipient` (best-effort, lazy adapter) + `mail send --no-nudge` wiring; reuses the shipped #150 `nudge`; touches no registry/worktree path. Root `pnpm verify` green; cyberlegion tests green.
-      novelty: low-medium — best-effort push doorbell layered over durable delivery: ring a peer's live pane or a standing owner's bound main pane on send; the adapter is selected lazily inside the swallowing try so a no-mux session never trips `selectSessionAdapter` and never fails the send. Verify-effect-or-fail-loud is the nudge's own for the live case; a no-target recipient is a legitimate no-op, not a failure (aligns sibling #158's attach-relative no-op framing). Metaphor-free: the package knows only "standing owner" + "bound main pane" — no fleet/persona name; the "Bunker" naming for the owner inbox is re-homed to the cyberfleet plugin.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; every frozen doorbell scenario PASS with independently re-derived oracles; the `--no-nudge` CLI-flag binding is mutation-confirmed (e2e tests fail under `noNudge:false`, restore clean). Fixed a latent eager-`selectSessionAdapter` throw that would have failed a no-mux send.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every doorbell scenario PASS; lazy-adapter refactor verified sound; diff confined to the doorbell behavior, no bleed.
-      cr: github-159-doorbell-bunker
+      floor: none — 5 additive scenarios on the frozen `mail/core.feature` for `mail read <id> --ack` (addOnly — freeze self-clears); no frozen scenario weakened.
+      blast: low — new `readAck` in `message.ts` composing the existing `listInbox`/`ackMessage` primitives, plus a `--ack` branch inside the existing `mail read` command (bare-read path untouched); no registry/worktree/store-schema change. Root `pnpm verify` green (20/20); cyberlegion 389 tests green; dist rebuilt.
+      novelty: low — `mail read <id> --ack` reads and consumes in one atomic step. Idempotent — always prints the body, acks only when still unread, so an already-acked message prints the body and succeeds (`acked: false`) rather than erroring like a bare `mail ack`; unknown id still errors; composes with `--owner`.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 5 new frozen scenarios PASS with independently re-derived oracles, idempotence genuinely non-erroring and distinct from double-ack, `--owner` codepath really exercised.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all 5 read --ack scenarios PASS; no regression on the pre-existing frozen suite.
+      cr: github-173-mail-read-ack
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; `mail/core` is unchanged; no frozen scenario weakened.
-      blast: low-medium — new behavioral `mail/doorbell` node (push-doorbell-on-send); reuses the shipped #150 nudge submit-verify path and existing store primitives (`getMainPane`/`findPaneByAgentId`); touches no registry/worktree path.
-      novelty: low-medium — best-effort push doorbell layered over durable delivery: a peer's live pane or a standing owner's bound main pane is rung on send; no-live-target (headless / no main pane / ring past cap) is a legitimate no-op, never a send failure. Metaphor-free — the package knows only "standing owner" + "bound main pane"; the owner-inbox naming (the fleet's "Bunker") is a cyberfleet concern. Aligns with sibling #158's attach-relative no-op framing; #158's verify-effect-or-fail-loud rule is DEFERRED to a follow-up CR, so this notes the seam.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; check-suite + check-spec-state OK.
+      floor: none — additive to `mail/core.feature` (gherkin-cli addOnly:true, 5 added / 0 modified / 0 removed); stays `@frozen`, no re-open.
+      blast: low — one new atomic read+ack CLI op on an existing behavioral node; `README.md` synced (new Use-Case bullet + scenario-map row + corrected owner read-state line).
+      novelty: low — combined `mail read --ack` collapses read-then-separately-ack into one round-trip; the two-step peek path (`mail read` without `--ack`) is unchanged.
+      confidence: high — cold sdd-spec-judge ALIGNED true (oracle/builder/architect all PASS) after closing two blocking gaps (owner-idempotent scenario + README sync); no open markers.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: github-159-doorbell-bunker
+      cr: github-173-mail-read-ack
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

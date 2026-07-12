@@ -33,6 +33,13 @@ consume, or permanently remove it, without losing or duplicating anything:
 - **ack is the consumer** — `mail ack <msg-id>` moves the message out of the unread set into the
   caller's read set; it is the only command that changes a message's read state. Acking an
   already-acked or unknown message id errors rather than silently succeeding.
+- **read --ack peeks and consumes in one atomic step** — `mail read <msg-id> --ack` prints the body
+  (as `read` does) and acks the message in the same call, so "receive and consume" is one round-trip
+  instead of read-then-separately-ack. It is **idempotent**: it always prints the body and acks only
+  when the message is still unread, so running it on an already-acked message prints the body and
+  succeeds rather than erroring (unlike bare `ack`, which errors on a double-ack). An unknown message
+  id still errors. It composes with `--owner`, consuming a standing owner-mailbox message in one step
+  with the same idempotent semantics. Bare `mail read` (no `--ack`) stays the non-consuming peek.
 - **delete removes mail permanently** — `mail delete <msg-id>` removes a message (unread or already
   acked) from the caller's inbox; unlike `ack` it does not require the message to still be unread. An
   unknown message id errors rather than silently succeeding.
@@ -41,8 +48,9 @@ consume, or permanently remove it, without losing or duplicating anything:
   inbox. `mail inbox`, `mail read`, and `mail ack` take an `--owner <handle>` selector that targets a
   **standing** record's inbox instead of the caller's own — so a human roaming across sessions manages
   the one hub-level owner mailbox from wherever they are. `--owner` on a handle that is **not** a
-  standing record errors (it never reads a session's inbox as an owner mailbox). Read still peeks and
-  `ack` is still the only read-state change; two concurrent `mail ack --owner` of the same message
+  standing record errors (it never reads a session's inbox as an owner mailbox). `read --ack` also
+  takes `--owner`, consuming an owner-mailbox message in one step; bare `read` still peeks without
+  changing read state; two concurrent `mail ack --owner` of the same message
   resolve to exactly one success and one error (the loser throws on an already-acked message), so no
   report is double-consumed or lost.
 
@@ -61,5 +69,6 @@ Every scenario in [`core.feature`](./core.feature) maps to one of these behavior
 | **inbox lists oldest-first with an aggregate** | TOON list + `<N> messages (<U> unread)`; empty is "0 messages" not an error; `--unread`; `--from` |
 | **read = peek, does not consume** | body printed; message stays unread; unknown id errors |
 | **ack = the consumer** | moves message to read set; already-acked/unknown message errors |
+| **read --ack = atomic peek + consume** | body printed and message acked in one step; idempotent (already-acked prints body, no error); unknown id errors; composes with `--owner` |
 | **delete removes mail permanently** | unread or already-acked messages; unknown id errors |
 | **owner mailbox from any session** | send-to-standing delivers to the owner inbox; `--owner <handle>` on inbox/read/ack targets a standing inbox; non-standing `--owner` errors; concurrent ack → one wins one errors |
