@@ -263,6 +263,16 @@ describe('spec:cyberlegion/unit', () => {
 			expect(() => legion(['unit', 'read', rec.id])).toThrow()
 			expect(stderr).toMatch(/no known session pane/)
 		})
+
+		// spec: close on an unresolvable id errors and reaps nothing — at the CLI, close resolves the
+		// ref through resolveAgent (id/handle/branch) BEFORE decommission, so an unresolvable id throws
+		// the same "no agent addressable" message as the rest of the cluster and reaps nothing.
+		it('close on an unresolvable id errors and reaps nothing', () => {
+			const { stderr } = legionOut(['unit', 'close', 'ghost'])
+			expect(() => legion(['unit', 'close', 'ghost'])).toThrow()
+			expect(stderr).toMatch(/no agent addressable as/)
+			expect(stderr).toContain('ghost')
+		})
 	})
 })
 
