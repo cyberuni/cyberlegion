@@ -15,6 +15,7 @@ import {
 	resolveAgent,
 	resolveRecipient,
 	resolveSelfId,
+	saveAgent,
 	standingId,
 	touch,
 } from './identity.ts'
@@ -268,6 +269,104 @@ describe('spec:cyberlegion/identity', () => {
 			const changed = prune({ store, env: e, exec: tmuxListExec([]), now: () => FRESH })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
+		})
+	})
+
+	describe('reconcile: adopt live-but-unregistered panes', () => {
+		const FRESH = 1_700_000_000_000
+		const herdrListExec =
+			(panes: Array<{ pane_id: string; agent?: string; cwd?: string }>): Exec =>
+			(cmd, args) => {
+				if (cmd !== 'herdr') return null
+				if (args[0] === 'pane' && args[1] === 'list') return JSON.stringify({ result: { panes } })
+				return null
+			}
+		const tmuxListExec =
+			(lines: string[]): Exec =>
+			(cmd, args) => {
+				if (cmd !== 'tmux') return null
+				if (args[0] === 'list-panes') return lines.join('\n')
+				return null
+			}
+		const herdrEnv = { HERDR_ENV: '1', HERDR_PANE_ID: 'w0:p0' }
+
+		it('adopts a live herdr pane with a detectable harness and no record', () => {
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude', cwd: '/work/repos/feature-x' }])
+			const changed = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(changed).toHaveLength(1)
+			const rec = changed[0]!
+			expect(rec.harness).toBe('claude')
+			expect(rec.status).toBe('active')
+			expect(rec.lastSeen).toBe(new Date(FRESH).toISOString())
+			expect(store.resolvePaneId('w3:p9')).toBe(rec.id)
+			expect(
+				listAgents(store)
+					.filter((a) => a.status !== 'exited')
+					.map((a) => a.id),
+			).toContain(rec.id)
+		})
+
+		it("derives the adopted handle from the pane's reported cwd basename", () => {
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude', cwd: '/work/repos/feature-x' }])
+			const [rec] = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(rec?.handle).toBe('feature-x')
+		})
+
+		it('falls back to the id-prefix handle when the pane reports no cwd', () => {
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude' }])
+			const [rec] = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(rec?.handle).toBe(rec?.id.slice(0, 6))
+		})
+
+		it('never adopts a pane whose reported agent is not a known harness', () => {
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'gemini', cwd: '/work/x' }])
+			const changed = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(changed).toEqual([])
+			expect(listAgents(store)).toHaveLength(0)
+		})
+
+		it('never adopts a tmux pane — tmux exposes no harness signal', () => {
+			const e = { TMUX: 't', TMUX_PANE: '%7' }
+			const exec = tmuxListExec(['%7 zsh /work/x', '%9 claude /work/y'])
+			const changed = reconcile({ store, env: e, exec, now: () => FRESH }, { adopt: true })
+			expect(changed).toEqual([])
+			expect(listAgents(store)).toHaveLength(0)
+		})
+
+		it('is idempotent — a second reconcile mints no duplicate', () => {
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude', cwd: '/work/x' }])
+			reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			const again = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(again).toEqual([])
+			expect(listAgents(store)).toHaveLength(1)
+		})
+
+		it('does not re-adopt a live pane already bound to a registered agent', () => {
+			const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p9' }), { handle: 'a', harness: 'claude' })
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude', cwd: '/work/x' }])
+			const changed = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(changed).toEqual([])
+			expect(listAgents(store)).toHaveLength(1)
+			expect(loadAgent(store, rec.id)?.status).toBe('active')
+		})
+
+		it('does not adopt or resurrect a live pane bound to an exited record', () => {
+			const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p9' }), { handle: 'a', harness: 'claude' })
+			const dead = loadAgent(store, rec.id)!
+			dead.status = 'exited'
+			saveAgent(store, dead)
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude', cwd: '/work/x' }])
+			const changed = reconcile({ store, env: herdrEnv, exec, now: () => FRESH }, { adopt: true })
+			expect(changed).toEqual([])
+			expect(listAgents(store)).toHaveLength(1)
+			expect(loadAgent(store, rec.id)?.status).toBe('exited')
+		})
+
+		it('prune never adopts', () => {
+			const exec = herdrListExec([{ pane_id: 'w3:p9', agent: 'claude', cwd: '/work/x' }])
+			const changed = prune({ store, env: herdrEnv, exec, now: () => FRESH })
+			expect(changed).toEqual([])
+			expect(listAgents(store)).toHaveLength(0)
 		})
 	})
 
