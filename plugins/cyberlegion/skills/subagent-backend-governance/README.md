@@ -1,6 +1,6 @@
 # subagent-backend-governance
 
-Internal skill: the concrete parent-side procedure for the cold-subagent dispatch path. Not
+Partial Skill: invoke by name only — the concrete parent-side procedure for the cold-subagent dispatch path. Not
 user-invocable — loaded by `dispatch-governance` only after it has already picked the **subagent**
 strategy.
 
