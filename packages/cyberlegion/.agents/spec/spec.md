@@ -4,26 +4,26 @@ project-path: packages/cyberlegion
 approval:
   impl:
     verdict: approve
-    by: unional
+    by: agent
     cause: dimension
     why:
-      floor: none — additive `unit clear` behavior; no frozen scenario weakened.
-      blast: low — a new `unit/lifecycle` verb + a string-keyed per-harness reset map in `session.ts` + the CLI command in `cli.ts`; touches no registry/worktree path. cyberlegion tests green; root `pnpm verify` 19/19.
-      novelty: low — mirrors the existing `nudge` send-into-pane idiom and the `LAUNCH_MAP` per-harness pattern; no `Harness`/`LAUNCH_MAP` widening.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 frozen clear scenarios verified; fail-loud-ordering (nothing sent before resolve) and no-teardown guarantees exercise-backstopped with reverted scratch mutations.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen clear scenario PASS, both risk-critical guarantees backstopped.
-      cr: cyberlegion-unit-reset
+      floor: none — 6 additive error-case scenarios only; no frozen scenario weakened; no production code changed.
+      blast: low — spec/suite/test/docs only; the guard already existed in `resolveTarget` (`cli.ts`); deliver added one e2e verification per new frozen scenario. Root `pnpm verify` 19/19; cyberlegion 347 tests green.
+      novelty: low — mirrors the two frozen `unit clear` error scenarios; unresolvable ref → `no agent addressable`, no known pane → `no known session pane`, for each of focus/nudge/read.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 scenarios PASS with independently re-derived oracles; the "nothing focused/delivered/scraped" clause is structurally guaranteed by guard-before-adapter ordering, and the no-pane tests register a genuine `pane:null` unit (not a tautology).
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every new frozen scenario PASS; scope confined to spec/suite/test/docs, no drift.
+      cr: github-128-unit-error-scenarios
   spec:
     verdict: approve
-    by: unional
+    by: agent
     cause: dimension
     why:
-      floor: none — the `unit clear` scenarios are purely additive to the frozen `lifecycle.feature` (self-clearing, stays `@frozen`, no re-open).
-      blast: low — one new warm-unit lifecycle verb scoped to the `unit/lifecycle` node; realized by injecting the harness's own fresh-context command via the existing `SessionAdapter.send` seam.
-      novelty: low — the warm/cold decoupling primitive (issue #122); a per-harness reset map keyed on genuine fresh-context semantics (claude/codex/copilot → `/clear`, cursor → `/new-chat`), fail-loud on a false-friend (gemini `/clear` = screen-only) or unmapped harness.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS) after a mechanical malformed-Outline fix; no open markers.
+      floor: none — 6 error-case scenarios purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, 6 added/0 modified/0 removed; self-clears, stays `@frozen`, no re-open).
+      blast: low — spec/suite-only; mirrors the two frozen `unit clear` error scenarios; the guard already exists in `resolveTarget` (`cli.ts`) so no production code change is anticipated (deliver adds test coverage only).
+      novelty: low — closes the builder-spec-governance error-case gap issue #128 flagged; 2 error cases × 3 ops (`focus`/`nudge`/`read`): an unresolvable/unregistered ref, and a registered unit with no known session pane.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: cyberlegion-unit-reset
+      cr: github-128-unit-error-scenarios
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

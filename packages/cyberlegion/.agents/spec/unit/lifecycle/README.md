@@ -72,6 +72,12 @@ cleanly — the deterministic inverse pair:
   `mail/surface`/`mail/wait` read it on that turn.
 - **read scrapes a peer's session screen** — `unit read <ref> [--lines <n>]` captures the target
   pane's current output through the session adapter.
+- **focus, nudge, and read need a live target — the same fail-loud floor as `clear`** — each first
+  resolves the ref to a peer and then to a live pane before touching the session adapter, so both
+  error cases fail loud with the adapter untouched: an **unresolvable ref** (no unit addressable by
+  that id, handle, or worktree branch/CR ref) throws naming the ref, and a **registered unit with no
+  known session pane** throws that the unit has no known session pane. Nothing is focused, delivered,
+  or scraped in either case — the guard runs before any adapter call.
 - **clear resets a warm peer's context while keeping it warm** — `unit clear <ref>` injects the
   peer's **own harness in-session fresh-context command** into its pane through the session adapter,
   returning the conversation to a cold state **without** tearing down the session, removing the
@@ -117,6 +123,7 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **focus** | move input focus to a peer's pane |
 | **nudge** | doorbell that delivers a message as a turn; default points at the inbox, `--message` overrides |
 | **read** | scrape a peer's session screen |
+| **focus/nudge/read need a live target** | an unresolvable ref or a unit with no known session pane throws before any adapter call — nothing focused/delivered/scraped |
 | **clear injects harness reset, keeps pane warm** | sends the harness's own fresh-context command; tears nothing down; record/pane/worktree unchanged |
 | **clear resolves the per-harness reset map** | claude/codex/copilot → `/clear`, cursor → `/new-chat` |
 | **clear fails loud on a false-friend / unmapped harness** | gemini (`/clear` = screen-only) or any unmapped harness throws; nothing sent |

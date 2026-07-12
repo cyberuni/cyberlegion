@@ -205,6 +205,65 @@ describe('spec:cyberlegion/unit', () => {
 			expect(JSON.parse(legion(['--format', 'json']))).toMatchObject({ self: null, unread: 0, units: 0 })
 		})
 	})
+
+	// spec: focus, nudge, read: error cases (unresolvable ref, no live pane) — resolveTarget (cli.ts)
+	// guards both before any command touches the session adapter, so nothing is focused/delivered/
+	// scraped on either error. These tests never reach a real session adapter, since resolveTarget
+	// throws first — proving the guard runs before any adapter call.
+	describe('focus, nudge, read: error cases', () => {
+		it('focus on an unresolvable ref errors and focuses nothing', () => {
+			const { stderr } = legionOut(['unit', 'focus', 'ghost'])
+			expect(() => legion(['unit', 'focus', 'ghost'])).toThrow()
+			expect(stderr).toMatch(/no agent addressable as/)
+			expect(stderr).toContain('ghost')
+		})
+
+		it('focus on a unit with no known session pane errors and focuses nothing', () => {
+			// Registering with no mux env in the child process (baseEnv strips TMUX/HERDR_*) yields a
+			// unit with pane: null — a registered id that resolveTarget still cannot address.
+			const rec = JSON.parse(
+				legion(['unit', 'register', '--harness', 'claude', '--handle', 'nopane', '--format', 'json']),
+			)
+			expect(rec.pane).toBeNull()
+			const { stderr } = legionOut(['unit', 'focus', rec.id])
+			expect(() => legion(['unit', 'focus', rec.id])).toThrow()
+			expect(stderr).toMatch(/no known session pane/)
+		})
+
+		it('nudge on an unresolvable ref errors and delivers nothing', () => {
+			const { stderr } = legionOut(['unit', 'nudge', 'ghost'])
+			expect(() => legion(['unit', 'nudge', 'ghost'])).toThrow()
+			expect(stderr).toMatch(/no agent addressable as/)
+			expect(stderr).toContain('ghost')
+		})
+
+		it('nudge on a unit with no known session pane errors and delivers nothing', () => {
+			const rec = JSON.parse(
+				legion(['unit', 'register', '--harness', 'claude', '--handle', 'nopane', '--format', 'json']),
+			)
+			expect(rec.pane).toBeNull()
+			const { stderr } = legionOut(['unit', 'nudge', rec.id])
+			expect(() => legion(['unit', 'nudge', rec.id])).toThrow()
+			expect(stderr).toMatch(/no known session pane/)
+		})
+
+		it('read on an unresolvable ref errors and scrapes nothing', () => {
+			const { stderr } = legionOut(['unit', 'read', 'ghost'])
+			expect(() => legion(['unit', 'read', 'ghost'])).toThrow()
+			expect(stderr).toMatch(/no agent addressable as/)
+			expect(stderr).toContain('ghost')
+		})
+
+		it('read on a unit with no known session pane errors and scrapes nothing', () => {
+			const rec = JSON.parse(
+				legion(['unit', 'register', '--harness', 'claude', '--handle', 'nopane', '--format', 'json']),
+			)
+			expect(rec.pane).toBeNull()
+			const { stderr } = legionOut(['unit', 'read', rec.id])
+			expect(() => legion(['unit', 'read', rec.id])).toThrow()
+			expect(stderr).toMatch(/no known session pane/)
+		})
+	})
 })
 
 describe('mail group', () => {
