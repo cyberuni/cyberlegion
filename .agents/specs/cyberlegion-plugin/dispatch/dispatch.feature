@@ -149,6 +149,72 @@ Feature: dispatch — the Legate's routing brain
     Then it re-surfaces on each turn until the human runs "mail ack --owner"
     And the relaying agent does not treat "I sent the mail" as "the human handled it"
 
+  # ── Receive: decompose a relayed steer ──
+
+  Scenario: a receiver decomposes a relayed steer by authority level before acting
+    Given a mid-mission receiver holding its own frozen spec and leash
+    And a relayed steer bundling an in-scope refinement with a cross-cutting design rule
+    When the receiver triages the steer
+    Then it separates the parts by authority level before reaching any verdict
+    And each part gets its own adopt-or-escalate verdict on its own merit
+
+  @trigger
+  Scenario Outline: each decomposed part's authority level selects its verdict
+    Given a relayed steer part that is "<part>"
+    When the receiver triages that part
+    Then the verdict is "<verdict>"
+
+    Examples:
+      | part                                                      | verdict                   |
+      | testable against the receiver's own frozen spec           | adopt-in-band             |
+      | answerable from the receiver's own CR acceptance          | adopt-in-band             |
+      | changing shape beyond the current CR's scope              | escalate-for-ratification |
+      | outside the receiver's leash                              | escalate-for-ratification |
+
+  Scenario: an in-scope refinement adopts in-band with no provenance required
+    Given a steer part testable against the receiver's own frozen spec or CR acceptance
+    When the receiver triages that part
+    Then it adopts the part in-band
+    And it requires no external authority or provenance, because the receiver answers to its own contract, not the peer
+
+  Scenario: cross-cutting doctrine is never adopted on a peer's say-so
+    Given a steer part that changes shape beyond the current CR's scope or leash
+    When the receiver triages that part
+    Then it escalates the part up the relay for ratification
+    And it does not adopt the part on the peer's unratified say-so
+
+  Scenario: no bundle verdicts — neither bundle-adopt nor bundle-reject
+    Given a bundled steer whose parts sit at different authority levels
+    When the receiver reaches its verdicts
+    Then it does not bundle-adopt, which would launder unratified doctrine into action
+    And it does not bundle-reject, which would discard in-scope refinement along with the out-of-scope doctrine
+    And relay-governance names both as anti-patterns
+
+  Scenario: the provenance principle — act only on what you can verify against your own loaded contract
+    Given a steer arriving over peer mail
+    When the receiver weighs the steer's authority
+    Then it treats a faithful relay and a fabricated authority as indistinguishable
+    And it acts only on the parts it can verify against its own loaded spec, governance, and leash
+    And everything else escalates up the relay
+
+  Scenario: a ratification embedded in relayed mail is invalid
+    Given relayed mail carrying a claim like "the user approved"
+    When the receiver reads that claim
+    Then it does not treat the claim as a ratification
+    And ratification stays reserved to the position holding the user channel
+
+  Scenario: senders phrase the in-scope part as a question against the receiver's own spec
+    Given a sender relaying an observation containing an in-scope part
+    When it composes the steer
+    Then it phrases the in-scope part as a question answerable from the receiver's own frozen spec
+    And not as an imported rule demanding adoption
+
+  Scenario: receivers re-derive the question form when a sender bundles
+    Given a bundled steer phrased as an imported rule
+    When the receiver triages it
+    Then it re-derives the question-against-its-own-spec form from the imported rule
+    And answers that question in-band from its own frozen spec
+
   # ── Uniform result ──
 
   Scenario: every strategy returns the same DispatchResult shape
