@@ -1,0 +1,76 @@
+@frozen
+Feature: mail doorbell — wake the recipient on delivery
+  The push counterpart to mail/surface's pull. On mail send, after the durable write, best-effort
+  ring the recipient so it checks its inbox with no separate manual nudge — a peer agent's live
+  session pane, or the human's bound main pane for the Bunker (the standing owner inbox). The ring
+  reuses the unit/lifecycle nudge submit-verify path (a taken turn, not fire-and-forget). Durable
+  delivery is the guaranteed effect; the ring is best-effort on top — a recipient with no live pane,
+  no bound main pane, or a ring that never completes is a legitimate no-op that never fails the send
+  (mail stays store-and-forward and surfaces on the recipient's next SessionStart, mail/surface).
+  The plain send/inbox primitives live in mail/core; the pull-side hook injection lives in
+  mail/surface; the standalone unit nudge verb and its boot-race retry contract live in
+  unit/lifecycle.
+
+  # ── A peer recipient with a live pane is rung on delivery ──
+
+  Scenario: sending to a peer with a live session pane rings that pane on delivery
+    Given a registered peer recipient with a live session pane
+    When the sender runs mail send --to <peer> --body "steer"
+    Then the message lands in the peer's inbox
+    And the peer's pane is rung with a check-your-inbox doorbell
+
+  Scenario: the delivery doorbell is delivered as a taken turn, not fire-and-forget
+    Given a peer whose first submit stages the doorbell unsent because its harness is still booting
+    When the sender runs mail send --to <peer>
+    Then the delivery ring re-submits the staged doorbell until the peer takes the turn
+    And the doorbell is delivered exactly once
+
+  Scenario: sending does not ring the sender's own pane
+    Given a send whose recipient resolves to the sender's own session
+    When the sender runs that mail send
+    Then the message lands durably
+    And no doorbell is delivered to the sender's own pane
+
+  # ── The wake never fails the send ──
+
+  Scenario: a recipient with no live pane is a store-and-forward no-op, not a send failure
+    Given a registered peer recipient with no live session pane
+    When the sender runs mail send --to <peer> --body "hi"
+    Then the message lands durably in the peer's inbox
+    And the send succeeds
+    And no pane is rung
+
+  Scenario: a delivery ring that never completes never fails the send
+    Given a registered peer recipient whose pane keeps the doorbell staged past the retry cap
+    When the sender runs mail send --to <peer>
+    Then the message still lands durably and the send succeeds
+    And the failed ring is reported as a best-effort warning, not a send error
+
+  # ── The Bunker (human owner) is notified on live arrival ──
+
+  Scenario: sending to the Bunker rings the bound main pane so the human is notified on arrival
+    Given a standing owner inbox (the Bunker) and a session bound as the hub's main pane
+    When a session runs mail send --to <bunker> --body "report"
+    Then the message lands in the Bunker inbox
+    And the bound main pane is rung with an owner-mail doorbell
+
+  Scenario: Bunker mail with no bound main pane is a store-and-forward no-op
+    Given a standing owner inbox (the Bunker) and no main pane bound
+    When a session runs mail send --to <bunker> --body "report"
+    Then the message lands durably in the Bunker inbox
+    And the send succeeds
+    And no pane is rung
+
+  # ── opt-out for a heads-down recipient ──
+
+  Scenario: --no-nudge suppresses the delivery doorbell to a peer
+    Given a registered peer recipient with a live session pane
+    When the sender runs mail send --to <peer> --no-nudge
+    Then the message lands durably in the peer's inbox
+    And the peer's pane is not rung
+
+  Scenario: --no-nudge suppresses the Bunker doorbell to the bound main pane
+    Given a standing owner inbox (the Bunker) and a session bound as the hub's main pane
+    When a session runs mail send --to <bunker> --no-nudge
+    Then the message lands durably in the Bunker inbox
+    And the bound main pane is not rung

@@ -18,12 +18,12 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: clearance (pre-authorized) — the frozen mux scenario `omitting --at defaults to tab` was re-opened and removed (a narrowing/rewrite, gherkin-cli 3 added/1 removed), pre-authorized by issue #161 which mandates flipping the new-worktree spawn default; the 4 new `lifecycle.feature` scenarios are purely additive (gherkin-cli addOnly:true, 4/0/0, self-clear, stay `@frozen`); the 3 new mux workspace scenarios are additive. No frozen scenario weakened without the CR's own authorization.
-      blast: low — a scoped placement-default fix: `session.ts` resolves `--at` by spawn mode (new-worktree → `workspace`, `--cwd` → `tab`), `cli.ts` drops the hard `tab` default so the mode-keyed default owns it, and the tmux adapter maps `workspace` → `new-window` (visible window) not `new-session` (detached). Touches `session.ts` + `cli.ts` + `console/session.tmux.ts`; herdr adapter already correct; no registry/mail/worktree-lifecycle/CLI-contract bleed.
-      novelty: low — the `--at` placement seam and both adapters already existed; this flips one default and remaps one tmux verb, reinforcing #158's `select-window` beam (a ship must land in a visible window, never a detached session the attached client can't see or beam to).
-      confidence: high — two independent cold sdd-spec-judges: a fresh judge returned ALIGNED (oracle/builder/architect all PASS); a second judge caught one architect-lens spec/.feature drift (mux README still claimed the dropped no-placement fallback as a covered behavior) which was then reconciled; check-suite + check-spec-state green; the placement change is exercise-backstopped by session + adapter tests (the tmux `workspace` test fails against the pre-fix `new-session` mapping).
-      judge: cold sdd-spec-judge ×2 — round-1 builder blockers (orphan lifecycle scenarios, phantom mux no-placement scenario) and the round-2 architect blocker (mux README/.feature drift) all cleared; ALIGNED.
-      cr: github-161-spawn-visible-space
+      floor: none — new `mail/doorbell` node is a fresh `@frozen` feature; the 6 `mail/core` Bunker scenarios are additive (gherkin-cli diff addOnly:true, self-clearing, stay `@frozen`, no re-open); no frozen scenario weakened.
+      blast: low-medium — new behavioral `mail/doorbell` node (push-doorbell-on-send) + additive `mail/core` Bunker-addressing scenarios; reuses the shipped #150 nudge submit-verify path and existing store primitives (`getMainPane`/`findPaneByAgentId`); touches no registry/worktree path.
+      novelty: low-medium — best-effort push doorbell layered over durable delivery: a peer's live pane or the Bunker's bound main pane is rung on send; no-live-target (headless / no main pane / ring past cap) is a legitimate no-op, never a send failure. Aligns with sibling #158's attach-relative no-op framing; #158's verify-effect-or-fail-loud rule is DEFERRED to a follow-up CR, so this notes the seam.
+      confidence: high — fresh cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS) after one judge-iteration correction round; no open markers; check-suite + check-spec-state OK.
+      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true (2nd pass, post-correction).
+      cr: github-159-doorbell-bunker
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
@@ -53,7 +53,7 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 |---|---|
 | [`mux/`](./mux/README.md) | the unit-agnostic pane abstraction — backend selection, placement, multiplexer detection |
 | [`unit/`](./unit/registry/README.md) | the instance registry (`unit/registry`) + warm session lifecycle (`unit/lifecycle`) |
-| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing (`mail/surface`) |
+| [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete plus the Bunker owner-inbox path (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing / the pull side (`mail/surface`), waking the recipient on delivery / the push-side doorbell (`mail/doorbell`) |
 | [`agent/`](./agent/README.md) | resolve reusable agent definitions |
 | [`attach/`](./attach/README.md) | the human's read-pane — an attention pointer to the hub's main pane |
 | [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook (owns the per-harness installer) |

@@ -46,10 +46,20 @@ consume, or permanently remove it, without losing or duplicating anything:
   resolve to exactly one success and one error (the loser throws on an already-acked message), so no
   report is double-consumed or lost.
 
+- **The Bunker is the human's report-up owner inbox (`mail bunker`)** — `mail bunker` is a memorable
+  path to the standing owner inbox, named for the Operator/dispatcher persona: sugar over `inbox
+  --owner`, so `mail bunker` / `mail bunker read <id>` / `mail bunker ack <id>` operate the Bunker the
+  same way `--owner` does. It resolves the standing owner under handle **`bunker`**, falling back to
+  the legacy **`legate`** handle when no `bunker` exists (back-compat for pre-rename bindings), and
+  errors naming how to mint one when neither is present. The `--owner <handle>` mechanism itself is
+  **unchanged and handle-generic** — the rename adds the Bunker path and removes nothing, so any
+  existing owner handle keeps resolving.
+
 **Non-goals** — thread correlation (`send --thread/--reply-to`, `inbox --thread`), `mail await`, and
 `mail watch` — all spec'd in [`mail/wait`](../wait/README.md); the hook injection payload and
-owner-mail surfacing gate — spec'd in [`mail/surface`](../surface/README.md); this node is plain
-send/inbox/read/ack/delete only.
+owner-mail surfacing gate — spec'd in [`mail/surface`](../surface/README.md); waking the recipient on
+delivery (the push-side doorbell) — spec'd in [`mail/doorbell`](../doorbell/README.md); this node is
+plain send/inbox/read/ack/delete plus the Bunker owner-inbox path only.
 
 Every scenario in [`core.feature`](./core.feature) maps to one of these behaviors:
 
@@ -62,3 +72,4 @@ Every scenario in [`core.feature`](./core.feature) maps to one of these behavior
 | **ack = the consumer** | moves message to read set; already-acked/unknown message errors |
 | **delete removes mail permanently** | unread or already-acked messages; unknown id errors |
 | **owner mailbox from any session** | send-to-standing delivers to the owner inbox; `--owner <handle>` on inbox/read/ack targets a standing inbox; non-standing `--owner` errors; concurrent ack → one wins one errors |
+| **the Bunker owner-inbox path** | `mail bunker[ read/ack]` targets the standing owner under `bunker`, falling back to legacy `legate`; errors naming how to mint one when neither exists; `--owner` stays handle-generic (rename adds, removes nothing) |
