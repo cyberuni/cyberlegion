@@ -1,18 +1,18 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
   impl:
     verdict: approve
-    by: unional
+    by: agent
     cause: dimension
     why:
-      floor: none — additive `unit clear` behavior; no frozen scenario weakened.
-      blast: low — a new `unit/lifecycle` verb + a string-keyed per-harness reset map in `session.ts` + the CLI command in `cli.ts`; touches no registry/worktree path. cyberlegion tests green; root `pnpm verify` 19/19.
-      novelty: low — mirrors the existing `nudge` send-into-pane idiom and the `LAUNCH_MAP` per-harness pattern; no `Harness`/`LAUNCH_MAP` widening.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 frozen clear scenarios verified; fail-loud-ordering (nothing sent before resolve) and no-teardown guarantees exercise-backstopped with reverted scratch mutations.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen clear scenario PASS, both risk-critical guarantees backstopped.
-      cr: cyberlegion-unit-reset
+      floor: none — 6 additive error-case scenarios only; no frozen scenario weakened; no production code changed.
+      blast: low — spec/suite/test/docs only; the guard already existed in `resolveTarget` (`cli.ts`); deliver added one e2e verification per new frozen scenario. Root `pnpm verify` 19/19; cyberlegion 347 tests green.
+      novelty: low — mirrors the two frozen `unit clear` error scenarios; unresolvable ref → `no agent addressable`, no known pane → `no known session pane`, for each of focus/nudge/read.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 scenarios PASS with independently re-derived oracles; the "nothing focused/delivered/scraped" clause is structurally guaranteed by guard-before-adapter ordering, and the no-pane tests register a genuine `pane:null` unit (not a tautology).
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every new frozen scenario PASS; scope confined to spec/suite/test/docs, no drift.
+      cr: github-128-unit-error-scenarios
   spec:
     verdict: approve
     by: agent
