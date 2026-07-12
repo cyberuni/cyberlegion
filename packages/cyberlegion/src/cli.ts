@@ -4,6 +4,7 @@ import { Command, Option } from 'commander'
 import { migrateStore } from './admin.ts'
 import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
+import { wakeRecipient } from './console/doorbell.ts'
 import { selectSessionAdapter } from './console/index.ts'
 import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
 import { nudge } from './console/nudge.ts'
@@ -21,6 +22,7 @@ import {
 	register,
 	registerStanding,
 	resolveAgent,
+	resolveBunker,
 	resolveSelfId,
 	resolveStandingOwner,
 	touch,
@@ -371,7 +373,8 @@ function defineSend(cmd: Command): Command {
 		.option('--body-file <path>', 'read body from a file, or - for stdin')
 		.option('--thread <id>', 'thread id')
 		.option('--reply-to <msg>', 'message id this replies to')
-		.action((opts) => {
+		.option('--no-nudge', "suppress the delivery doorbell (do not wake the recipient's pane)")
+		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			const fromId = opts.from ?? requireSelf(ctx)
 			const body = resolveBody(opts.body, opts.bodyFile)
@@ -379,15 +382,28 @@ function defineSend(cmd: Command): Command {
 				{ store: ctx.store },
 				{ fromId, to: opts.to, subject: opts.subject, body, thread: opts.thread, replyTo: opts.replyTo },
 			)
-			emit(formatOf(opts), { toon: toonObject({ sent: msg.id, to: opts.to, subject: msg.subject }), json: msg })
+			// Durable delivery is done; wake the recipient best-effort on top — never fails the send.
+			// The adapter is resolved lazily inside wakeRecipient (only when a pane is actually rung), so
+			// a no-mux session sending to a headless recipient never trips selectSessionAdapter's throw.
+			const wake = await wakeRecipient(ctx.store, () => selectSessionAdapter(ctx.env ?? process.env), realExec, {
+				toId: msg.to,
+				fromId,
+				noNudge: opts.nudge === false,
+			})
+			if (wake.warning) console.error(`delivery doorbell not confirmed (message still delivered): ${wake.warning}`)
+			emit(formatOf(opts), {
+				toon: toonObject({ sent: msg.id, to: opts.to, subject: msg.subject, rung: wake.rung }),
+				json: { ...msg, rung: wake.rung },
+			})
 		})
 }
 defineSend(mail.command('send'))
 
-function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string }): void {
-	const ctx = ctxOf(opts)
-	touch(ctx)
-	const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
+type InboxOpts = GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string }
+
+/** List a resolved inbox (the caller's own, an --owner mailbox, or the Bunker) as TOON with an
+ * aggregate; `readCmd` is the follow-up read command prefix surfaced as the next step. */
+function emitInbox(ctx: IdContext, opts: InboxOpts, meId: string, readCmd: string): void {
 	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from, thread: opts.thread })
 	const unreadCount = items.filter((i) => !i.read).length
 	emit(formatOf(opts), {
@@ -405,7 +421,14 @@ function runInbox(opts: GlobalOpts & { unread?: boolean; from?: string; thread?:
 		json: items,
 	})
 	const firstUnread = items.find((m) => !m.read)
-	if (firstUnread) nextStep(`cyberlegion mail read ${firstUnread.id}`)
+	if (firstUnread) nextStep(`${readCmd} ${firstUnread.id}`)
+}
+
+function runInbox(opts: InboxOpts): void {
+	const ctx = ctxOf(opts)
+	touch(ctx)
+	const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
+	emitInbox(ctx, opts, meId, 'cyberlegion mail read')
 }
 
 withGlobals(mail.command('inbox'))
@@ -440,6 +463,43 @@ withGlobals(mail.command('ack'))
 		const ctx = ctxOf(opts)
 		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = ack({ store: ctx.store }, meId, msgId)
+		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
+	})
+
+// The Bunker — the human's durable report-up owner inbox, named for the Operator/dispatcher persona.
+// Sugar over `--owner`, resolving the standing owner under `bunker` (falling back to the legacy
+// `legate` handle); bare lists it, `read`/`ack` peek and consume it, the same as `--owner` does.
+const bunker = withGlobals(mail.command('bunker'))
+	.description('the Bunker — the human report-up owner inbox: bare lists it; read/ack peek and consume it')
+	.option('--unread', 'only un-acked mail')
+	.option('--from <id>', 'filter by sender')
+	.option('--thread <id>', 'filter to messages carrying this thread id')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		emitInbox(ctx, opts, resolveBunker(ctx.store), 'cyberlegion mail bunker read')
+	})
+
+withGlobals(bunker.command('read'))
+	.description('peek at a Bunker message without acknowledging it')
+	.argument('<msg-id>', 'message id')
+	.action((msgId, opts) => {
+		const ctx = ctxOf(opts)
+		const msg = peek({ store: ctx.store }, resolveBunker(ctx.store), msgId)
+		if (!msg) fail(`"${msgId}" is not a message in the Bunker inbox`)
+		emit(formatOf(opts), {
+			toon: toonObject({ id: msg.id, from: msg.fromHandle, subject: msg.subject, body: msg.body }),
+			json: msg,
+		})
+		nextStep(`cyberlegion mail bunker ack ${msg.id}`)
+	})
+
+withGlobals(bunker.command('ack'))
+	.description('acknowledge a Bunker message (moves it out of the unread set)')
+	.argument('<msg-id>', 'message id')
+	.action((msgId, opts) => {
+		const ctx = ctxOf(opts)
+		const msg = ack({ store: ctx.store }, resolveBunker(ctx.store), msgId)
 		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
 	})
 
@@ -742,7 +802,9 @@ withGlobals(program.command('init'))
 		})
 		const hasStandingOwner = listAgents(ctx.store).some((a) => a.kind === 'standing')
 		if (!hasStandingOwner) {
-			nextStep('cyberlegion unit register --standing --handle legate to mint the durable owner inbox')
+			nextStep(
+				'cyberlegion unit register --standing --handle bunker to mint the Bunker (durable report-up owner inbox)',
+			)
 			nextStep('cyberlegion attach to bind this pane as the owner live presence')
 		}
 	})

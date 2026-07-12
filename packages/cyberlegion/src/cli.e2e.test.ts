@@ -387,6 +387,111 @@ describe('the standing owner mailbox — mail --owner', () => {
 	})
 })
 
+describe('spec:cyberlegion/mail — the Bunker', () => {
+	it('mail bunker lists the Bunker owner inbox', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'bunker'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'bunker', '--body', 'one'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'bunker', '--body', 'two'])
+		const out = legion(['mail', 'bunker'])
+		expect(out).toContain('2 messages (2 unread)')
+		const owner = legion(['mail', 'inbox', '--owner', 'bunker'])
+		expect(owner).toContain('2 messages (2 unread)')
+	})
+
+	it('mail bunker falls back to the legacy legate owner inbox when no bunker exists', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'legate'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'legate', '--body', 'report'])
+		const out = legion(['mail', 'bunker'])
+		expect(out).toContain('1 messages (1 unread)')
+	})
+
+	it('mail bunker read peeks a Bunker message without acking it', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'bunker'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'bunker', '--body', 'peek me', '--format', 'json']),
+		)
+		const readOut = legion(['mail', 'bunker', 'read', sent.id])
+		expect(readOut).toContain('peek me')
+		const afterRead = legion(['mail', 'bunker', '--unread'])
+		expect(afterRead).toContain('1 messages (1 unread)')
+	})
+
+	it('mail bunker ack consumes a Bunker message', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'bunker'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'bunker', '--body', 'ack me', '--format', 'json']),
+		)
+		const ackOut = legion(['mail', 'bunker', 'ack', sent.id])
+		expect(ackOut).toContain(`acked: ${sent.id}`)
+		const afterAck = legion(['mail', 'bunker', '--unread'])
+		expect(afterAck).toContain('0 messages (0 unread)')
+	})
+
+	it('mail bunker with no Bunker and no legacy owner errors rather than reading a session inbox', () => {
+		const { stdout, stderr } = legionOut(['mail', 'bunker'])
+		expect(() => legion(['mail', 'bunker'])).toThrow()
+		expect(stdout).toBe('')
+		expect(stderr).toMatch(/no Bunker owner inbox/)
+		expect(stderr).toMatch(/register --standing --handle bunker/)
+	})
+
+	it('the --owner mechanism stays handle-generic after the Bunker rename', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'homa'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'still works'])
+		const out = legion(['mail', 'inbox', '--owner', 'homa'])
+		expect(out).toContain('1 messages (1 unread)')
+	})
+})
+
+// The push-side doorbell, driven through the real CLI flag (not wakeRecipient directly), so the
+// --no-nudge → behavior wiring is actually exercised. A live-pane recipient without --no-nudge
+// attempts the ring; the mux is pinned to tmux and the pane does not exist, so the ring fails and
+// surfaces a best-effort "doorbell not confirmed" warning on stderr (never failing the send). That
+// warning is the observable that separates "ring attempted" from "ring suppressed": with --no-nudge
+// no ring is attempted and no warning appears. The slow baseline send exhausts nudge's retry cap
+// (~4s), hence the widened timeouts.
+describe('spec:cyberlegion/mail/doorbell — CLI --no-nudge', () => {
+	const muxEnv = { CYBERLEGION_MUX: 'tmux' }
+
+	it('--no-nudge suppresses the delivery doorbell to a peer (the flag reaches the behavior)', () => {
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'], { TMUX: 't', TMUX_PANE: '%77' })
+		// Baseline (non-vacuity): a live-pane peer without --no-nudge attempts the ring → stderr warning,
+		// send still succeeds.
+		const attempted = legionOut(['mail', 'send', '--from', 'alice', '--to', 'bob', '--body', 'wake'], muxEnv)
+		expect(attempted.stdout).toContain('sent:')
+		expect(attempted.stderr).toMatch(/doorbell/i)
+		// --no-nudge suppresses the ring → no warning, message still delivered.
+		const suppressed = legionOut(
+			['mail', 'send', '--from', 'alice', '--to', 'bob', '--no-nudge', '--body', 'quiet'],
+			muxEnv,
+		)
+		expect(suppressed.stdout).toContain('sent:')
+		expect(suppressed.stderr).not.toMatch(/doorbell/i)
+	}, 20_000)
+
+	it('--no-nudge suppresses the Bunker doorbell to the bound main pane', () => {
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--standing', '--handle', 'bunker'])
+		legion(['attach'], { TMUX: 't', TMUX_PANE: '%9' }) // bind the main pane — the human's live presence
+		// Baseline (non-vacuity): a Bunker send with a bound main pane attempts the ring → stderr warning.
+		const attempted = legionOut(['mail', 'send', '--from', 'alice', '--to', 'bunker', '--body', 'report'], muxEnv)
+		expect(attempted.stderr).toMatch(/doorbell/i)
+		// --no-nudge suppresses the ring to the bound main pane → no warning.
+		const suppressed = legionOut(
+			['mail', 'send', '--from', 'alice', '--to', 'bunker', '--no-nudge', '--body', 'quiet'],
+			muxEnv,
+		)
+		expect(suppressed.stdout).toContain('sent:')
+		expect(suppressed.stderr).not.toMatch(/doorbell/i)
+	}, 20_000)
+})
+
 describe('AXI fail-loud behavior', () => {
 	it('an unknown flag fails loud with a nonzero exit', () => {
 		expect(() => legion(['unit', 'who', '--bogus'])).toThrow()

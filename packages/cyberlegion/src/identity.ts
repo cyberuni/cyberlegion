@@ -193,6 +193,22 @@ export function resolveStandingOwner(store: Store, handle: string): string {
 	return match.id
 }
 
+/** The Bunker handle resolution order — the human's report-up owner inbox, named for the
+ * Operator/dispatcher persona; `legate` is the legacy pre-rename handle kept for back-compat. */
+const BUNKER_HANDLES = ['bunker', 'legate'] as const
+
+/** Resolve the Bunker — the human's standing report-up owner inbox: the standing record under handle
+ * `bunker`, falling back to the legacy `legate` handle when no `bunker` exists (back-compat for
+ * pre-rename bindings). Throws naming how to mint one when neither is present. */
+export function resolveBunker(store: Store): string {
+	const agents = listAgents(store)
+	for (const handle of BUNKER_HANDLES) {
+		const match = agents.find((a) => a.handle === handle && a.kind === 'standing')
+		if (match) return match.id
+	}
+	throw new Error("no Bunker owner inbox — run 'cyberlegion unit register --standing --handle bunker' to mint one")
+}
+
 /** Resolve a recipient argument (id or handle) to an agent id. */
 export function resolveRecipient(store: Store, to: string): string {
 	if (loadAgent(store, to)) return to
