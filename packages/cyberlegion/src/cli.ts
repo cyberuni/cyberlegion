@@ -223,9 +223,12 @@ function defineSpawn(cmd: Command): Command {
 			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)',
 		)
 		.addOption(
-			new Option('--at <placement>', 'where to open the new session')
-				.choices(['pane:right', 'pane:down', 'tab', 'workspace'])
-				.default('tab'),
+			// No hard default here — spawn resolves the default by mode (new-worktree → workspace,
+			// its own visible space; --cwd → tab in the caller's current space). Explicit wins.
+			new Option(
+				'--at <placement>',
+				'where to open the new session (default: new-worktree → workspace, --cwd → tab)',
+			).choices(['pane:right', 'pane:down', 'tab', 'workspace']),
 		)
 		.action((opts) => {
 			const ctx = ctxOf(opts)
