@@ -166,6 +166,13 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		expect(calls[0]).toEqual(['pane', 'run', 'p-1', 'hello'])
 	})
 
+	it('submit() flushes the staged buffer with a bare Enter, never re-typing the text', () => {
+		const calls: string[][] = []
+		const exec = fakeExec(calls)
+		herdrSessionAdapter.submit(exec, { id: 'p-1' })
+		expect(calls[0]).toEqual(['pane', 'send-keys', 'p-1', 'Enter'])
+	})
+
 	it('read() captures visible pane output, optionally scoped to N lines', () => {
 		const calls: string[][] = []
 		const exec = fakeExec(calls, { 'pane read': 'line1\nline2' })

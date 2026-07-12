@@ -6,6 +6,7 @@ import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { selectSessionAdapter } from './console/index.ts'
 import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
+import { nudge } from './console/nudge.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
@@ -304,15 +305,15 @@ withGlobals(unit.command('nudge'))
 	.description("ring a peer's session (a doorbell that tells them to check their mail)")
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
 	.option('--message <text>', 'the doorbell text delivered to the peer session', DEFAULT_NUDGE_MESSAGE)
-	.action((ref, opts) => {
+	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		const target = resolveTarget(ctx, ref)
 		const message = opts.message || DEFAULT_NUDGE_MESSAGE
-		selectSessionAdapter(ctx.env ?? process.env).send(realExec, target, message)
+		const result = await nudge(selectSessionAdapter(ctx.env ?? process.env), realExec, target, message)
 		emit(formatOf(opts), {
 			toon: toonObject({ nudged: ref, pane: target.id }),
-			json: { ref, pane: target.id, message },
+			json: { ref, pane: target.id, message, resubmits: result.resubmits },
 		})
 	})
 

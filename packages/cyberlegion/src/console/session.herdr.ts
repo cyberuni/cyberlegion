@@ -77,6 +77,12 @@ export const herdrSessionAdapter: SessionAdapter = {
 		exec('herdr', ['pane', 'run', target.id, text])
 	},
 
+	submit(exec, target) {
+		// `pane run <id> ""` is a no-op in herdr, so a bare Enter keystroke is the only way to flush
+		// an already-staged buffer without re-typing it.
+		exec('herdr', ['pane', 'send-keys', target.id, 'Enter'])
+	},
+
 	read(exec, target, opts?: SessionReadOptions) {
 		const args = ['pane', 'read', target.id, '--source', 'visible']
 		if (opts?.lines != null) args.push('--lines', String(opts.lines))

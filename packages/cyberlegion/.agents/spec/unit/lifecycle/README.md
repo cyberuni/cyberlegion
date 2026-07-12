@@ -65,11 +65,21 @@ cleanly — the deterministic inverse pair:
     worktree removal.
 - **focus moves input focus to a peer's session** — `unit focus <ref>` resolves the peer (by id,
   handle, or worktree branch/CR ref) to its pane and focuses it via the session adapter.
-- **nudge rings a peer's session — a doorbell that carries a message** — `unit nudge <ref>`
-  delivers a message as a turn to the peer's pane through the session adapter (a live agent session
-  only acts on real input; an empty keystroke is a no-op). The default message points the peer at its
-  inbox; `--message <text>` overrides it. The mail the peer already has is the real payload —
-  `mail/surface`/`mail/wait` read it on that turn.
+- **nudge rings a peer's session — a doorbell that carries a message, robust to the harness boot
+  race** — `unit nudge <ref>` delivers a message as a turn to the peer's pane through the session
+  adapter (a live agent session only acts on real input; an empty keystroke is a no-op). The default
+  message points the peer at its inbox; `--message <text>` overrides it. The mail the peer already
+  has is the real payload — `mail/surface`/`mail/wait` read it on that turn. **A successful nudge
+  means the peer actually took the turn (input submitted), not merely received staged text.** A
+  single atomic text+Enter submit races the harness boot: fired while the TUI is still on its
+  splash/init screen, the Enter is swallowed and the text stages unsent in the input box while the
+  ship idles at $0.00. So nudge **submits, then verifies and retries**: it reads the pane back, and if
+  the nudge text is still staged unsent it **flushes the already-staged buffer** (a bare submit, never
+  re-typing — so the turn carries the message once, not once per retry) up to a **bounded cap**. If
+  the turn is still not taken after the cap, nudge **fails loud** rather than reporting a false
+  success — killing the silent idle-at-$0.00 mode. This is adapter-general: the same fire-and-forget
+  submit shape exists on both the herdr and tmux adapters, so the verify+retry lives above them and
+  the bare-submit primitive is added to each.
 - **read scrapes a peer's session screen** — `unit read <ref> [--lines <n>]` captures the target
   pane's current output through the session adapter.
 - **focus, nudge, and read need a live target — the same fail-loud floor as `clear`** — each first
@@ -122,6 +132,7 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
 | **focus** | move input focus to a peer's pane |
 | **nudge** | doorbell that delivers a message as a turn; default points at the inbox, `--message` overrides |
+| **nudge is robust to the harness boot race** | submits then verifies the turn was taken; re-submits the staged buffer (bare submit, no duplication) up to a bounded cap; fails loud if the turn is never taken (no false success) |
 | **read** | scrape a peer's session screen |
 | **focus/nudge/read need a live target** | an unresolvable ref or a unit with no known session pane throws before any adapter call — nothing focused/delivered/scraped |
 | **clear injects harness reset, keeps pane warm** | sends the harness's own fresh-context command; tears nothing down; record/pane/worktree unchanged |

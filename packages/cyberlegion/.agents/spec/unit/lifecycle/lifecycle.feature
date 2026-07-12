@@ -183,6 +183,31 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit nudge <ref> --message "<text>"
     Then the session adapter delivers that message as a turn to the peer's pane
 
+  # ── nudge is robust to the harness boot race: a successful nudge means the turn was taken ──
+
+  Scenario: nudge confirms the turn was taken and reports success without re-submitting
+    Given a registered peer whose pane takes the first submit immediately
+    When a caller runs unit nudge <ref>
+    Then nudge reads the pane back, confirms the nudge text is no longer staged, and reports success
+    And it issues no re-submit
+
+  Scenario: nudge re-submits when the harness boot swallows the first submit
+    Given a registered peer whose harness is still booting so the first submit stages the nudge text unsent
+    When a caller runs unit nudge <ref>
+    Then nudge re-submits the staged input until the peer takes the turn
+    And it reports success only once the nudge text is no longer staged
+
+  Scenario: a boot-race re-submit does not duplicate the message
+    Given a registered peer whose first submit staged the nudge text unsent
+    When a caller runs unit nudge <ref>
+    Then nudge flushes the already-staged buffer rather than re-typing to complete the turn, so the peer's turn carries the message once
+
+  Scenario: nudge fails loud when the turn is never taken within the bounded retry cap
+    Given a registered peer whose pane keeps the nudge text staged unsent past the retry cap
+    When a caller runs unit nudge <ref>
+    Then it throws that the peer never took the turn
+    And it does not report success
+
   Scenario: read scrapes a peer's session screen
     Given a registered peer with a live session pane holding some output
     When a caller runs unit read <ref> --lines 20

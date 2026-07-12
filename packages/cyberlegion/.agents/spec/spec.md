@@ -7,23 +7,23 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — 6 additive error-case scenarios only; no frozen scenario weakened; no production code changed.
-      blast: low — spec/suite/test/docs only; the guard already existed in `resolveTarget` (`cli.ts`); deliver added one e2e verification per new frozen scenario. Root `pnpm verify` 19/19; cyberlegion 347 tests green.
-      novelty: low — mirrors the two frozen `unit clear` error scenarios; unresolvable ref → `no agent addressable`, no known pane → `no known session pane`, for each of focus/nudge/read.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 6 scenarios PASS with independently re-derived oracles; the "nothing focused/delivered/scraped" clause is structurally guaranteed by guard-before-adapter ordering, and the no-pane tests register a genuine `pane:null` unit (not a tautology).
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every new frozen scenario PASS; scope confined to spec/suite/test/docs, no drift.
-      cr: github-128-unit-error-scenarios
+      floor: none — additive boot-race scenarios only; no frozen scenario weakened.
+      blast: low-medium — a new `console/nudge.ts` verify+retry loop above the adapters + a bare-Enter `submit` primitive on the `SessionAdapter` interface (herdr `pane send-keys Enter`, tmux `send-keys Enter`) + the `unit nudge` action made async; touches no registry/worktree path. Judged on the tree rebased onto origin/main (incl. cr128 PR #152). Root `pnpm verify` 19/19; cyberlegion 356 tests green.
+      novelty: low-medium — submit-then-verify-then-retry: `send` once, read the pane back, flush the staged buffer (bare Enter, never re-typing) up to a bounded cap, fail loud if the turn is never taken; verify anchor is the caller's own staged text (harness-agnostic), mirroring the existing `wake/await` injectable-`sleep` poll idiom.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles and exercise-backstopped by two source mutations (submit→send, remove early-return) that each broke the bound tests — closing the prior UNBOUND nudge gap. Fail-loud propagation to `exit(1)` confirmed structurally.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every boot-race scenario PASS; diff confined to the nudge behavior, no bleed.
+      cr: 150-nudge-boot-race
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — 6 error-case scenarios purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, 6 added/0 modified/0 removed; self-clears, stays `@frozen`, no re-open).
-      blast: low — spec/suite-only; mirrors the two frozen `unit clear` error scenarios; the guard already exists in `resolveTarget` (`cli.ts`) so no production code change is anticipated (deliver adds test coverage only).
-      novelty: low — closes the builder-spec-governance error-case gap issue #128 flagged; 2 error cases × 3 ops (`focus`/`nudge`/`read`): an unresolvable/unregistered ref, and a registered unit with no known session pane.
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers.
+      floor: none — the 4 nudge boot-race scenarios are purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, self-clearing, stays `@frozen`, no re-open); existing scenarios untouched.
+      blast: low-medium — hardens the existing `nudge` verb in the `unit/lifecycle` node; contract is adapter-general (herdr + tmux) and lives above the adapter as a verify+retry loop plus a bare-submit primitive; touches no registry/worktree path.
+      novelty: low — submit-then-verify-then-retry (issue #150 option b) chosen over verify-readiness-before-submit (option a) for adapter-generality and a harness-agnostic verify anchor (the caller's own staged text); fail-loud on cap exhaustion kills the silent idle-at-$0.00 mode.
+      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; check-suite + check-spec-state OK.
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: github-128-unit-error-scenarios
+      cr: 150-nudge-boot-race
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

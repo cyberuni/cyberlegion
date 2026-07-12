@@ -59,6 +59,13 @@ describe('tmuxSessionAdapter', () => {
 		expect(calls[0]).toEqual(['send-keys', '-t', '%3', 'hello', 'Enter'])
 	})
 
+	it('submit() flushes the staged buffer with a bare Enter, never re-typing the text', () => {
+		const calls: string[][] = []
+		const exec = fakeExec(calls)
+		tmuxSessionAdapter.submit(exec, { id: '%3' })
+		expect(calls[0]).toEqual(['send-keys', '-t', '%3', 'Enter'])
+	})
+
 	it('read() captures pane output, optionally scoped to N lines', () => {
 		const calls: string[][] = []
 		const exec = fakeExec(calls, { 'capture-pane': 'line1\nline2' })
