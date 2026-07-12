@@ -183,7 +183,7 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		expect(calls[1]).toEqual(['pane', 'read', 'p-1', '--source', 'visible', '--lines', '50'])
 	})
 
-	it('focus() beams the attached client to the pane\'s own workspace and tab, in order', () => {
+	it("focus() beams the attached client to the pane's own workspace and tab, in order", () => {
 		const calls: string[][] = []
 		const paneGetOut = JSON.stringify({
 			result: { pane: { pane_id: 'w3:pB', workspace_id: 'w7', tab_id: 'w7:t2' } },

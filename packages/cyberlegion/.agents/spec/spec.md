@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
   impl:
@@ -7,12 +7,12 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — additive boot-race scenarios only; no frozen scenario weakened.
-      blast: low-medium — a new `console/nudge.ts` verify+retry loop above the adapters + a bare-Enter `submit` primitive on the `SessionAdapter` interface (herdr `pane send-keys Enter`, tmux `send-keys Enter`) + the `unit nudge` action made async; touches no registry/worktree path. Judged on the tree rebased onto origin/main (incl. cr128 PR #152). Root `pnpm verify` 19/19; cyberlegion 356 tests green.
-      novelty: low-medium — submit-then-verify-then-retry: `send` once, read the pane back, flush the staged buffer (bare Enter, never re-typing) up to a bounded cap, fail loud if the turn is never taken; verify anchor is the caller's own staged text (harness-agnostic), mirroring the existing `wake/await` injectable-`sleep` poll idiom.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles and exercise-backstopped by two source mutations (submit→send, remove early-return) that each broke the bound tests — closing the prior UNBOUND nudge gap. Fail-loud propagation to `exit(1)` confirmed structurally.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every boot-race scenario PASS; diff confined to the nudge behavior, no bleed.
-      cr: 150-nudge-boot-race
+      floor: none — additive; the two new frozen focus scenarios are satisfied and no existing frozen scenario weakened.
+      blast: low-medium — a real production fix to `SessionAdapter.focus` on both backends (herdr `pane get` → `workspace focus` → `tab focus`; tmux `list-panes -a` → `switch-client` → `select-window` → `select-pane`) + a per-backend `parsePaneLocation` helper; the `focus(exec, target): void` signature is unchanged (returns void, or throws on an unresolvable pane); no CLI-contract/registry/worktree/cyberfleet bleed. Judged on the tree rebased onto origin/main.
+      novelty: low-medium — extends the single-pane focus into a workspace→tab→pane beam using herdr `pane get`'s already-returned `workspace_id`/`tab_id` (and the tmux `list-panes -F` equivalent); resolution runs BEFORE any switch, so an unresolvable pane throws ("could not be resolved to beam to") instead of reporting a false `focused` on a silent no-op. Best-effort within the switch commands; no observable-effect read-back (the broader "SessionAdapter verifies observable effect or fails loud" rule — a cr150 doctrine sibling — is deliberately deferred to a follow-up CR, see the plan combat log).
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; both new frozen scenarios PASS with independently re-derived oracles, exercise-backstopped (the tests' exact `calls`-array assertions fail against the pre-fix single-command code, verified vs `e0b90275^`); the #128 focus error scenarios stay BOUND+PASS, unaffected (`resolveTarget` still throws before the adapter); the CLI false-success path is structurally impossible (a throw skips the `focused:` emit → `exit(1)`). cyberlegion 359 tests green; root `pnpm verify` green.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all frozen focus scenarios PASS; scope confined to the two adapters (+ helpers); two advisory observations (the `session.ts` focus doc comment corrected in-session; per-adapter parse-failure sub-branch coverage accepted-as-is — complete across both adapter test files).
+      cr: github-158-focus-cross-workspace
   spec:
     verdict: approve
     by: agent
