@@ -173,6 +173,17 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit focus <ref>
     Then the session adapter focuses that peer's pane
 
+  # ── focus beams the attached view all the way to the peer, across workspace and tab ──
+
+  Scenario: focus beams the attached client across workspace and tab to a peer's pane
+    Given a registered peer whose live pane sits in a different workspace and tab than the attached view
+    When a caller runs unit focus <ref>
+    Then the session adapter resolves that pane's own workspace and tab from the backend
+    And it switches the attached client's active workspace to that pane's workspace
+    And then switches its active tab to that pane's tab
+    And then lands input focus on that pane
+    And the attached view ends on the peer's pane rather than no-opping in the caller's current workspace
+
   Scenario: nudge delivers a default check-mail doorbell message to a peer's session
     Given a registered peer with a live session pane
     When a caller runs unit nudge <ref>
@@ -226,6 +237,13 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit focus <ref>
     Then it throws that the unit has no known session pane
     And no pane is focused
+
+  Scenario: focus surfaces an error instead of a false success when the recorded pane no longer resolves in the backend
+    Given a registered peer whose recorded pane no longer resolves to a live pane in the session backend
+    When a caller runs unit focus <ref>
+    Then it throws that the peer's pane could not be resolved to beam to
+    And it does not report a successful focus
+    And no workspace, tab, or pane is switched
 
   Scenario: nudge on an unresolvable ref errors and delivers nothing
     Given no unit addressable under a given ref

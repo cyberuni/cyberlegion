@@ -183,11 +183,25 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		expect(calls[1]).toEqual(['pane', 'read', 'p-1', '--source', 'visible', '--lines', '50'])
 	})
 
-	it('focus() focuses the target pane', () => {
+	it("focus() beams the attached client to the pane's own workspace and tab, in order", () => {
 		const calls: string[][] = []
-		const exec = fakeExec(calls)
-		herdrSessionAdapter.focus(exec, { id: 'p-1' })
-		expect(calls[0]).toEqual(['pane', 'focus', 'p-1'])
+		const paneGetOut = JSON.stringify({
+			result: { pane: { pane_id: 'w3:pB', workspace_id: 'w7', tab_id: 'w7:t2' } },
+		})
+		const exec = fakeExec(calls, { 'pane get': paneGetOut })
+		herdrSessionAdapter.focus(exec, { id: 'w3:pB' })
+		expect(calls).toEqual([
+			['pane', 'get', 'w3:pB'],
+			['workspace', 'focus', 'w7'],
+			['tab', 'focus', 'w7:t2'],
+		])
+	})
+
+	it('focus() throws instead of a false success when the recorded pane no longer resolves, and switches nothing', () => {
+		const calls: string[][] = []
+		const exec = fakeExec(calls, { 'pane get': null })
+		expect(() => herdrSessionAdapter.focus(exec, { id: 'gone-pane' })).toThrow(/could not be resolved to beam to/)
+		expect(calls).toEqual([['pane', 'get', 'gone-pane']])
 	})
 
 	it('teardown() closes the pane', () => {

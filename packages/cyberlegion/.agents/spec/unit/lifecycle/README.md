@@ -63,8 +63,19 @@ cleanly — the deterministic inverse pair:
   - **close on a `--cwd` unit removes no worktree** — a unit spawned with `--cwd` has a recorded cwd
     and no created worktree; close tears down its session pane and reaps its record but attempts no
     worktree removal.
-- **focus moves input focus to a peer's session** — `unit focus <ref>` resolves the peer (by id,
-  handle, or worktree branch/CR ref) to its pane and focuses it via the session adapter.
+- **focus beams the attached view all the way to a peer's pane — across workspace and tab** — `unit
+  focus <ref>` resolves the peer (by id, handle, or worktree branch/CR ref) to its pane and moves the
+  attached client's *view* all the way there, not just within the current workspace. A single
+  pane-level focus is not enough: a peer in another workspace/tab is never reached that way (herdr has
+  no focus-a-pane-by-id form, and even a valid pane focus never switches the client's active
+  workspace/tab). So focus **resolves that pane's own workspace and tab from the backend** and drives
+  the full chain — herdr `workspace focus <ws>` → `tab focus <tab>` → the pane (the peer's pane is its
+  tab's active pane); tmux `switch-client` → `select-window` → `select-pane` — so the attached view
+  lands on the peer's pane rather than silently no-opping in the caller's current workspace. It stays
+  **best-effort within** (the backend owns the actual move) but **surfaces a failure rather than a
+  false success**: if the recorded pane no longer resolves to a live pane in the backend, focus throws
+  that it could not beam there and switches nothing — never reporting `focused` on a silent no-op.
+  (The unresolvable-ref / no-known-pane cases fail loud earlier still, at ref resolution — see below.)
 - **nudge rings a peer's session — a doorbell that carries a message, robust to the harness boot
   race** — `unit nudge <ref>` delivers a message as a turn to the peer's pane through the session
   adapter (a live agent session only acts on real input; an empty keystroke is a no-op). The default
@@ -131,6 +142,8 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **close reaps only the targeted unit** | other units' state untouched |
 | **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
 | **focus** | move input focus to a peer's pane |
+| **focus beams across workspace and tab** | resolves the pane's own workspace + tab and drives ws → tab → pane (herdr) / switch-client → select-window → select-pane (tmux) so the attached view lands on the peer, not a no-op in the caller's workspace |
+| **focus surfaces an unresolvable pane** | a recorded pane that no longer resolves in the backend throws (no false `focused`); nothing switched |
 | **nudge** | doorbell that delivers a message as a turn; default points at the inbox, `--message` overrides |
 | **nudge is robust to the harness boot race** | submits then verifies the turn was taken; re-submits the staged buffer (bare submit, no duplication) up to a bounded cap; fails loud if the turn is never taken (no false success) |
 | **read** | scrape a peer's session screen |

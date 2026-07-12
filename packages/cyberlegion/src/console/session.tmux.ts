@@ -46,6 +46,16 @@ export const tmuxSessionAdapter: SessionAdapter = {
 	},
 
 	focus(exec, target) {
+		// A bare `select-pane` only moves focus within the caller's OWN attached session/window — a
+		// peer's pane can live in a different tmux session and window entirely, so that alone would
+		// silently no-op on the attached client. Resolve the pane's session + window from
+		// `list-panes -a` first and drive the beam in order: switch-client (session), then
+		// select-window, then select-pane. Resolution happens BEFORE any switch is issued, so an
+		// unresolvable pane throws instead of a partial or false-success beam.
+		const out = exec('tmux', ['list-panes', '-a', '-F', '#{pane_id} #{session_name} #{window_id}'])
+		const { sessionName, windowId } = parsePaneLocation(out, target.id)
+		exec('tmux', ['switch-client', '-t', sessionName])
+		exec('tmux', ['select-window', '-t', windowId])
 		exec('tmux', ['select-pane', '-t', target.id])
 	},
 
@@ -72,4 +82,17 @@ export const tmuxSessionAdapter: SessionAdapter = {
 			})
 			.filter((p) => p.id !== '')
 	},
+}
+
+/**
+ * `tmux list-panes -a -F '#{pane_id} #{session_name} #{window_id}'` lists every pane server-wide.
+ * Resolving fails — no line's pane id matches `id` — when the pane no longer exists in the backend,
+ * and that must throw so `focus` never issues a switch-client/select-window against a pane it
+ * couldn't actually resolve.
+ */
+function parsePaneLocation(out: string | null, id: string): { sessionName: string; windowId: string } {
+	const line = (out ?? '').split('\n').find((l) => l.split(' ')[0] === id)
+	if (!line) throw new Error(`peer's pane ${id} could not be resolved to beam to`)
+	const [, sessionName, windowId] = line.split(' ')
+	return { sessionName: sessionName!, windowId: windowId! }
 }

@@ -76,11 +76,23 @@ describe('tmuxSessionAdapter', () => {
 		expect(calls[1]).toEqual(['capture-pane', '-p', '-t', '%3', '-S', '-50'])
 	})
 
-	it('focus() selects the target pane', () => {
+	it("focus() beams the attached client to the pane's own session and window, in order", () => {
 		const calls: string[][] = []
-		const exec = fakeExec(calls)
+		const exec = fakeExec(calls, { 'list-panes': '%1 sess-a @1\n%3 sess-b @9\n%7 sess-a @1' })
 		tmuxSessionAdapter.focus(exec, { id: '%3' })
-		expect(calls[0]).toEqual(['select-pane', '-t', '%3'])
+		expect(calls).toEqual([
+			['list-panes', '-a', '-F', '#{pane_id} #{session_name} #{window_id}'],
+			['switch-client', '-t', 'sess-b'],
+			['select-window', '-t', '@9'],
+			['select-pane', '-t', '%3'],
+		])
+	})
+
+	it('focus() throws instead of a false success when the recorded pane no longer resolves, and switches nothing', () => {
+		const calls: string[][] = []
+		const exec = fakeExec(calls, { 'list-panes': '%1 sess-a @1\n%7 sess-a @1' })
+		expect(() => tmuxSessionAdapter.focus(exec, { id: '%3' })).toThrow(/could not be resolved to beam to/)
+		expect(calls).toEqual([['list-panes', '-a', '-F', '#{pane_id} #{session_name} #{window_id}']])
 	})
 
 	it('teardown() kills the pane', () => {

@@ -76,7 +76,12 @@ export interface SessionAdapter {
 	submit(exec: Exec, target: SessionTarget): void
 	/** Capture the target session's current output. */
 	read(exec: Exec, target: SessionTarget, opts?: SessionReadOptions): string
-	/** Move input focus to the target session; best-effort (may no-op if the backend can't). */
+	/**
+	 * Beam the attached client's view all the way to the target pane — across workspace and tab, not
+	 * just within the current one. Resolves the pane's own workspace/tab from the backend and drives
+	 * the full switch chain; best-effort within (the backend owns the actual move), but throws rather
+	 * than reporting a false success when the recorded pane no longer resolves to a live pane.
+	 */
 	focus(exec: Exec, target: SessionTarget): void
 	/** Close the target session. */
 	teardown(exec: Exec, target: SessionTarget): void
