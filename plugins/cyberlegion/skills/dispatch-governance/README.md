@@ -1,6 +1,6 @@
 # dispatch-governance
 
-Internal skill: the Legate's routing brain. Not user-invocable — loaded by the `legate` gateway
+Partial Skill: invoke by name only — the Legate's routing brain. Not user-invocable — loaded by the `legate` gateway
 in-session on a dispatch intent, and by the `headless-legate` agent when there is no user channel.
 
 ## When it loads

@@ -1,6 +1,6 @@
 ---
 name: relay-governance
-description: "Internal skill: the Legion's report/ask contract — how a headless agent returns a result or surfaces a question it cannot answer. Loaded by dispatch-governance and any headless agent. Not triggered by users directly."
+description: "Partial Skill: invoke by name only — the Legion's report/ask contract — how a headless agent returns a result or surfaces a question it cannot answer. Loaded by dispatch-governance and any headless agent. Not triggered by users directly."
 user-invocable: false
 ---
 

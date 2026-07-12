@@ -1,6 +1,6 @@
 ---
 name: dispatch-governance
-description: "Internal skill: the Legate's routing brain — picks and executes a dispatch strategy for a role intent. Loaded in-session by the legate gateway, and by the headless-legate agent headless. Not triggered by users directly."
+description: "Partial Skill: invoke by name only — the Legate's routing brain — picks and executes a dispatch strategy for a role intent. Loaded in-session by the legate gateway, and by the headless-legate agent headless. Not triggered by users directly."
 user-invocable: false
 ---
 
