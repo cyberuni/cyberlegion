@@ -58,6 +58,32 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit spawn --agent <name> --harness codex --task t
     Then the spawned peer's harness is codex
 
+  # ── Spawn resolves the default placement by mode: own visible space vs the caller's current space ──
+  # The fleet-layer caller (Operator) is mux-agnostic — it expresses intent ("own isolated, visible
+  # space"), never a mux placement. A new-worktree spawn is that intent, so it defaults to `workspace`
+  # (mapped per-mux in mux/); a --cwd spawn opted into an existing space, so it defaults to a tab there.
+
+  Scenario: a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically
+    Given a caller running unit spawn with no --at (creating a new worktree)
+    When unit spawn runs
+    Then the session opens at workspace — its own isolated, visible space
+    And the placement does not depend on whichever workspace is currently focused
+
+  Scenario: a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace
+    Given a caller running unit spawn --cwd <an existing directory outside the primary checkout> with no --at
+    When unit spawn runs
+    Then the session opens at tab in the caller's current space
+
+  Scenario: an explicit --at overrides the new-worktree default of workspace
+    Given a caller running unit spawn --at tab (creating a new worktree)
+    When unit spawn runs
+    Then the session opens at tab, not the new-worktree default of workspace
+
+  Scenario: an explicit --at overrides the --cwd default of tab
+    Given a caller running unit spawn --cwd <an existing directory outside the primary checkout> --at workspace
+    When unit spawn runs
+    Then the session opens at workspace, not the --cwd default of tab
+
   # ── Spawn into an existing dir without a worktree (--cwd) ──
 
   Scenario: --cwd spawns a session into an existing directory and creates no worktree

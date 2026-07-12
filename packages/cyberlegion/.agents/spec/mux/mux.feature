@@ -29,10 +29,33 @@ Feature: mux — the unit-agnostic pane abstraction
     When unit spawn runs
     Then the session opens at that placement
 
-  Scenario: omitting --at defaults to tab
-    Given a caller running unit spawn with no --at
+  # The spawn-mode-keyed default (new-worktree → workspace, --cwd → tab) lives in unit/lifecycle —
+  # this layer only maps a resolved placement onto the backend, and unit spawn always resolves a
+  # concrete --at before calling it. (The adapter keeps a defensive no-placement fallback to tab in
+  # code, but it is unreachable from unit spawn and carries no user-observable behavior to spec.)
+
+  # ── workspace — its own visible space, mapped to each backend's own-visible-space unit ──
+
+  Scenario Outline: --at workspace opens the unit's own VISIBLE space on each backend
+    Given a caller running unit spawn --at workspace with <env>
     When unit spawn runs
-    Then the session opens at tab
+    Then the session opens in its own space that is visible in the attached client through the <adapter> adapter
+
+    Examples:
+      | env                         | adapter |
+      | $TMUX set                   | tmux    |
+      | $HERDR_ENV set and no $TMUX | herdr   |
+
+  Scenario: tmux --at workspace opens a visible window in the current session, never a detached session
+    Given a caller running unit spawn --at workspace with $TMUX set
+    When unit spawn runs
+    Then the tmux adapter opens a new window in the caller's current session, visible in its status bar
+    And it does not open a detached (new-session) session the attached client cannot see or beam to
+
+  Scenario: herdr --at workspace creates its own workspace nested under the source
+    Given a caller running unit spawn --at workspace with $HERDR_ENV set and no $TMUX
+    When unit spawn runs
+    Then the herdr adapter creates a new workspace of its own, nested under the source workspace
 
   Scenario Outline: --at tab opens a new tab in the current window, never a split pane
     Given a caller running unit spawn --at tab with <env>

@@ -33,6 +33,15 @@ cleanly — the deterministic inverse pair:
     worktree-creating flags (`--branch` / `--worktree-path`). This is the enabler that lets a caller
     (e.g. the `cyberfleet` fleet layer) own the worktree lifecycle and hand cyberlegion a ready
     directory to run in.
+  - **Spawn resolves the default placement by mode — own visible space vs the caller's current
+    space** — the fleet-layer caller (e.g. `cyberfleet`'s Operator) is mux-agnostic: it expresses
+    intent ("this ship gets its own isolated, VISIBLE space"), never a mux placement. A spawn that
+    **creates a new worktree** is exactly that intent, so with no `--at` it defaults to `workspace`
+    (its own isolated, visible space, mapped per-mux in `mux/` — herdr nested workspace, tmux window)
+    — deterministic, independent of whichever workspace is currently focused. A `--cwd` spawn opted
+    into an existing space, so with no `--at` it defaults to a `tab` in the caller's current space. An
+    explicit `--at` always overrides the mode default (either direction). This keeps a bare `unit
+    spawn` doing the right thing on any mux without the caller naming a mux-specific placement.
   - **The brief is delivered by file, never typed** — the resolved brief text is written to the peer's
     own brief file in the hub, never appended to the typed launch command.
   - **An unmapped harness errors before anything launches** — `--harness` outside the launch map
@@ -129,6 +138,7 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **spawn registers as spawning before it starts** | pre-registration, brief/pane pointer written before launch |
 | **worktree distinct from primary** | refuses a `--worktree-path` resolving onto the primary checkout |
 | **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
+| **spawn resolves the default `--at` by mode** | a new-worktree spawn defaults to `workspace` (own visible space, deterministic); a `--cwd` spawn defaults to `tab` in the caller's current space; an explicit `--at` overrides either default |
 | **brief delivered by file** | never typed into the launch command |
 | **unmapped harness errors** | before any worktree/session opens |
 | **no brief source errors** | `--task`/`--task -`/`--brief-file` required |

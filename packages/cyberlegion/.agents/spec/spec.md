@@ -1,29 +1,18 @@
 ---
-status: implemented
+status: approved
 project-path: packages/cyberlegion
 approval:
-  impl:
-    verdict: approve
-    by: agent
-    cause: dimension
-    why:
-      floor: none — additive; the two new frozen focus scenarios are satisfied and no existing frozen scenario weakened.
-      blast: low-medium — a real production fix to `SessionAdapter.focus` on both backends (herdr `pane get` → `workspace focus` → `tab focus`; tmux `list-panes -a` → `switch-client` → `select-window` → `select-pane`) + a per-backend `parsePaneLocation` helper; the `focus(exec, target): void` signature is unchanged (returns void, or throws on an unresolvable pane); no CLI-contract/registry/worktree/cyberfleet bleed. Judged on the tree rebased onto origin/main.
-      novelty: low-medium — extends the single-pane focus into a workspace→tab→pane beam using herdr `pane get`'s already-returned `workspace_id`/`tab_id` (and the tmux `list-panes -F` equivalent); resolution runs BEFORE any switch, so an unresolvable pane throws ("could not be resolved to beam to") instead of reporting a false `focused` on a silent no-op. Best-effort within the switch commands; no observable-effect read-back (the broader "SessionAdapter verifies observable effect or fails loud" rule — a cr150 doctrine sibling — is deliberately deferred to a follow-up CR, see the plan combat log).
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; both new frozen scenarios PASS with independently re-derived oracles, exercise-backstopped (the tests' exact `calls`-array assertions fail against the pre-fix single-command code, verified vs `e0b90275^`); the #128 focus error scenarios stay BOUND+PASS, unaffected (`resolveTarget` still throws before the adapter); the CLI false-success path is structurally impossible (a throw skips the `focused:` emit → `exit(1)`). cyberlegion 359 tests green; root `pnpm verify` green.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all frozen focus scenarios PASS; scope confined to the two adapters (+ helpers); two advisory observations (the `session.ts` focus doc comment corrected in-session; per-adapter parse-failure sub-branch coverage accepted-as-is — complete across both adapter test files).
-      cr: github-158-focus-cross-workspace
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — the 2 focus-beaming scenarios are purely additive to the frozen `lifecycle.feature` (gherkin-cli diff addOnly:true, 2 added/0 modified/0 removed; self-clears, stays `@frozen`, no re-open); existing scenarios (incl. the frozen same-workspace focus and the #128 no-known-pane error case) untouched.
-      blast: low-medium — a real production change to `SessionAdapter.focus` on both backends: resolve the target pane's own `workspace_id` + `tab_id` from the backend and drive the full beam (herdr `workspace focus` → `tab focus` → pane; tmux `switch-client` → `select-window` → `select-pane`), plus a fail-loud-on-unresolvable-pane path. Touches only the two `console/session.*.ts` adapters (+ a parse helper); no registry/worktree/CLI-contract path.
-      novelty: low-medium — extends the single-pane focus into a workspace→tab→pane beam using herdr `pane get`'s already-returned `workspace_id`/`tab_id` (and the tmux `list-panes -F` equivalent); the stale-pane fail-loud mirrors the #128 `resolveTarget` fail-loud floor, killing the silent-no-op / false-`focused` mode issue #158 flags. Best-effort within, no observable-effect re-read (lighter than nudge's verify loop).
-      confidence: high — cold sdd-spec-judge ALIGNED (oracle/builder/architect all PASS); no open markers; gherkin-cli addOnly:true; check-spec-state + check-suite green.
-      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: github-158-focus-cross-workspace
+      floor: clearance (pre-authorized) — the frozen mux scenario `omitting --at defaults to tab` was re-opened and removed (a narrowing/rewrite, gherkin-cli 3 added/1 removed), pre-authorized by issue #161 which mandates flipping the new-worktree spawn default; the 4 new `lifecycle.feature` scenarios are purely additive (gherkin-cli addOnly:true, 4/0/0, self-clear, stay `@frozen`); the 3 new mux workspace scenarios are additive. No frozen scenario weakened without the CR's own authorization.
+      blast: low — a scoped placement-default fix: `session.ts` resolves `--at` by spawn mode (new-worktree → `workspace`, `--cwd` → `tab`), `cli.ts` drops the hard `tab` default so the mode-keyed default owns it, and the tmux adapter maps `workspace` → `new-window` (visible window) not `new-session` (detached). Touches `session.ts` + `cli.ts` + `console/session.tmux.ts`; herdr adapter already correct; no registry/mail/worktree-lifecycle/CLI-contract bleed.
+      novelty: low — the `--at` placement seam and both adapters already existed; this flips one default and remaps one tmux verb, reinforcing #158's `select-window` beam (a ship must land in a visible window, never a detached session the attached client can't see or beam to).
+      confidence: high — two independent cold sdd-spec-judges: a fresh judge returned ALIGNED (oracle/builder/architect all PASS); a second judge caught one architect-lens spec/.feature drift (mux README still claimed the dropped no-placement fallback as a covered behavior) which was then reconciled; check-suite + check-spec-state green; the placement change is exercise-backstopped by session + adapter tests (the tmux `workspace` test fails against the pre-fix `new-session` mapping).
+      judge: cold sdd-spec-judge ×2 — round-1 builder blockers (orphan lifecycle scenarios, phantom mux no-placement scenario) and the round-2 architect blocker (mux README/.feature drift) all cleared; ALIGNED.
+      cr: github-161-spawn-visible-space
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
