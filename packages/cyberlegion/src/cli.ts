@@ -162,7 +162,7 @@ withGlobals(unit.command('whoami'))
 function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
-	if (opts.reconcile) reconcile(ctx)
+	if (opts.reconcile) reconcile(ctx, { adopt: true })
 	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== 'exited')
 	emit(formatOf(opts), {
 		toon: toonList(
@@ -185,7 +185,10 @@ function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void
 withGlobals(unit.command('who'))
 	.description('list the addressable units')
 	.option('--all', 'include exited units')
-	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
+	.option(
+		'--reconcile',
+		'live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing',
+	)
 	.action(runWho)
 
 withGlobals(unit.command('prune'))
@@ -781,7 +784,10 @@ withGlobals(program.command('inbox'))
 withGlobals(program.command('who'))
 	.description('list the addressable units (alias of `unit who`)')
 	.option('--all', 'include exited units')
-	.option('--reconcile', 'live-probe the current mux and cull dead-pane records before listing')
+	.option(
+		'--reconcile',
+		'live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing',
+	)
 	.action(runWho)
 
 // -------------------------------------------------------------------------------------------

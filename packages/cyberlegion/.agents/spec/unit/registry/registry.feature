@@ -290,6 +290,60 @@ Feature: unit registry — register, discover, and prune legion units
     When a session runs unit prune
     Then that agent's status becomes exited
 
+  # ── reconcile adopts live-but-unregistered panes (adopt half of reconcile-against-mux) ──
+  # Adopt runs only under `unit who --reconcile` (the reconcile operation); `prune` stays cull-only.
+  # Only a pane whose backend reports a known harness is adoptable — herdr's `pane list` exposes the
+  # running agent; tmux's does not, so tmux adoption is structurally deferred, not a gap.
+
+  Scenario: reconcile adopts a live herdr pane with a detectable harness and no record
+    Given a session inside a herdr pane and a live herdr pane running claude with no registry record
+    When it runs unit who --reconcile
+    Then a new agent record is minted for that pane with harness claude, status active, and a fresh lastSeen
+    And that pane resolves to the new agent's id
+    And the adopted unit is listed by who
+
+  Scenario: an adopted record's handle derives from the pane's reported cwd basename
+    Given a live unregistered herdr pane running claude whose cwd is /work/repos/feature-x
+    When unit who --reconcile adopts it
+    Then the minted record's handle is feature-x
+
+  Scenario: an adopted pane with no reported cwd falls back to the id-prefix handle
+    Given a live unregistered herdr pane running claude that reports no cwd
+    When unit who --reconcile adopts it
+    Then the minted record's handle is the first 6 characters of its new id
+
+  Scenario: a pane whose reported agent is not a known harness is never adopted
+    Given a session inside a herdr pane and a live herdr pane whose reported agent is gemini
+    When it runs unit who --reconcile
+    Then no record is minted for that pane
+
+  Scenario: tmux panes are never adopted because tmux exposes no harness signal
+    Given a session inside a tmux pane and a live unregistered tmux pane
+    When it runs unit who --reconcile
+    Then no record is minted for that pane
+
+  Scenario: adopt is idempotent — a second reconcile mints no duplicate
+    Given a herdr pane already adopted by a prior reconcile
+    When unit who --reconcile runs again
+    Then the registry still holds exactly one record for that pane
+
+  Scenario: a live pane already bound to a registered agent is not re-adopted
+    Given a registered agent whose herdr pane is live
+    When it runs unit who --reconcile
+    Then no second record is minted for that pane
+    And that agent's status remains active
+
+  Scenario: a live pane bound to an exited record is not adopted or resurrected
+    Given a session inside a herdr pane and a live herdr pane running claude whose only record is already exited
+    When it runs unit who --reconcile
+    Then no new record is minted for that pane
+    And the exited record remains exited
+
+  Scenario: prune never adopts
+    Given a session inside a herdr pane and a live unregistered herdr pane running claude
+    When a session runs unit prune
+    Then no record is minted for that pane
+
   # ── listPanes: the bulk enumeration primitive per mux ──
 
   Scenario: tmux listPanes reports every live pane's id and cwd

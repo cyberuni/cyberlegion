@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
+import { basename } from 'node:path'
 import { currentPane, type PaneMux } from './console/mux-probe.ts'
 import { herdrSessionAdapter } from './console/session.herdr.ts'
 import { tmuxSessionAdapter } from './console/session.tmux.ts'
+import type { LivePane } from './console/session.ts'
 import { sanitizePane } from './paths.ts'
 import type { AgentRecord, Harness, Store } from './store/store.ts'
 
@@ -241,19 +243,68 @@ const STALE_MS = 15 * 60 * 1000
  * backend primitive so a herdr pane is never probed with a tmux query, and vice versa. */
 const PANE_ADAPTERS = { tmux: tmuxSessionAdapter, herdr: herdrSessionAdapter } as const
 
+/** Map a backend-reported agent string to a known harness — substring-matched like the tmux
+ * pane-command probe in `detectHarness`; anything else is unclassifiable. */
+function harnessFromAgent(agent: string | undefined): Harness | undefined {
+	if (!agent) return undefined
+	if (agent.includes('cursor')) return 'cursor'
+	if (agent.includes('codex')) return 'codex'
+	if (agent.includes('claude')) return 'claude'
+	return undefined
+}
+
+/**
+ * Adopt half of reconcile-against-mux: mint a record for each live pane with a detectable harness
+ * and no matching record — bind pane→id, handle from the pane's reported cwd basename (sanitized;
+ * `id.slice(0, 6)` when the backend reports no cwd), status active, lastSeen now. A pane is bound —
+ * and never adopted — when its pane index resolves to an existing record or any record (any status,
+ * exited included) bears it; resurrecting an exited record is the in-pane session's own `register`
+ * via the pane pointer, never reconcile's. tmux panes carry no harness signal, so only herdr panes
+ * are adoptable today.
+ */
+function adopt(ctx: IdContext, panes: LivePane[]): AgentRecord[] {
+	const agents = listAgents(ctx.store)
+	const adopted: AgentRecord[] = []
+	for (const pane of panes) {
+		const harness = harnessFromAgent(pane.harness)
+		if (!harness) continue
+		const boundId = ctx.store.resolvePaneId(pane.id)
+		if (boundId && loadAgent(ctx.store, boundId)) continue
+		if (agents.some((a) => a.pane?.mux === pane.mux && a.pane.id === pane.id)) continue
+		const id = randomId()
+		const ts = nowIso(ctx)
+		const rec: AgentRecord = {
+			id,
+			handle: pane.cwd ? sanitizePane(basename(pane.cwd)) : id.slice(0, 6),
+			harness,
+			cwd: pane.cwd ?? '',
+			pane: { mux: pane.mux, id: pane.id },
+			status: 'active',
+			createdAt: ts,
+			lastSeen: ts,
+		}
+		saveAgent(ctx.store, rec)
+		ctx.store.putPaneIndex(pane.id, id)
+		adopted.push(rec)
+	}
+	return adopted
+}
+
 /**
  * Cull dead records against the current mux's live pane set (the mux the caller is actually inside,
  * per `currentPane`) — mux-scoped: it never declares the *other* mux's records dead, since it can't
  * enumerate them. Standing records are exempt; a `pane: null` record can't be pane-culled by
  * enumeration (left to `prune`'s staleness timer). Outside any multiplexer pane there is nothing to
- * enumerate, so it culls nothing.
+ * enumerate, so it culls nothing. With `adopt` set (the `who --reconcile` path — `prune` stays
+ * cull-only), the same live set also feeds adoption of unbound harness-bearing panes.
  */
-export function reconcile(ctx: IdContext): AgentRecord[] {
+export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentRecord[] {
 	const exec = ctx.exec ?? realExec
 	const env = ctx.env ?? process.env
 	const cur = currentPane(env)
 	if (!cur) return []
-	const live = new Set(PANE_ADAPTERS[cur.mux].listPanes(exec).map((p) => p.id))
+	const panes = PANE_ADAPTERS[cur.mux].listPanes(exec)
+	const live = new Set(panes.map((p) => p.id))
 	const changed: AgentRecord[] = []
 	for (const rec of listAgents(ctx.store)) {
 		if (rec.kind === 'standing') continue
@@ -266,6 +317,7 @@ export function reconcile(ctx: IdContext): AgentRecord[] {
 			changed.push(rec)
 		}
 	}
+	if (opts?.adopt) changed.push(...adopt(ctx, panes))
 	return changed
 }
 

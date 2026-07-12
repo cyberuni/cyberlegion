@@ -80,6 +80,22 @@ without being told it, and discovering its live peers:
   cannot see them. A `kind: standing` record is never touched. A record whose `pane` is `null` cannot
   be pane-culled by enumeration — it is left to the existing staleness timer. Outside any multiplexer
   pane, reconcile has nothing to enumerate and culls nothing.
+- **reconcile adopts live-but-unregistered panes, harness-gated** — the adopt half of
+  reconcile-against-mux: `unit who --reconcile` also scans the same live pane set and, for each pane
+  with a **detectable harness** and no matching record (no pane-index pointer resolving to an existing
+  record and no record — of **any** status, exited included — bearing that pane), mints a record — binds pane→id, derives the
+  handle, sets the harness, `status: active`, `lastSeen` now — so a manually-opened or hook-failed
+  pane becomes listable, mailable, and dispatchable. **Handle derivation (frozen rule):** the
+  sanitized basename of the pane's reported `cwd`; when the backend reports no cwd, the
+  `id.slice(0, 6)` default. **Detectable harness only:** the backend-reported agent string must map
+  to a known harness (`claude | cursor | codex`, substring-matched like the pane-command probe);
+  anything else is unclassifiable and is **never** adopted. herdr's `pane list` exposes each pane's
+  running agent; tmux's `list-panes` does not, so **tmux adoption is structurally deferred** — a tmux
+  pane is never adopted. Adopt runs only under `unit who --reconcile` (the reconcile operation);
+  **`prune` stays cull-only** — the reaper never mints records. Idempotent with cull: an
+  already-bound live pane is never re-adopted, and a second reconcile mints no duplicate. A live pane
+  bound to an **exited** record is likewise never adopted — resurrection is the in-pane session's own
+  `unit register` (which recovers its id via the pane pointer), never reconcile's.
 - **`listPanes` is the bulk enumeration primitive** — a `SessionAdapter` method returning every live
   pane the backend can currently see (`{ id, mux, harness?, cwd? }`), the counterpart to `paneExists`'s
   single targeted query. herdr's `pane list` reports each pane's running agent; a pane with no agent
@@ -88,9 +104,10 @@ without being told it, and discovering its live peers:
 
 **Non-goals** — sending/reading mail (`mail/`), spawning/closing a peer session (`unit/lifecycle`),
 backend selection and placement (`mux/`), hook-based injection of mail into a harness turn
-(`mail/surface`), the human's read-pane pointer (`attach/`), adopting a live-but-unregistered pane
-(reconcile's adopt half, a separate CR), and exited-record retention/GC (also separate) — this node
-only owns the registry: register, recover, discover, prune, and the cull half of reconcile.
+(`mail/surface`), the human's read-pane pointer (`attach/`), tmux harness inference for adoption
+(structurally deferred until tmux exposes a harness signal), and exited-record retention/GC (a
+separate CR) — this node only owns the registry: register, recover, discover, prune, and reconcile
+(both its cull and adopt halves).
 
 Every scenario in [`registry.feature`](./registry.feature) maps to one of these behaviors:
 
@@ -106,4 +123,5 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `unit register --standing` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |
 | **reconcile cull** | `who --reconcile` / `prune` live-probe the current mux via `listPanes` and mark an absent-pane record exited; mux-scoped (never culls the other mux); standing exempt; `pane: null` not pane-culled |
+| **reconcile adopt** | `who --reconcile` mints a record for a live pane with a detectable harness and no matching record (bind pane→id, cwd-basename handle or `id.slice(0,6)` fallback, status active, lastSeen now); unknown agent string skipped; tmux never adopted (no harness signal); idempotent (bound pane — any status, exited included — never re-adopted/resurrected); `prune` never adopts |
 | **listPanes adapter contract** | herdr `pane list` JSON → `{id, mux, harness, cwd}`, drops agentless scaffold panes; tmux `list-panes -a -F` → `{id, mux, cwd}`, no harness |
