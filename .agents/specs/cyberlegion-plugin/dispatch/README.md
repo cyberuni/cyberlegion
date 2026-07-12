@@ -37,6 +37,16 @@ and relay" behavior lives now — `dispatch-governance` and `headless-legate` lo
 restating it. `relay-governance` states transport only; the standing owner identity, owner mail, and
 surfacing are the sibling `cyberlegion` CLI's mechanism.
 
+`relay-governance` also carries the **receive side**: how a mid-mission receiver triages a relayed
+steer whose parts sit at different authority levels. The receiver **decomposes by authority level**
+— an in-scope refinement (testable against the receiver's **own** frozen spec / CR acceptance /
+leash) adopts **in-band** with no provenance required, while cross-cutting doctrine escalates up the
+relay for ratification, never adopted on a peer's say-so. Bundle-adopt and bundle-reject are both
+anti-patterns. The root is the **provenance principle**: authority over peer mail cannot be
+established (a faithful relay and a fabricated authority are indistinguishable), so a receiver acts
+only on what it can verify against its own loaded contract — which is also why a ratification
+embedded in relayed mail is invalid (the relayed-ratification seam).
+
 ## Use Cases
 
 **Fit:** partial
@@ -65,3 +75,4 @@ switch once one is picked; structured verdict-schema validation of the result (d
 | **report the result uniformly** | any strategy completes | returns a `DispatchResult` (`strategy`, `id`, `verdict`, `result`, `needsInput`) the caller handles the same way regardless of strategy |
 | **the `subagent \| channel` seam** | a dependent (e.g. SDD) needs a role fulfilled | the dependent states intent only (role, brief, verdict schema) — never pins a literal command name — and this node decides the mechanism |
 | **relay by lifecycle** (`relay-governance`) | a headless agent has a result or an unanswerable question | framed callee → return `needsInput`; bare top-level/cron → `mail send` to the standing owner + exit; owner report surfaces to the human, read is a deliberate `mail ack --owner` |
+| **decompose a received steer** (`relay-governance`) | a relayed steer reaches a mid-mission receiver | split by authority level: in-scope refinement (verifiable against the receiver's own frozen spec/leash) adopts in-band; cross-cutting doctrine escalates for ratification; never bundle-adopt or bundle-reject |
