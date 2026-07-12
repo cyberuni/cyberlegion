@@ -402,8 +402,8 @@ describe('clear errors on an unmapped harness rather than guessing a command', (
 	})
 })
 
-describe('clear on an unknown id errors and sends nothing', () => {
-	it('throws that no unit is registered under that id', () => {
+describe('clear on an unresolvable ref errors and sends nothing', () => {
+	it('throws that no unit is addressable under that ref', () => {
 		expect(() => clearUnit(ctx(), 'ghost')).toThrow(/no agent addressable/)
 		expect(sent).toHaveLength(0)
 	})

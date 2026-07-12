@@ -151,12 +151,12 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then it throws that removal failed
     And the unit's record and stored data are left intact for a retry
 
-  # ── An unknown id errors ──
+  # ── An unresolvable id errors ──
 
-  Scenario: closing an unregistered id errors and reaps nothing
-    Given no unit registered under a given id
+  Scenario: closing an unresolvable id errors and reaps nothing
+    Given no unit addressable under a given id
     When a caller runs unit close <id>
-    Then it throws that no unit is registered under that id
+    Then it throws that no unit is addressable under that id
 
   # ── Reaps only the targeted unit ──
 
@@ -289,10 +289,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
 
   # ── clear needs a live target, like nudge and focus ──
 
-  Scenario: clear on an unknown id errors and sends nothing
-    Given no unit registered under a given id
+  Scenario: clear on an unresolvable ref errors and sends nothing
+    Given no unit addressable under a given ref
     When a caller runs unit clear <ref>
-    Then it throws that no unit is registered under that id
+    Then it throws that no unit is addressable under that ref
 
   Scenario: clear on a unit with no known session pane errors and sends nothing
     Given a registered unit with no known session pane

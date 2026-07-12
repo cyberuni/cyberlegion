@@ -56,8 +56,8 @@ cleanly — the deterministic inverse pair:
   - **A genuine teardown failure aborts before any reap** — when worktree removal itself fails (not
     "already gone" but a real error), the command aborts and leaves the record intact so the close is
     retryable, never leaving a half-reaped unit.
-  - **An unknown id errors** — closing an id with no registered record throws naming it; nothing is
-    reaped.
+  - **An unresolvable id errors** — closing an id that resolves to no registered unit (by id, handle,
+    or worktree branch/CR ref) throws naming it; nothing is reaped.
   - **Reaps only the targeted unit's state** — another unit's record, pane pointer, and stored data are
     left untouched.
   - **close on a `--cwd` unit removes no worktree** — a unit spawned with `--cwd` has a recorded cwd
@@ -127,7 +127,7 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **close refuses dirty worktree** | unless `--force` |
 | **close tolerates already-gone worktree/pane** | reap still completes |
 | **close aborts on genuine teardown failure** | before any reap; record left intact for retry |
-| **close on unknown id errors** | nothing reaped |
+| **close on unresolvable id errors** | nothing reaped |
 | **close reaps only the targeted unit** | other units' state untouched |
 | **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
 | **focus** | move input focus to a peer's pane |
@@ -138,4 +138,4 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **clear injects harness reset, keeps pane warm** | sends the harness's own fresh-context command; tears nothing down; record/pane/worktree unchanged |
 | **clear resolves the per-harness reset map** | claude/codex/copilot → `/clear`, cursor → `/new-chat` |
 | **clear fails loud on a false-friend / unmapped harness** | gemini (`/clear` = screen-only) or any unmapped harness throws; nothing sent |
-| **clear needs a live target** | unknown id or no known pane errors, sends nothing |
+| **clear needs a live target** | unresolvable ref or no known pane errors, sends nothing |
