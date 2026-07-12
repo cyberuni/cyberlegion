@@ -7,12 +7,12 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — the implementation satisfies every new frozen scenario and weakens no existing one; the mux re-open's narrowing was already cleared at the spec gate (pre-authorized by #161).
-      blast: low — a placement-only change: `session.ts` resolves `--at` by spawn mode (new-worktree → `workspace`, `--cwd` → `tab`), `cli.ts` drops the hard `tab` default, `console/session.tmux.ts` maps `workspace` → `new-window -d` and removes the `new-session` mapping entirely. herdr adapter untouched; no registry/mail/worktree-lifecycle/CLI-contract bleed (git diff --stat: 3 source files + 2 test files).
-      novelty: low — flips one spawn default and remaps one tmux verb; reinforces #158's `select-window` beam (a ship lands in a visible window, never a detached session). Judged on the tree rebased onto origin/main (be7f3092).
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 7 new frozen scenarios BOUND and discriminating (the tmux `workspace` test fails against the pre-fix `new-session` mapping; the new-worktree-default test fails if the default were still `tab`, verified by tracing the diff's pre-fix counterfactual); herdr nested-workspace + `--at tab`/pane + the `--at accepts only ...` validation + #158 focus-beaming all regression-confirmed untouched; `new-session` fully removed (grep shows only comments + negative assertions). cyberlegion 364 tests green; root `pnpm verify` green (20/20 tasks).
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; every frozen placement scenario PASS; scope confined to placement (session.ts/cli.ts/tmux adapter); no blocker, no unbound scenario.
-      cr: github-161-spawn-visible-space
+      floor: none — additive `mail/doorbell` node + additive `mail/core` Bunker scenarios; no frozen non-CR scenario weakened (git diff main core.feature +37, append-only).
+      blast: low-medium — new `console/doorbell.ts` `wakeRecipient` (best-effort, lazy adapter) + `identity.resolveBunker` + `mail send --no-nudge`/`mail bunker` CLI wiring; reuses the shipped #150 `nudge` and the existing `emitInbox`/`peek`/`ack` primitives; touches no registry/worktree path. Root `pnpm verify` 20/20; cyberlegion 378 tests green.
+      novelty: low-medium — best-effort push doorbell layered over durable delivery: ring a peer's live pane or the Bunker's bound main pane on send; the adapter is selected lazily inside the swallowing try so a no-mux session never trips `selectSessionAdapter` and never fails the send. Verify-effect-or-fail-loud is the nudge's own for the live case; a no-target recipient is a legitimate no-op, not a failure (aligns sibling #158's attach-relative no-op framing).
+      confidence: high — fresh cold sdd-impl-judge IMPLEMENTATION_PASS true after one judge-iteration; every frozen scenario PASS with independently re-derived oracles; the `--no-nudge` CLI-flag binding is mutation-confirmed (both e2e tests fail under `noNudge:false`, restore clean). Fixed a latent eager-`selectSessionAdapter` throw that would have failed a no-mux send.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; 9 doorbell + 6 Bunker scenarios PASS; lazy-adapter refactor verified sound; diff confined to the doorbell + Bunker behavior, no bleed.
+      cr: github-159-doorbell-bunker
   spec:
     verdict: approve
     by: agent
