@@ -1,7 +1,18 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
+  impl:
+    verdict: approve
+    by: agent
+    cause: dimension
+    why:
+      floor: none — no frozen scenario narrowed (4 additive first-turn scenarios only); mechanism, not routing.
+      blast: low — new `wakeSpawn` + `SPAWN_DOORBELL` in `console/doorbell.ts` (reuses the `nudge` submit-verify primitive, mirrors `wakeRecipient`), plus a `--no-wake` flag and an async best-effort post-spawn ring in the `unit spawn` command; `spawn()` in `session.ts` unchanged. cyberlegion 404 tests green on the rebased tree; dist rebuilt.
+      novelty: low — `unit spawn` now completes turn-delivery (a best-effort first-turn doorbell over the boot-race submit-verify path) atop payload-delivery (the brief file); `--no-wake` opts out; a ring that never completes warns, never fails the spawn.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles; judge mutation-tested the suite (non-tautological). One non-blocking test-completeness obs (no CLI-level e2e for the spawn glue) accepted as a follow-up, not a contract gap.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all 4 first-turn scenarios PASS; no regression on the pre-existing frozen suite.
+      cr: github-188-spawn-delivers-turn
   spec:
     verdict: approve
     by: agent
