@@ -44,6 +44,20 @@ cleanly — the deterministic inverse pair:
     spawn` doing the right thing on any mux without the caller naming a mux-specific placement.
   - **The brief is delivered by file, never typed** — the resolved brief text is written to the peer's
     own brief file in the hub, never appended to the typed launch command.
+  - **Spawn delivers the peer's first turn — a fresh paned session boots idle otherwise** — for a
+    paned agent, payload-delivery (the brief file, above) and turn-delivery (a taken turn) are two
+    separate acts: the brief is injected into the peer's context by its own SessionStart hook, but the
+    model takes no turn on its own — it sits at an idle prompt, brief unread, until something rings it.
+    A subagent needs no ring (the caller's Task call *is* the turn), but `unit spawn` always opens a
+    real session, so it rings a **best-effort first-turn doorbell** over the same boot-race-aware
+    submit-verify path `nudge` uses (submit once, then flush the staged buffer up to a bounded cap), so
+    the peer acts on its already-loaded brief with no human nudge. This is **mechanism, not routing** —
+    it completes the spawn, it does not select a backend — so it stays within the CLI's dumb-hands
+    charter and fixes every caller at once (Operator, Pod, and the Legate's `channel` dispatch
+    strategy). The ring is best-effort exactly like `mail/doorbell`'s delivery ring: a ring that never
+    completes (the harness never boots past its splash within the cap) is reported as a **warning**,
+    never a failed spawn — the peer, worktree, and session are already created. `--no-wake` opts out
+    (mirroring `mail send --no-nudge`) for a caller that will drive the first turn itself.
   - **An unmapped harness errors before anything launches** — `--harness` outside the launch map
     (`claude | cursor | codex`) throws naming the launch map, before any worktree/session is opened.
   - **No brief source errors** — neither `--task`, `--task -` (stdin), nor `--brief-file` given
@@ -129,7 +143,11 @@ creates (when it creates one — a `--cwd` spawn opens into a caller-supplied di
 worktree). `clear` owns only injecting the harness's fresh-context command into the pane — it never
 verifies the harness actually emptied its context (best-effort, the harness owns the reset), and the
 routing decision to reset a warm unit belongs to the caller (the Legate plugin / an SDD conductor),
-not this mechanism.
+not this mechanism. The **first-turn ring** owns only delivering the taken turn on a fresh paned
+spawn — two adjacent capabilities are explicitly out of scope: a **warm agent pool** (mailing +
+ringing an existing idle unit instead of spawning a fresh one) and a **`--visible` axis** (letting a
+human force a paned session for a cold one-shot they want to watch — paned-vs-subagent is derived
+today from `warm × interactive × mux`). Both are noted, not built here.
 
 Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of these behaviors:
 
@@ -140,6 +158,9 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 | **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
 | **spawn resolves the default `--at` by mode** | a new-worktree spawn defaults to `workspace` (own visible space, deterministic); a `--cwd` spawn defaults to `tab` in the caller's current space; an explicit `--at` overrides either default |
 | **brief delivered by file** | never typed into the launch command |
+| **spawn delivers the peer's first turn** | rings a best-effort first-turn doorbell over the boot-race submit-verify path so the paned peer acts on its loaded brief; a ring that never completes warns, never fails the spawn; the doorbell wakes the peer, never re-types the brief |
+| **spawn first-turn is robust to the boot race** | re-submits the staged doorbell until the turn is taken, delivered exactly once (never re-typed per retry) |
+| **spawn --no-wake opts out** | spawns and writes the brief file but delivers no first-turn doorbell |
 | **unmapped harness errors** | before any worktree/session opens |
 | **no brief source errors** | `--task`/`--task -`/`--brief-file` required |
 | **--agent/--agent-file realizes launch** | resolved def composes harness/model/instructions; explicit `--harness` overrides |

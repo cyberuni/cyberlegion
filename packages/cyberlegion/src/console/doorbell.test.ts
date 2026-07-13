@@ -6,7 +6,7 @@ import type { Exec } from '../identity.ts'
 import { registerStanding, saveAgent } from '../identity.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
-import { DELIVERY_DOORBELL, wakeRecipient } from './doorbell.ts'
+import { DELIVERY_DOORBELL, SPAWN_DOORBELL, wakeRecipient, wakeSpawn } from './doorbell.ts'
 import type { SessionAdapter } from './session.ts'
 
 // spec: mail/doorbell/doorbell.feature — one test per frozen scenario, unit-level with a fake
@@ -229,5 +229,68 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 		})
 		expect(result.rung).toBe(false)
 		expect(sendCalls).toEqual([])
+	})
+})
+
+// spec: unit/lifecycle/lifecycle.feature — spawn delivers the peer's first turn. wakeSpawn is the
+// best-effort first-turn ring the `unit spawn` command runs against the freshly-opened pane, the
+// spawn-side counterpart to wakeRecipient. Same fake-adapter harness; fast via injected nudge opts.
+const SPAWN_STAGED = `> ${SPAWN_DOORBELL.slice(0, 45)}`
+const SPAWN_SCROLLED_OUT = [SPAWN_DOORBELL, 'boot line 1', 'boot line 2', 'boot line 3', 'boot line 4', '> '].join('\n')
+
+describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
+	it('spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief', async () => {
+		const { adapter, sendCalls } = fakeAdapter([SPAWN_SCROLLED_OUT])
+		const result = await wakeSpawn(() => adapter, exec, { target: { id: '%1' } }, { sleep: async () => {} })
+		expect(result.rung).toBe(true)
+		expect(result.pane).toBe('%1')
+		// the doorbell wakes the peer to act on its loaded brief; the brief itself is never re-typed here
+		expect(sendCalls).toEqual([SPAWN_DOORBELL])
+	})
+
+	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {
+		const { adapter, sendCalls, submitCalls } = fakeAdapter([SPAWN_STAGED, SPAWN_SCROLLED_OUT])
+		const result = await wakeSpawn(() => adapter, exec, { target: { id: '%1' } }, { sleep: async () => {} })
+		expect(result.rung).toBe(true)
+		expect(submitCalls.length).toBeGreaterThan(0) // flushed the staged buffer
+		expect(sendCalls).toEqual([SPAWN_DOORBELL]) // delivered exactly once — nudge never re-types
+	})
+
+	it('a first-turn ring that never completes never fails the spawn', async () => {
+		const { adapter } = fakeAdapter([SPAWN_STAGED]) // stays staged forever → nudge exhausts its cap
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%1' } },
+			{ attempts: 2, sleep: async () => {} },
+		)
+		expect(result.rung).toBe(false)
+		expect(result.pane).toBe('%1')
+		expect(result.warning).toBeTruthy() // best-effort warning, never a thrown spawn error
+	})
+
+	it('a first-turn ring degrades to a warned no-op when the backend adapter has gone away', async () => {
+		const result = await wakeSpawn(
+			() => {
+				throw new Error('no mux backend')
+			},
+			exec,
+			{ target: { id: '%1' } },
+			{ sleep: async () => {} },
+		)
+		expect(result.rung).toBe(false)
+		expect(result.warning).toBeTruthy()
+	})
+
+	it('--no-wake spawns without delivering the first turn', async () => {
+		const { adapter, sendCalls } = fakeAdapter([SPAWN_SCROLLED_OUT])
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%1' }, noWake: true },
+			{ sleep: async () => {} },
+		)
+		expect(result.rung).toBe(false)
+		expect(sendCalls).toEqual([]) // nothing rung
 	})
 })

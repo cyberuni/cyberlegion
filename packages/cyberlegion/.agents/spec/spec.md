@@ -7,23 +7,23 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — 5 additive scenarios on the frozen `mail/core.feature` for `mail read <id> --ack` (addOnly — freeze self-clears); no frozen scenario weakened.
-      blast: low — new `readAck` in `message.ts` composing the existing `listInbox`/`ackMessage` primitives, plus a `--ack` branch inside the existing `mail read` command (bare-read path untouched); no registry/worktree/store-schema change. Root `pnpm verify` green (20/20); cyberlegion 389 tests green; dist rebuilt.
-      novelty: low — `mail read <id> --ack` reads and consumes in one atomic step. Idempotent — always prints the body, acks only when still unread, so an already-acked message prints the body and succeeds (`acked: false`) rather than erroring like a bare `mail ack`; unknown id still errors; composes with `--owner`.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 5 new frozen scenarios PASS with independently re-derived oracles, idempotence genuinely non-erroring and distinct from double-ack, `--owner` codepath really exercised.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all 5 read --ack scenarios PASS; no regression on the pre-existing frozen suite.
-      cr: github-173-mail-read-ack
+      floor: none — no frozen scenario narrowed (4 additive first-turn scenarios only); mechanism, not routing.
+      blast: low — new `wakeSpawn` + `SPAWN_DOORBELL` in `console/doorbell.ts` (reuses the `nudge` submit-verify primitive, mirrors `wakeRecipient`), plus a `--no-wake` flag and an async best-effort post-spawn ring in the `unit spawn` command; `spawn()` in `session.ts` unchanged. cyberlegion 404 tests green on the rebased tree; dist rebuilt.
+      novelty: low — `unit spawn` now completes turn-delivery (a best-effort first-turn doorbell over the boot-race submit-verify path) atop payload-delivery (the brief file); `--no-wake` opts out; a ring that never completes warns, never fails the spawn.
+      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles; judge mutation-tested the suite (non-tautological). One non-blocking test-completeness obs (no CLI-level e2e for the spawn glue) accepted as a follow-up, not a contract gap.
+      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all 4 first-turn scenarios PASS; no regression on the pre-existing frozen suite.
+      cr: github-188-spawn-delivers-turn
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — additive to `mail/core.feature` (gherkin-cli addOnly:true, 5 added / 0 modified / 0 removed); stays `@frozen`, no re-open.
-      blast: low — one new atomic read+ack CLI op on an existing behavioral node; `README.md` synced (new Use-Case bullet + scenario-map row + corrected owner read-state line).
-      novelty: low — combined `mail read --ack` collapses read-then-separately-ack into one round-trip; the two-step peek path (`mail read` without `--ack`) is unchanged.
-      confidence: high — cold sdd-spec-judge ALIGNED true (oracle/builder/architect all PASS) after closing two blocking gaps (owner-idempotent scenario + README sync); no open markers.
+      floor: none — 4 additive scenarios on the frozen `unit/lifecycle/lifecycle.feature` for `unit spawn` delivering the peer's first turn (gherkin-cli addOnly:true, 4 added / 0 modified / 0 removed); stays `@frozen`, no re-open.
+      blast: low — first-turn ring on the existing spawn behavioral node; `README.md` synced (Use-Case bullet + 3 scenario-map rows + Non-goals note for the out-of-scope warm-pool / `--visible` axes).
+      novelty: low — spawn now completes turn-delivery (a best-effort first-turn doorbell over the boot-race submit-verify path) on top of payload-delivery (the brief file); mirrors `mail/doorbell`'s best-effort ring atop the fail-loud `nudge` primitive; `--no-wake` opts out. Mechanism, not routing — dumb-hands charter intact.
+      confidence: high — cold sdd-spec-judge ALIGNED true (oracle/builder/architect all PASS); no open markers; coverage complete (happy ring, boot-race re-submit, best-effort warning, `--no-wake`).
       judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: github-173-mail-read-ack
+      cr: github-188-spawn-delivers-turn
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

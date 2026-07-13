@@ -1,10 +1,27 @@
 import { type Exec, loadAgent } from '../identity.ts'
 import type { Store } from '../store/store.ts'
 import { type NudgeOptions, nudge } from './nudge.ts'
-import type { SessionAdapter } from './session.ts'
+import type { SessionAdapter, SessionTarget } from './session.ts'
 
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 export const DELIVERY_DOORBELL = 'You have unread mail — check your inbox.'
+
+/**
+ * The first-turn doorbell `unit spawn` delivers to a freshly-opened paned peer. The peer's brief is
+ * already injected into its context by its own SessionStart hook (never re-typed here — the ring
+ * only makes the peer take a turn); this text points it at that loaded brief so it starts on its own
+ * without a human nudge.
+ */
+export const SPAWN_DOORBELL = 'Your brief is loaded in context — read it and begin work.'
+
+/**
+ * A freshly-launched harness cold-boots slower than an already-running peer, so the spawn first-turn
+ * ring gets a wider retry budget than a plain `mail send` doorbell (nudge's own 10 × 400ms): flush the
+ * staged buffer for up to ~8s (20 × 400ms) before giving up. The common case still returns after one
+ * settle cycle once the peer takes the turn — the budget only bounds a slow or stuck boot. Still
+ * bounded — a harness that never reaches its prompt resolves to a best-effort warning, never a hang.
+ */
+const SPAWN_NUDGE_OPTS: NudgeOptions = { attempts: 20, settleMs: 400 }
 
 export interface WakeInput {
 	/** The delivered message's recipient id (its `to`). */
@@ -76,5 +93,42 @@ export async function wakeRecipient(
 		return { rung: true, pane }
 	} catch (err) {
 		return { rung: false, pane, warning: err instanceof Error ? err.message : String(err) }
+	}
+}
+
+export interface WakeSpawnInput {
+	/** The freshly-opened peer's session pane. */
+	target: SessionTarget
+	/** Suppress the first-turn doorbell entirely (`unit spawn --no-wake`). */
+	noWake?: boolean
+}
+
+/**
+ * Best-effort deliver a freshly-spawned paned peer's first turn so it acts on its already-loaded
+ * brief with no human nudge. A paned agent boots to an idle prompt — its brief is injected into
+ * context by its own SessionStart hook, but the model takes no turn on its own, unlike a subagent
+ * (where the caller's Task call IS the turn). So `unit spawn` rings the `SPAWN_DOORBELL` over the
+ * boot-race-aware `nudge` submit-verify path (a taken turn, never re-typing the brief), the same
+ * best-effort ring `wakeRecipient` gives `mail send`: the spawn (worktree, session, registry record)
+ * is the guaranteed effect and the ring is opportunistic on top, so `--no-wake` rings nothing and a
+ * ring that never completes within the retry budget is swallowed into a warning. This never throws —
+ * it can never fail the spawn.
+ *
+ * The adapter is resolved lazily via `getAdapter` inside the same swallowing try, so even a session
+ * whose backend has since gone away (where `selectSessionAdapter` would throw) degrades to a warned
+ * no-op rather than a failed spawn.
+ */
+export async function wakeSpawn(
+	getAdapter: () => SessionAdapter,
+	exec: Exec,
+	input: WakeSpawnInput,
+	nudgeOpts: NudgeOptions = SPAWN_NUDGE_OPTS,
+): Promise<WakeResult> {
+	if (input.noWake) return { rung: false }
+	try {
+		await nudge(getAdapter(), exec, input.target, SPAWN_DOORBELL, nudgeOpts)
+		return { rung: true, pane: input.target.id }
+	} catch (err) {
+		return { rung: false, pane: input.target.id, warning: err instanceof Error ? err.message : String(err) }
 	}
 }

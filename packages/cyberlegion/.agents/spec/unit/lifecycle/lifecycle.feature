@@ -111,6 +111,40 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then it throws that --cwd cannot combine with worktree-creating flags
     And no session is opened
 
+  # ── spawn delivers the peer's first turn (a fresh paned session boots idle) ──
+  # For a paned agent, payload-delivery (the brief file) and turn-delivery (a taken turn) are two
+  # acts. The brief is injected into the peer's context by its own SessionStart hook, but the model
+  # takes no turn on its own — it boots to an idle prompt until something rings it. So spawn rings a
+  # best-effort first-turn doorbell over the same boot-race nudge submit-verify path, so the peer
+  # acts on its already-loaded brief with no human nudge. Best-effort like mail/doorbell's delivery
+  # ring: a ring that cannot complete is a warning, never a failed spawn.
+
+  Scenario: spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief
+    Given a caller running unit spawn --harness claude --task "do the thing"
+    When unit spawn runs
+    Then the peer's brief is written to its brief file, not typed into the pane
+    And after the session opens, the peer's pane is rung with a first-turn doorbell
+    And the first-turn doorbell is a wake to act on the loaded brief, not the brief text re-typed
+
+  Scenario: the first turn is delivered as a taken turn, robust to the harness boot race
+    Given a caller running unit spawn whose freshly-launched harness is still booting so the first submit stages the doorbell unsent
+    When unit spawn runs
+    Then the first-turn ring re-submits the staged doorbell until the peer takes the turn
+    And the doorbell is delivered exactly once, never re-typed per retry
+
+  Scenario: a first-turn ring that never completes never fails the spawn
+    Given a caller running unit spawn whose pane keeps the first-turn doorbell staged past the retry cap
+    When unit spawn runs
+    Then the peer is still registered and its worktree and session are still created
+    And the spawn succeeds
+    And the un-taken first turn is reported as a best-effort warning, not a spawn error
+
+  Scenario: --no-wake spawns without delivering the first turn
+    Given a caller running unit spawn --harness claude --task t --no-wake
+    When unit spawn runs
+    Then the peer is registered and its session opens with the brief written to its brief file
+    And no first-turn doorbell is delivered to the peer's pane
+
   # ── close tears down the worktree + session and reaps the state (spawn's inverse) ──
 
   Scenario: close removes the worktree, tears down the session, and reaps the registry record

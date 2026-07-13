@@ -4,7 +4,7 @@ import { Command, Option } from 'commander'
 import { migrateStore } from './admin.ts'
 import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
-import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, wakeRecipient, wakeSpawn } from './console/doorbell.ts'
 import { selectSessionAdapter } from './console/index.ts'
 import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
 import { nudge } from './console/nudge.ts'
@@ -234,7 +234,8 @@ function defineSpawn(cmd: Command): Command {
 				'where to open the new session (default: new-worktree → workspace, --cwd → tab)',
 			).choices(['pane:right', 'pane:down', 'tab', 'workspace']),
 		)
-		.action((opts) => {
+		.option('--no-wake', 'suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself)')
+		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
 			let harness = opts.harness as string | undefined
@@ -262,6 +263,17 @@ function defineSpawn(cmd: Command): Command {
 				cwd: opts.cwd,
 				at: opts.at,
 			})
+			// The worktree/session/registry record is the guaranteed effect of spawn; deliver the peer's
+			// first turn best-effort on top so a fresh paned pod acts on its loaded brief with no human
+			// nudge — never fails the spawn. The adapter is resolved lazily inside wakeSpawn (only when a
+			// pane is actually rung). `--no-wake` opts out (Commander sets opts.wake === false).
+			const wake = await wakeSpawn(() => selectSessionAdapter(ctx.env ?? process.env), realExec, {
+				target: { id: res.pane },
+				noWake: opts.wake === false,
+			})
+			if (wake.warning) {
+				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${wake.warning}`)
+			}
 			emit(formatOf(opts), {
 				toon: toonObject({
 					spawned: res.agent.id,
@@ -269,8 +281,9 @@ function defineSpawn(cmd: Command): Command {
 					harness: res.agent.harness,
 					worktree: res.agent.worktree?.root,
 					pane: res.pane,
+					rung: wake.rung,
 				}),
-				json: res,
+				json: { ...res, rung: wake.rung },
 			})
 			nextStep(`cyberlegion unit read ${res.agent.id}`)
 		})
