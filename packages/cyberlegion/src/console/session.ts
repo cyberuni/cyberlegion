@@ -92,6 +92,13 @@ export interface SessionAdapter {
 	 */
 	paneExists(exec: Exec, target: SessionTarget): boolean
 	/**
+	 * Whether the attached client is currently viewing this pane — the read-only focus probe the
+	 * owner-mail doorbell gates on (mail/doorbell). `true` = positively focused, `false` = positively
+	 * not focused, `undefined` = the backend cannot report focus or the query could not be answered
+	 * (callers FAIL OPEN on undefined). Read-only: moves no focus, opens nothing (unlike `focus`).
+	 */
+	isPaneFocused(exec: Exec, target: SessionTarget): boolean | undefined
+	/**
 	 * Enumerate every live pane this backend can currently see — the bulk counterpart to
 	 * `paneExists`'s single targeted query. `reconcile` uses this to cull dead records in one pass
 	 * against the mux the caller is actually inside; it never enumerates the other mux.

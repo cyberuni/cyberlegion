@@ -220,6 +220,23 @@ describe('herdrSessionAdapter (mocked exec — herdr is not installed in this en
 		expect(herdrSessionAdapter.paneExists((): string | null => null, { id: 'w3:p4' })).toBe(false)
 	})
 
+	it('isPaneFocused() reports the pane record\'s focused boolean', () => {
+		const focusedOut = JSON.stringify({ result: { pane: { pane_id: 'w3:pB', focused: true } } })
+		expect(herdrSessionAdapter.isPaneFocused(fakeExec([], { 'pane get': focusedOut }), { id: 'w3:pB' })).toBe(true)
+
+		const notFocusedOut = JSON.stringify({ result: { pane: { pane_id: 'w3:pB', focused: false } } })
+		expect(herdrSessionAdapter.isPaneFocused(fakeExec([], { 'pane get': notFocusedOut }), { id: 'w3:pB' })).toBe(
+			false,
+		)
+	})
+
+	it('isPaneFocused() reports unknown on an error envelope, unresolvable pane, or unparseable output', () => {
+		const errorOut = JSON.stringify({ error: { code: 'pane_not_found' } })
+		expect(herdrSessionAdapter.isPaneFocused(fakeExec([], { 'pane get': errorOut }), { id: 'gone' })).toBeUndefined()
+		expect(herdrSessionAdapter.isPaneFocused(() => null, { id: 'gone' })).toBeUndefined()
+		expect(herdrSessionAdapter.isPaneFocused(() => 'not json', { id: 'w3:pB' })).toBeUndefined()
+	})
+
 	it('listPanes() reports only panes with an agent, dropping scaffold panes with none', () => {
 		const listOut = JSON.stringify({
 			result: {

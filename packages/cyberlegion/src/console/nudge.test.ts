@@ -33,6 +33,7 @@ function fakeAdapter(reads: string[]): { adapter: SessionAdapter; sendCalls: str
 		focus: () => {},
 		teardown: () => {},
 		paneExists: () => true,
+		isPaneFocused: () => undefined,
 		listPanes: () => [],
 	}
 	return { adapter, sendCalls, submitCalls }

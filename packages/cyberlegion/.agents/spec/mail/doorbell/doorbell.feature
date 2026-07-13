@@ -61,6 +61,34 @@ Feature: mail doorbell — wake the recipient on delivery
     And the send succeeds
     And no pane is rung
 
+  # ── The standing-owner ring gates on the bound main pane being focused (human present) ──
+
+  Scenario: a standing-owner delivery does not ring the bound main pane when it is positively not focused
+    Given a standing owner inbox and a bound main pane that a mux client is not currently viewing
+    When a session runs mail send --to <owner> --body "report"
+    Then the message lands durably in the owner inbox
+    And the send succeeds
+    And the bound main pane is not rung
+    And the report stays queued in the owner inbox and surfaces on that pane's next SessionStart pull
+
+  Scenario: a standing-owner delivery rings the bound main pane when it is focused
+    Given a standing owner inbox and a bound main pane a mux client is currently viewing
+    When a session runs mail send --to <owner> --body "report"
+    Then the message lands in the owner inbox
+    And the bound main pane is rung with an owner-mail doorbell
+
+  Scenario: a standing-owner delivery rings when focus is unknown, and a probe error never fails the send
+    Given a standing owner inbox and a bound main pane whose focus cannot be determined because the probe errors or the backend cannot report focus
+    When a session runs mail send --to <owner> --body "report"
+    Then the message lands durably in the owner inbox
+    And the send succeeds
+    And the bound main pane is rung with an owner-mail doorbell, since the ring is skipped only when the pane is positively not focused
+
+  Scenario: a peer delivery ring is never focus-gated
+    Given a registered peer recipient with a live session pane a mux client is not currently viewing
+    When the sender runs mail send --to <peer> --body "steer"
+    Then the peer's pane is rung with a check-your-inbox doorbell regardless of focus state
+
   # ── opt-out for a heads-down recipient ──
 
   Scenario: --no-nudge suppresses the delivery doorbell to a peer

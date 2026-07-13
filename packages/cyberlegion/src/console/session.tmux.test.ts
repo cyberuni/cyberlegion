@@ -112,6 +112,24 @@ describe('tmuxSessionAdapter', () => {
 		expect(tmuxSessionAdapter.paneExists(fakeExec([], { 'list-panes': '%1\n%7' }), { id: '%3' })).toBe(false)
 	})
 
+	it('isPaneFocused() reports true when the pane is active, its window current, and a client attached', () => {
+		const exec = fakeExec([], { 'list-panes': '%1 0 1 1\n%3 1 1 1\n%7 0 0 0' })
+		expect(tmuxSessionAdapter.isPaneFocused(exec, { id: '%3' })).toBe(true)
+	})
+
+	it('isPaneFocused() reports false when the pane is not active, its window is not current, or no client is attached', () => {
+		const exec = fakeExec([], { 'list-panes': '%1 0 1 1\n%3 0 1 1\n%7 1 0 1\n%9 1 1 0' })
+		expect(tmuxSessionAdapter.isPaneFocused(exec, { id: '%3' })).toBe(false)
+		expect(tmuxSessionAdapter.isPaneFocused(exec, { id: '%7' })).toBe(false)
+		expect(tmuxSessionAdapter.isPaneFocused(exec, { id: '%9' })).toBe(false)
+	})
+
+	it('isPaneFocused() reports unknown when the pane cannot be resolved or tmux reports nothing', () => {
+		const exec = fakeExec([], { 'list-panes': '%1 1 1 1' })
+		expect(tmuxSessionAdapter.isPaneFocused(exec, { id: '%3' })).toBeUndefined()
+		expect(tmuxSessionAdapter.isPaneFocused(() => null, { id: '%3' })).toBeUndefined()
+	})
+
 	it('listPanes() reports every live pane with its id and cwd, no harness', () => {
 		const calls: string[][] = []
 		const exec = fakeExec(calls, { 'list-panes': '%1 claude /repo/a\n%3 zsh /repo/b' })
