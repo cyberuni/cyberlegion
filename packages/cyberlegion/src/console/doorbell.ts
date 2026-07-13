@@ -58,6 +58,19 @@ export async function wakeRecipient(
 	if (!pane) return { rung: false }
 	// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).
 	if (pane === paneOf(store, input.fromId)) return { rung: false }
+	// The focus gate applies only to a standing owner's bound main pane (human-presence signal) — a
+	// peer's live pane is always rung regardless of focus. Skip the ring only when POSITIVELY not
+	// focused; `true` or `undefined` (probe error, no backend, unresolvable pane) fail open and still
+	// ring, so the doorbell never silently drops on an ambiguous probe.
+	if (recipient.kind === 'standing') {
+		let focused: boolean | undefined
+		try {
+			focused = getAdapter().isPaneFocused(exec, { id: pane })
+		} catch {
+			focused = undefined
+		}
+		if (focused === false) return { rung: false, pane }
+	}
 	try {
 		await nudge(getAdapter(), exec, { id: pane }, DELIVERY_DOORBELL, nudgeOpts)
 		return { rung: true, pane }

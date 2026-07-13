@@ -37,6 +37,18 @@ session opens through, independent of any unit's identity or lifecycle:
   `mux doctor` runs discovery and prints an `export CYBERLEGION_MUX=<m> CYBERLEGION_MUX_PANE=<p>`
   hint so a caller can pin the fast-path; `unit spawn` injects the same vars into the spawned
   child's launch command so it inherits the fast-path instead of re-discovering.
+- **The backend reports whether a pane is currently focused** — a pane locator resolves to `focused`,
+  `not-focused`, or `unknown`, so a caller can tell whether a human is actually viewing a pane before
+  spending a turn on it (the doorbell's owner-mail focus gate, `mail/doorbell`). A pane is **focused**
+  only when a live client is currently displaying it. Each backend answers with its own primitive: on
+  **tmux**, the pane is the active pane of the current window in a session with an attached client
+  (`pane_active` + `window_active` + `session_attached`) — any of those unset is **not-focused**; on
+  **herdr**, the pane record's own `focused` flag (`pane get <id>`). A backend that has no primitive to
+  report focus — or a query that errors or names a pane the backend can no longer resolve — answers
+  **unknown** (a tri-state, not a boolean) so callers **fail open** — treat unknown as "go ahead"
+  rather than as "absent" — never suppressing behavior on a mux that simply can't tell.
+  This is a **read-only** probe: it moves no focus and opens nothing (unlike the `focus`/beam op that
+  drives the attached client's view to a pane).
 **Non-goals** — the unit registry and lifecycle that use the selected backend (`unit/`); the
 wake-matrix routing decision (`selectWakePath` — which wake path a gateway drives a turn through)
 that CR-4 moved out of the CLI to the Legate plugin's routing governance, alongside `dispatch`; the
@@ -77,3 +89,4 @@ Every scenario in [`mux.feature`](./mux.feature) maps to one of these behaviors:
 | **placement** | `--at` choices; tab honored per backend, never a split; `workspace` → each backend's own visible space (herdr nested workspace, tmux window), never a detached tmux session |
 | **multiplexer detection is two-mode** | `$CYBERLEGION_MUX` fast-path + override; ancestry walk; hint fallback; `mux doctor` hint; `unit spawn` propagation |
 | **mux mode** | reports the detected session backend; "none" (exit 0) when no adapter is selectable |
+| **pane focus reporting** | tri-state focused / not-focused / unknown per backend (tmux: pane+window active & session attached; herdr: pane record `focused`); a query that can't be answered → unknown so callers fail open |

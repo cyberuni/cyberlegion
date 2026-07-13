@@ -30,8 +30,16 @@ const SCROLLED_OUT = [
 	'> ',
 ].join('\n')
 
-/** A fake adapter whose `read` returns queued values across successive calls (send/submit are spies). */
-function fakeAdapter(reads: string[]): { adapter: SessionAdapter; sendCalls: string[]; submitCalls: number[] } {
+/**
+ * A fake adapter whose `read` returns queued values across successive calls (send/submit are spies).
+ * `isPaneFocused` returns `focused` verbatim — omit it for the unknown/fail-open path (rings), or pass
+ * `true`/`false` to exercise the doorbell's focus gate. No default: an omitted arg is genuinely
+ * `undefined` (unknown), so passing `undefined` explicitly reaches the same path rather than a default.
+ */
+function fakeAdapter(
+	reads: string[],
+	focused?: boolean,
+): { adapter: SessionAdapter; sendCalls: string[]; submitCalls: number[] } {
 	const sendCalls: string[] = []
 	let submitCount = 0
 	const submitCalls: number[] = []
@@ -56,6 +64,7 @@ function fakeAdapter(reads: string[]): { adapter: SessionAdapter; sendCalls: str
 		focus: () => {},
 		teardown: () => {},
 		paneExists: () => true,
+		isPaneFocused: () => focused,
 		listPanes: () => [],
 	}
 	return { adapter, sendCalls, submitCalls }
@@ -159,6 +168,54 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'bob', fromId: 'alice', noNudge: true })
 		expect(result.rung).toBe(false)
 		expect(sendCalls).toEqual([])
+	})
+
+	it('a standing-owner delivery does not ring the bound main pane when it is positively not focused', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		store.setMainPane('%9')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], false)
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(false)
+		expect(result.pane).toBe('%9')
+		expect(sendCalls).toEqual([])
+	})
+
+	it('a standing-owner delivery rings the bound main pane when it is focused', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		store.setMainPane('%9')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], true)
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	it('a standing-owner delivery rings when focus is unknown, and a probe error never fails the send', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		store.setMainPane('%9')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], undefined)
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	it('a standing-owner delivery rings when the focus probe throws', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		store.setMainPane('%9')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], true)
+		adapter.isPaneFocused = () => {
+			throw new Error('no mux backend')
+		}
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	it('a peer delivery ring is never focus-gated', async () => {
+		peer('bob', '%1')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], false)
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'bob', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
 	})
 
 	it("--no-nudge suppresses the doorbell to a standing owner's bound main pane", async () => {

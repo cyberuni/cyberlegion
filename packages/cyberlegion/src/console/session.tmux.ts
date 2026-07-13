@@ -69,6 +69,24 @@ export const tmuxSessionAdapter: SessionAdapter = {
 		return (exec('tmux', ['list-panes', '-a', '-F', '#{pane_id}']) ?? '').split('\n').includes(target.id)
 	},
 
+	isPaneFocused(exec, target) {
+		// `list-panes -a` server-wide, one line per pane: pane_id, whether it's the active pane of its
+		// window, whether its window is the current one of its session, and the session's attached
+		// client count. Focused iff all three hold; unresolvable (line missing) or no output → unknown,
+		// never a false `false` — a caller can't tell "not focused" from "couldn't find the pane" here.
+		const out = exec('tmux', [
+			'list-panes',
+			'-a',
+			'-F',
+			'#{pane_id} #{pane_active} #{window_active} #{session_attached}',
+		])
+		if (!out) return undefined
+		const line = out.split('\n').find((l) => l.split(' ')[0] === target.id)
+		if (!line) return undefined
+		const [, paneActive, windowActive, sessionAttached] = line.split(' ')
+		return paneActive === '1' && windowActive === '1' && sessionAttached !== '0' && sessionAttached !== undefined
+	},
+
 	listPanes(exec): LivePane[] {
 		const out = exec('tmux', ['list-panes', '-a', '-F', '#{pane_id} #{pane_current_command} #{pane_current_path}'])
 		if (!out) return []

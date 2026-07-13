@@ -114,6 +114,21 @@ export const herdrSessionAdapter: SessionAdapter = {
 		return exec('herdr', ['pane', 'read', target.id, '--source', 'visible']) !== null
 	},
 
+	isPaneFocused(exec, target) {
+		// `herdr pane get <id>` prints `{"result":{"pane":{...,"focused":true|false,...}}}` on success,
+		// or `{"error":{"code":"pane_not_found",...}}` when the pane can no longer be resolved. Parse
+		// defensively: a missing/non-boolean `focused`, an error envelope, null output, or a JSON parse
+		// failure all fall through to unknown rather than a false `false`.
+		const out = exec('herdr', ['pane', 'get', target.id])
+		if (out == null) return undefined
+		try {
+			const focused = JSON.parse(out)?.result?.pane?.focused
+			return typeof focused === 'boolean' ? focused : undefined
+		} catch {
+			return undefined
+		}
+	},
+
 	listPanes(exec): LivePane[] {
 		const out = exec('herdr', ['pane', 'list'])
 		if (!out) return []

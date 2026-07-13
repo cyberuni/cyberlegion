@@ -122,3 +122,30 @@ Feature: mux — the unit-agnostic pane abstraction
     Given a caller in no detectable multiplexer
     When it runs cyberlegion mux mode
     Then it reports "none" rather than erroring, and exits 0
+
+  # ── Reporting whether a pane is currently focused (on screen for an attached client) ──
+
+  Scenario: tmux reports a pane focused when an attached client is currently viewing it
+    Given a tmux pane that is the active pane of the current window in a session with an attached client
+    When the backend is asked whether that pane is focused
+    Then it reports focused
+
+  Scenario: tmux reports a pane not focused when no attached client is viewing it
+    Given a tmux pane that is not the active pane, or whose window is not current, or whose session has no attached client
+    When the backend is asked whether that pane is focused
+    Then it reports not-focused
+
+  Scenario: herdr reports a pane focused when its pane record is focused
+    Given a herdr pane whose pane record reports it is currently being viewed by a client
+    When the backend is asked whether that pane is focused
+    Then it reports focused
+
+  Scenario: herdr reports a pane not focused when its pane record is not focused
+    Given a herdr pane whose pane record reports no client is currently viewing it
+    When the backend is asked whether that pane is focused
+    Then it reports not-focused
+
+  Scenario: a focus query that cannot be answered is unknown, not a boolean
+    Given a backend with no primitive to report focus, or a pane the backend can no longer resolve, or a focus query that errors
+    When it is asked whether a pane is focused
+    Then it answers unknown rather than a boolean, so callers fail open instead of treating the pane as absent
