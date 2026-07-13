@@ -74,7 +74,12 @@ export const tmuxSessionAdapter: SessionAdapter = {
 		// window, whether its window is the current one of its session, and the session's attached
 		// client count. Focused iff all three hold; unresolvable (line missing) or no output → unknown,
 		// never a false `false` — a caller can't tell "not focused" from "couldn't find the pane" here.
-		const out = exec('tmux', ['list-panes', '-a', '-F', '#{pane_id} #{pane_active} #{window_active} #{session_attached}'])
+		const out = exec('tmux', [
+			'list-panes',
+			'-a',
+			'-F',
+			'#{pane_id} #{pane_active} #{window_active} #{session_attached}',
+		])
 		if (!out) return undefined
 		const line = out.split('\n').find((l) => l.split(' ')[0] === target.id)
 		if (!line) return undefined
