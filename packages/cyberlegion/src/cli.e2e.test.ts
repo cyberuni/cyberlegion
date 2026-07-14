@@ -134,6 +134,96 @@ describe('spec:cyberlegion/unit', () => {
 		})
 	})
 
+	describe('standing owner presence — unit claim', () => {
+		// The caller's pane + multiplexer in one env: $CYBERLEGION_MUX is the override probeMultiplexer
+		// trusts outright (so the claim's spawn-capability gate passes with no real mux), and
+		// $CYBERLEGION_MUX_PANE is the fast-path pane that keys the caller's own self-id.
+		const claimEnv = (pane: string) => ({ CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane })
+
+		/** A registered caller in its own pane — the unit a claim binds as the presence. */
+		const caller = (handle: string, pane: string) => {
+			const env = claimEnv(pane)
+			const rec = JSON.parse(
+				legion(['unit', 'register', '--harness', 'claude', '--handle', handle, '--format', 'json'], env),
+			)
+			return { env, id: rec.id as string }
+		}
+
+		it("unit claim binds the caller's unit as a standing owner's presence", () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			const alice = caller('alice', '%1')
+			const out = legion(['unit', 'claim', 'homa'], alice.env)
+			expect(out).toContain('owner: homa')
+			expect(out).toContain(`presence: ${alice.id}`)
+		})
+
+		it('unit claim --show reports the bound unit', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			const alice = caller('alice', '%1')
+			legion(['unit', 'claim', 'homa'], alice.env)
+			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain(`presence: ${alice.id}`)
+		})
+
+		it('unit claim --show reports a definitive none when nothing is bound', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain('presence: none')
+		})
+
+		it('unit claim --clear unbinds the presence', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			const alice = caller('alice', '%1')
+			legion(['unit', 'claim', 'homa'], alice.env)
+			expect(legion(['unit', 'claim', 'homa', '--clear'])).toContain('presence: none')
+			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain('presence: none')
+		})
+
+		it('unit claim --clear is a no-op when no presence is bound', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			expect(() => legion(['unit', 'claim', 'homa', '--clear'])).not.toThrow()
+			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain('presence: none')
+		})
+
+		it('claiming a handle with no standing record fails loud rather than minting one', () => {
+			const alice = caller('alice', '%1')
+			expect(() => legion(['unit', 'claim', 'homa'], alice.env)).toThrow()
+			const { stderr } = legionOut(['unit', 'claim', 'homa'], alice.env)
+			expect(stderr).toMatch(/no standing owner \\"homa\\"/)
+			const standing = JSON.parse(legion(['unit', 'register', '--standing', '--format', 'json'])) as unknown[]
+			expect(standing).toHaveLength(0)
+		})
+
+		// --clear is forgiving about nothing being bound, never about the owner not existing.
+		it('clearing a presence for a handle with no standing record fails loud too', () => {
+			expect(() => legion(['unit', 'claim', 'homa', '--clear'])).toThrow()
+			const { stderr } = legionOut(['unit', 'claim', 'homa', '--clear'])
+			expect(stderr).toMatch(/no standing owner \\"homa\\"/)
+		})
+
+		it('unit claim throws when the caller reports no multiplexer', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			const noMux = { CYBERLEGION_MUX: 'none', CYBERLEGION_AGENT_ID: 'lone1' }
+			legion(['unit', 'register', '--harness', 'claude', '--handle', 'lone'], noMux)
+			expect(() => legion(['unit', 'claim', 'homa'], noMux)).toThrow()
+			const { stderr } = legionOut(['unit', 'claim', 'homa'], noMux)
+			expect(stderr).toMatch(/needs a multiplexer to open panes/)
+			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain('presence: none')
+		})
+
+		it('unit claim --format json emits parseable JSON for bind, show, and clear', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			const alice = caller('alice', '%1')
+			expect(JSON.parse(legion(['unit', 'claim', 'homa', '--format', 'json'], alice.env))).toMatchObject({
+				owner: 'homa',
+				presence: alice.id,
+			})
+			expect(JSON.parse(legion(['unit', 'claim', 'homa', '--show', '--format', 'json']))).toEqual({
+				presence: alice.id,
+			})
+			expect(JSON.parse(legion(['unit', 'claim', 'homa', '--clear', '--format', 'json']))).toEqual({ presence: null })
+			expect(JSON.parse(legion(['unit', 'claim', 'homa', '--show', '--format', 'json']))).toEqual({ presence: null })
+		})
+	})
+
 	describe('attach — the hub main pane', () => {
 		const paneEnv = (pane: string) => ({ TMUX: 't', TMUX_PANE: pane })
 

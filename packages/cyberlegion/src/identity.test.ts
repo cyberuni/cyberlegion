@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+	claimPresence,
+	clearPresence,
 	detectHarness,
 	type Exec,
 	type IdContext,
@@ -13,6 +15,7 @@ import {
 	register,
 	registerStanding,
 	resolveAgent,
+	resolvePresence,
 	resolveRecipient,
 	resolveSelfId,
 	saveAgent,
@@ -553,6 +556,127 @@ describe('spec:cyberlegion/identity', () => {
 			const changed = prune({ store, env: {}, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
+		})
+	})
+
+	describe('standing owner presence', () => {
+		// A caller's multiplexer, keyed via the $CYBERLEGION_MUX fast-path probeMultiplexer trusts
+		// outright ('none' is the override that drives the "reports none" fixture; 'tmux' pairs with
+		// $CYBERLEGION_MUX_PANE so both probeMultiplexer and currentPane/resolveSelfId agree on the pane).
+		const muxEnv = (mux: 'tmux' | 'none', pane = '%1') =>
+			mux === 'none' ? { CYBERLEGION_MUX: 'none' } : { CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane }
+
+		it("unit claim binds the caller's unit as a standing owner's presence", () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			const alice = register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			const rec = claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')
+			expect(rec.presence).toBe(alice.id)
+			expect(resolvePresence(store, 'homa')?.id).toBe(alice.id)
+		})
+
+		it('the last claim wins and exactly one unit is the presence', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			const bob = register(ctx(muxEnv('tmux', '%2')), { handle: 'bob', harness: 'claude' })
+			claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')
+			claimPresence(ctx(muxEnv('tmux', '%2')), 'homa')
+			expect(resolvePresence(store, 'homa')?.id).toBe(bob.id)
+			expect(loadAgent(store, standingId('homa'))?.presence).toBe(bob.id)
+		})
+
+		it('unit claim --clear unbinds the presence', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')
+			clearPresence(ctx({}), 'homa')
+			expect(resolvePresence(store, 'homa')).toBeUndefined()
+		})
+
+		it('unit claim --clear is a no-op when no presence is bound', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			expect(() => clearPresence(ctx({}), 'homa')).not.toThrow()
+			expect(resolvePresence(store, 'homa')).toBeUndefined()
+		})
+
+		it('clearing a presence for a handle with no standing record throws', () => {
+			expect(() => clearPresence(ctx({}), 'homa')).toThrow(/no standing owner "homa"/)
+		})
+
+		it('claiming a handle with no standing record throws instead of minting one', () => {
+			register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			expect(() => claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')).toThrow(/no standing owner "homa"/)
+			expect(listAgents(store).some((a) => a.kind === 'standing')).toBe(false)
+		})
+
+		it('a presence whose unit has exited reads as no presence bound', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			const alice = register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')
+			const dead = loadAgent(store, alice.id)!
+			dead.status = 'exited'
+			saveAgent(store, dead)
+			expect(resolvePresence(store, 'homa')).toBeUndefined()
+		})
+
+		it('unit claim throws when the caller reports no multiplexer', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			expect(() => claimPresence(ctx(muxEnv('none')), 'homa')).toThrow(/needs a multiplexer to open panes/)
+			expect(resolvePresence(store, 'homa')).toBeUndefined()
+			expect(loadAgent(store, standingId('homa'))?.presence).toBeUndefined()
+		})
+
+		/**
+		 * How the caller was REALIZED, as signals a would-be introspective gate could actually branch on
+		 * — the harness-detection env markers identity.ts itself already probes, plus the `spawnedBy`
+		 * field a derived caller carries on its record. Deliberately disjoint from the probe signal
+		 * ($CYBERLEGION_MUX): neither marker moves `probeMultiplexer`'s answer, so the two columns of the
+		 * Outline vary independently and the invariance across realization is an earned claim.
+		 */
+		const realizationEnv = (realization: 'a named subagent' | 'a plain session') =>
+			realization === 'a named subagent' ? { CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' } : {}
+
+		/** Register the caller and realize it: a named subagent's record also carries `spawnedBy`. */
+		function realizeCaller(realization: 'a named subagent' | 'a plain session', env: NodeJS.ProcessEnv) {
+			const rec = register(ctx(env), { handle: 'caller', harness: 'claude' })
+			if (realization === 'a named subagent') {
+				saveAgent(store, { ...loadAgent(store, rec.id)!, spawnedBy: 'parent-unit-01' })
+			}
+			return rec
+		}
+
+		// Scenario Outline: the claim tracks the multiplexer probe, never how the caller was realized —
+		// the outcome moves with the probe column ONLY. Both realizations carry real subagent-vs-plain
+		// signals (spawnedBy + the CLAUDECODE/CLAUDE_CODE_ENTRYPOINT env markers), so an implementation
+		// that introspected caller-kind instead of probing capability would fail these rows rather than
+		// pass them vacuously.
+		it.each([
+			['a named subagent', 'tmux', 'binds the caller as homa presence'],
+			['a plain session', 'tmux', 'binds the caller as homa presence'],
+			['a named subagent', 'none', 'throws that it needs a multiplexer to open panes'],
+			['a plain session', 'none', 'throws that it needs a multiplexer to open panes'],
+		] as const)('the claim tracks the multiplexer probe (%s, %s) → %s', (realization, probe, _outcome) => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			const env = { ...muxEnv(probe, '%1'), ...realizationEnv(realization) }
+			const caller = realizeCaller(realization, env)
+			// Non-vacuity: the realization signals really are on this caller, so a caller-kind gate has
+			// something to (wrongly) branch on.
+			expect(loadAgent(store, caller.id)?.spawnedBy).toBe(
+				realization === 'a named subagent' ? 'parent-unit-01' : undefined,
+			)
+			if (probe === 'tmux') {
+				const rec = claimPresence(ctx(env), 'homa')
+				expect(rec.presence).toBe(caller.id)
+			} else {
+				expect(() => claimPresence(ctx(env), 'homa')).toThrow(/needs a multiplexer to open panes/)
+			}
+		})
+
+		it('binding a presence neither creates nor requires a bound main pane', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			const rec = claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')
+			expect(rec.presence).toBeDefined()
+			expect(store.getMainPane()).toBeUndefined()
 		})
 	})
 })

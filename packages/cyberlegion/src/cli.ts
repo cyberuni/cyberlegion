@@ -11,6 +11,8 @@ import { nudge } from './console/nudge.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
+	claimPresence,
+	clearPresence,
 	detectHarness,
 	type Harness,
 	type IdContext,
@@ -22,6 +24,7 @@ import {
 	register,
 	registerStanding,
 	resolveAgent,
+	resolvePresence,
 	resolveSelfId,
 	resolveStandingOwner,
 	touch,
@@ -142,6 +145,47 @@ withGlobals(unit.command('register'))
 		emit(formatOf(opts), {
 			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
 			json: rec,
+		})
+	})
+
+withGlobals(unit.command('claim'))
+	.description("bind the caller's unit as a standing owner's presence; --show reads it, --clear unbinds")
+	.argument('<handle>', 'standing owner handle')
+	.option('--clear', 'unbind the presence (a no-op when nothing is bound)')
+	.option('--show', 'print the bound presence instead of claiming')
+	.action((handle, opts) => {
+		const ctx = ctxOf(opts)
+		if (opts.show) {
+			let presence: ReturnType<typeof resolvePresence>
+			try {
+				presence = resolvePresence(ctx.store, handle)
+			} catch (err) {
+				fail(err instanceof Error ? err.message : String(err))
+			}
+			emit(formatOf(opts), {
+				toon: toonObject({ presence: presence?.id ?? 'none' }),
+				json: { presence: presence?.id ?? null },
+			})
+			return
+		}
+		if (opts.clear) {
+			try {
+				clearPresence(ctx, handle)
+			} catch (err) {
+				fail(err instanceof Error ? err.message : String(err))
+			}
+			emit(formatOf(opts), { toon: toonObject({ presence: 'none' }), json: { presence: null } })
+			return
+		}
+		let rec: ReturnType<typeof claimPresence>
+		try {
+			rec = claimPresence(ctx, handle)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), {
+			toon: toonObject({ owner: rec.handle, presence: rec.presence }),
+			json: { owner: rec.handle, presence: rec.presence },
 		})
 	})
 

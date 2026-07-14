@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { basename } from 'node:path'
-import { currentPane, type PaneMux } from './console/mux-probe.ts'
+import { currentPane, type PaneMux, probeMultiplexer } from './console/mux-probe.ts'
 import { herdrSessionAdapter } from './console/session.herdr.ts'
 import { tmuxSessionAdapter } from './console/session.tmux.ts'
 import type { LivePane } from './console/session.ts'
@@ -218,6 +218,82 @@ export function resolveStandingOwner(store: Store, handle: string): string {
 		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
 	}
 	return match.id
+}
+
+/**
+ * Bind the caller's own unit as a standing owner's presence — the live unit standing in for a
+ * durable record that has no session of its own. Order matters: resolve the standing record first
+ * (an unknown handle throws via `resolveStandingOwner` — fail-loud, never auto-mints), THEN gate on
+ * spawn capability, THEN resolve the caller's own id — so an unknown handle or a caller with no
+ * multiplexer never touches the pointer. Last claim wins: a plain overwrite, no merge.
+ */
+export function claimPresence(ctx: IdContext, handle: string): AgentRecord {
+	const rec = loadAgent(ctx.store, resolveStandingOwner(ctx.store, handle))
+	if (!rec)
+		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
+	// Gated on spawn capability, not on what kind of agent asks: a caller with no multiplexer has no
+	// dispatch mechanism to act on what the mailbox delivers, so it cannot claim — checked BEFORE any
+	// write, leaving the pointer untouched. Never introspect whether the caller is a subagent/fork.
+	const probe = probeMultiplexer(ctx.exec ?? realExec, ctx.env ?? process.env)
+	if (probe.mux === 'none') {
+		throw new Error('claiming a presence needs a multiplexer to open panes')
+	}
+	const selfId = resolveSelfId(ctx)
+	if (!selfId) {
+		throw new Error('no identity in this session — run `cyberlegion unit register` first')
+	}
+	rec.presence = selfId
+	saveAgent(ctx.store, rec)
+	return rec
+}
+
+/**
+ * Unbind a standing owner's presence. The unknown-handle throw (via `resolveStandingOwner`) wins
+ * over this call's own tolerance: `--clear` is forgiving about *nothing being bound* (a no-op, never
+ * an error), never about *the owner not existing* — a typo'd handle fails loudly instead of silently
+ * reporting a clear it never performed.
+ */
+export function clearPresence(ctx: IdContext, handle: string): AgentRecord {
+	const rec = loadAgent(ctx.store, resolveStandingOwner(ctx.store, handle))
+	if (!rec)
+		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
+	if (rec.presence !== undefined) {
+		rec.presence = undefined
+		saveAgent(ctx.store, rec)
+	}
+	return rec
+}
+
+/**
+ * The live-only presence rule, keyed off a standing record the caller ALREADY HOLDS — the pointer
+ * records a unit id, and that unit can exit while the standing record it stands in for never does,
+ * so a presence whose unit is missing or `status: exited` reads as no presence bound, exactly as if
+ * none were ever claimed. Nothing here self-heals the stale pointer; it stays inert until re-claimed
+ * via `claimPresence`.
+ *
+ * Separate from `resolvePresence` because this one is INCAPABLE of throwing: the delivery doorbell
+ * must never fail a send that already landed durably, so it cannot resolve the presence through a
+ * handle-resolving path that throws when the standing record races away underneath it (a concurrent
+ * `unit close`/`decommission` between loading the recipient and reading its presence). It is also
+ * strictly cheaper — no O(n) registry scan to re-find a record the caller is holding.
+ */
+export function presenceOf(store: Store, rec: AgentRecord): AgentRecord | undefined {
+	if (!rec.presence) return undefined
+	const presenceUnit = loadAgent(store, rec.presence)
+	if (!presenceUnit || presenceUnit.status === 'exited') return undefined
+	return presenceUnit
+}
+
+/**
+ * Resolve a standing owner's presence by handle, live-only (`presenceOf`). The handle-keyed front
+ * door for the CLI read path: it keeps the fail-loud unknown-handle throw (via `resolveStandingOwner`)
+ * so `unit claim <handle> --show` on a typo'd handle errors rather than reporting a definitive `none`
+ * for an owner that does not exist.
+ */
+export function resolvePresence(store: Store, handle: string): AgentRecord | undefined {
+	const rec = loadAgent(store, resolveStandingOwner(store, handle))
+	if (!rec) return undefined
+	return presenceOf(store, rec)
 }
 
 /** Resolve a recipient argument (id or handle) to an agent id. A handle resolves to live units
