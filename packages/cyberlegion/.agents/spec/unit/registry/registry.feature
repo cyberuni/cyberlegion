@@ -252,6 +252,74 @@ Feature: unit registry — register, discover, and prune legion units
     Then both homa and ops are listed
     And no session agents are listed
 
+  # ── A standing owner's presence (the live unit standing in for it) ──
+
+  Scenario: unit claim binds the caller's unit as a standing owner's presence
+    Given a standing identity homa and a live session agent alice inside a multiplexer pane
+    When alice runs unit claim homa
+    Then homa's presence is bound to alice
+    And unit claim homa --show reports alice
+
+  Scenario: the last claim wins and exactly one unit is the presence
+    Given a standing identity homa whose presence is bound to alice
+    When a live session agent bob inside a multiplexer pane runs unit claim homa
+    Then homa's presence is bound to bob
+    And homa has exactly one bound presence
+
+  Scenario: unit claim --clear unbinds the presence
+    Given a standing identity homa whose presence is bound to alice
+    When a session runs unit claim homa --clear
+    Then homa has no bound presence
+    And unit claim homa --show reports none
+
+  Scenario: unit claim --clear is a no-op when no presence is bound
+    Given a standing identity homa with no bound presence
+    When a session runs unit claim homa --clear
+    Then it does not throw
+    And unit claim homa --show reports none
+
+  Scenario: clearing a presence for a handle with no standing record throws
+    Given a registry with no standing record for handle homa
+    When a session runs unit claim homa --clear
+    Then it throws that there is no standing owner homa
+
+  Scenario: claiming a handle with no standing record throws instead of minting one
+    Given a registry with no standing record for handle homa
+    When a live session agent inside a multiplexer pane runs unit claim homa
+    Then it throws that there is no standing owner homa
+    And no standing record is created
+
+  Scenario: a presence whose unit has exited reads as no presence bound
+    Given a standing identity homa whose presence is bound to alice
+    And alice's status is exited
+    When homa's presence is resolved
+    Then it reports no presence bound
+    And it never resolves to alice
+
+  Scenario: unit claim throws when the caller reports no multiplexer
+    Given a standing identity homa and a caller whose multiplexer probe reports none
+    When the caller runs unit claim homa
+    Then it throws that claiming a presence needs a multiplexer to open panes
+    And homa's presence is left unchanged
+
+  Scenario Outline: the claim tracks the multiplexer probe, never how the caller was realized
+    Given a standing identity homa and a caller realized as <realization> whose multiplexer probe reports <probe>
+    When the caller runs unit claim homa
+    Then the claim <outcome>
+
+    Examples:
+      | realization    | probe          | outcome                                      |
+      | a named subagent | a multiplexer  | binds the caller as homa's presence          |
+      | a plain session  | a multiplexer  | binds the caller as homa's presence          |
+      | a named subagent | none           | throws that it needs a multiplexer to open panes |
+      | a plain session  | none           | throws that it needs a multiplexer to open panes |
+
+  Scenario: binding a presence neither creates nor requires a bound main pane
+    Given a standing identity homa and no main pane bound
+    When a live session agent inside a multiplexer pane runs unit claim homa
+    Then homa's presence is bound
+    And no main pane is bound
+
   # ── reconcile culls dead records against the live mux (cull half of reconcile-against-mux) ──
 
   Scenario: reconcile marks a record exited when its pane is absent from the live set

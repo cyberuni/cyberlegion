@@ -71,6 +71,38 @@ without being told it, and discovering its live peers:
   unknown recipient still throws (fail-loud); it does not auto-create an owner. Bare `unit register
   --standing` (no `--handle`) lists the registered standing records only, without any session agents.
 
+- **A standing owner's presence is the live unit standing in for it** — a standing record is durable
+  but has no session of its own, so it cannot take a turn. `unit claim <handle>` binds the **caller's
+  own unit** as that standing owner's **presence**: a per-standing-record singleton pointer, minted
+  only against an existing standing record (claiming an unknown handle throws — fail-loud, never
+  auto-mint). Last claim wins, so the pointer **moves** as the principal moves between units, and
+  exactly one unit is ever the presence. `--clear` unbinds (a no-op, never an error, when the record
+  exists but has no presence bound); `--show` prints the bound unit or a definitive `none`. The
+  unknown-handle throw wins over `--clear`'s tolerance: `--clear` is forgiving about *nothing being
+  bound*, never about *the owner not existing*, so a typo'd handle fails loudly instead of reporting a
+  clear it never performed.
+- **A presence resolves to a live unit only, never a corpse** — the presence pointer records a unit
+  id, and that unit can exit while the standing record it stands in for never does. So the pointer is
+  **resolved live**, not trusted: a presence whose unit has `status: exited` reads as **no presence
+  bound**, exactly as if none were ever claimed. A name must never resolve to a dead reader — the same
+  rule handle resolution already follows. Nothing self-heals the pointer; a stale claim is simply
+  inert until re-claimed.
+- **Claiming a presence is gated on spawn capability, not on what kind of agent asks** — a presence is
+  only useful if it can act on what the mailbox delivers, and the caller's dispatch mechanism is its
+  **own** multiplexer (this CLI has no subagent-spawning primitive by design — spawning is always the
+  caller's). So the gate is a **checkable precondition**: probe the multiplexer (`mux`'s
+  `probeMultiplexer`, which already honors the `CYBERLEGION_MUX=none` override). A caller reporting
+  **no multiplexer** cannot open panes, so it **cannot claim** — `unit claim` throws and the pointer is
+  left untouched. This is deliberately **not** an introspective carve-out about whether the caller is a
+  subagent: a named subagent inside a real pane can spawn and may hold the presence, while a
+  pane-less caller cannot regardless of how it was realized. Probe the capability; never ask the
+  agent what it is.
+- **Binding a presence neither creates nor requires a main pane** — the standing inbox (`unit register
+  --standing`), the human's read-pane (`attach`), and the standing owner's presence (`unit claim`) are
+  three independent pointers, minted independently. A presence is a **unit** standing in for the
+  principal; the main pane is the **pane a human reads from**. They are frequently different, and
+  neither implies the other.
+
 - **reconcile culls records against the live mux, mux-scoped** — `unit who --reconcile` (mirrors
   `--all`, the settled seam that keeps `who` cheap by default) live-probes the current mux's panes via
   the adapter's `listPanes` primitive and marks any non-`standing`, pane-bearing record whose pane is
@@ -103,11 +135,15 @@ without being told it, and discovering its live peers:
   directly knowable from tmux, so it is omitted.
 
 **Non-goals** — sending/reading mail (`mail/`), spawning/closing a peer session (`unit/lifecycle`),
-backend selection and placement (`mux/`), hook-based injection of mail into a harness turn
-(`mail/surface`), the human's read-pane pointer (`attach/`), tmux harness inference for adoption
+backend selection and placement (`mux/`) and the multiplexer probe itself (this node only *consults*
+it to gate a claim), ringing a bound presence on delivery (`mail/doorbell`), hook-based injection of
+mail into a harness turn (`mail/surface`), the human's read-pane pointer (`attach/`), tmux harness
+inference for adoption
 (structurally deferred until tmux exposes a harness signal), and exited-record retention/GC (a
-separate CR) — this node only owns the registry: register, recover, discover, prune, and reconcile
-(both its cull and adopt halves).
+separate CR) — this node only owns the registry: register, recover, discover, prune, reconcile (both
+its cull and adopt halves), and the standing owner's presence pointer. Any persona/place name for the
+standing owner or for the unit that stands in for it is a higher-layer concern — this node knows only
+"standing owner", "presence", and "spawn capability".
 
 Every scenario in [`registry.feature`](./registry.feature) maps to one of these behaviors:
 
@@ -122,6 +158,8 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `unit register --standing` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |
+| **standing owner presence** | `unit claim <handle>` binds the caller's unit as a standing owner's presence (per-record singleton, last-claim-wins, moves); `--clear` unbinds (no-op when unbound); `--show` reads or prints `none`; claiming an unknown handle throws (never auto-mints); an exited presence unit reads as no presence bound; independent of `attach`'s main pane |
+| **presence spawn-capability gate** | `unit claim` probes the multiplexer and throws when it reports none (no panes ⇒ no dispatch ⇒ no presence), leaving the pointer untouched; capability is probed, never inferred from whether the caller is a subagent |
 | **reconcile cull** | `who --reconcile` / `prune` live-probe the current mux via `listPanes` and mark an absent-pane record exited; mux-scoped (never culls the other mux); standing exempt; `pane: null` not pane-culled |
 | **reconcile adopt** | `who --reconcile` mints a record for a live pane with a detectable harness and no matching record (bind pane→id, cwd-basename handle or `id.slice(0,6)` fallback, status active, lastSeen now); unknown agent string skipped; tmux never adopted (no harness signal); idempotent (bound pane — any status, exited included — never re-adopted/resurrected); `prune` never adopts |
 | **listPanes adapter contract** | herdr `pane list` JSON → `{id, mux, harness, cwd}`, drops agentless scaffold panes; tmux `list-panes -a -F` → `{id, mux, cwd}`, no harness |
