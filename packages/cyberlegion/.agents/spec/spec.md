@@ -1,5 +1,5 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
   impl:
@@ -7,12 +7,13 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — no frozen scenario narrowed (4 additive first-turn scenarios only); mechanism, not routing.
-      blast: low — new `wakeSpawn` + `SPAWN_DOORBELL` in `console/doorbell.ts` (reuses the `nudge` submit-verify primitive, mirrors `wakeRecipient`), plus a `--no-wake` flag and an async best-effort post-spawn ring in the `unit spawn` command; `spawn()` in `session.ts` unchanged. cyberlegion 404 tests green on the rebased tree; dist rebuilt.
-      novelty: low — `unit spawn` now completes turn-delivery (a best-effort first-turn doorbell over the boot-race submit-verify path) atop payload-delivery (the brief file); `--no-wake` opts out; a ring that never completes warns, never fails the spawn.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles; judge mutation-tested the suite (non-tautological). One non-blocking test-completeness obs (no CLI-level e2e for the spawn glue) accepted as a follow-up, not a contract gap.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all 4 first-turn scenarios PASS; no regression on the pre-existing frozen suite.
-      cr: github-188-spawn-delivers-turn
+      floor: none — no frozen scenario narrowed; the spec tree is byte-identical to the spec-gate commit (judge-verified: code moved to the contract, never the reverse).
+      blast: low — 6 files in `src/`: a `presence` field on `AgentRecord`, `claimPresence`/`clearPresence`/`resolvePresence`/`presenceOf` in `identity.ts`, the `unit claim` verb, and the presence-first ring in `wakeRecipient`. With no presence bound, the standing-owner main-pane ring and its focus gate are byte-identical to before. 437 tests green; `pnpm verify` 21/21 on the rebased tree.
+      novelty: low — composes existing neutral primitives. The one new seam is `presenceOf()`: a throw-incapable read off an already-held record, which the doorbell must use because resolving by handle can throw.
+      confidence: high — two cold sdd-impl-judge rounds. R1 IMPLEMENTATION_PASS false: all 15 per-scenario checks green, but its orthogonal structural read reproduced a live violation of the frozen "never fails the send" contract (a concurrently-removed standing record crashed `mail send` after durable delivery), and mutation-proved the 2×2 Outline's test a weak discriminator (#211 class). Both fixed. R2 fresh-context PASS: re-ran both proofs, caught a second introspective gate (`spawnedBy`), mutation-tested every new behavior, no regression on the 4 pre-existing doorbell scenarios.
+      judge: cold sdd-impl-judge round 2 — IMPLEMENTATION_PASS true; 15/15 frozen scenarios PASS with independently re-derived oracles; metaphor grep clean.
+      hitl: self-asserted within leash on the owner's live-ratified design; the landing is the owner's at the PR. `Refs #212`, never `Closes` — #212 closes only when CR-C lands.
+      cr: github-212-standing-presence
   spec:
     verdict: approve
     by: agent
