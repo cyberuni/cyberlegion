@@ -38,6 +38,12 @@ export interface AgentRecord {
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,
 	 * prune-exempt owner inbox minted by `unit register --standing`. */
 	kind?: 'session' | 'standing'
+	/** Only meaningful on a `kind: 'standing'` record — the id of the unit currently standing in for
+	 * it (`unit claim`), a per-record singleton pointer that moves as the principal moves between
+	 * units (last claim wins). Resolved live, never trusted: a presence unit that has exited reads as
+	 * no presence bound, same as if none were ever claimed — nothing self-heals a stale pointer, it
+	 * stays inert until re-claimed. Independent of the hub's `mainPane` (the human's read-pane). */
+	presence?: string
 }
 
 export interface InboxSnapshot {

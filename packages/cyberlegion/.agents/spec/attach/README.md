@@ -24,10 +24,16 @@ human is reading from:
   reads (was `main`), and `--follow` (deferred, CR-4) auto-moves it via tmux focus-events.
 - **Binding a main pane neither creates nor requires a standing owner** — the durable inbox (`unit
   register --standing`) and where it surfaces (`attach`) are minted independently.
+- **The main pane is the human's read-pane, not a standing owner's presence** — this pointer names a
+  **pane a human reads from**, and everything that consults it treats it as a human-attention signal
+  (which is why the doorbell's standing-owner ring gates it on focus). The **unit** standing in for a
+  standing owner is a separate pointer with a separate rule (`unit claim`, `unit/registry`): it is a
+  unit rather than a pane, it is per-standing-record rather than a hub singleton, and it is rung
+  regardless of focus. The two are independent and frequently different — do not collapse them.
 
-**Non-goals** — minting the standing owner inbox (`unit/registry`); owner-mail surfacing itself,
-which reads the bound pane this node records (`mail/surface`); `attach --follow` (tmux focus-events),
-deferred per the CR design and not scoped to CR-2.
+**Non-goals** — minting the standing owner inbox and binding its presence (`unit/registry`);
+owner-mail surfacing itself, which reads the bound pane this node records (`mail/surface`); `attach
+--follow` (tmux focus-events), deferred per the CR design and not scoped to CR-2.
 
 Every scenario in [`attach.feature`](./attach.feature) maps to one of these behaviors:
 

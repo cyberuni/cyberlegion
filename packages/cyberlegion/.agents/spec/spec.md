@@ -7,23 +7,25 @@ approval:
     by: agent
     cause: dimension
     why:
-      floor: none — no frozen scenario narrowed (4 additive first-turn scenarios only); mechanism, not routing.
-      blast: low — new `wakeSpawn` + `SPAWN_DOORBELL` in `console/doorbell.ts` (reuses the `nudge` submit-verify primitive, mirrors `wakeRecipient`), plus a `--no-wake` flag and an async best-effort post-spawn ring in the `unit spawn` command; `spawn()` in `session.ts` unchanged. cyberlegion 404 tests green on the rebased tree; dist rebuilt.
-      novelty: low — `unit spawn` now completes turn-delivery (a best-effort first-turn doorbell over the boot-race submit-verify path) atop payload-delivery (the brief file); `--no-wake` opts out; a ring that never completes warns, never fails the spawn.
-      confidence: high — cold sdd-impl-judge IMPLEMENTATION_PASS true; all 4 frozen scenarios PASS with independently re-derived oracles; judge mutation-tested the suite (non-tautological). One non-blocking test-completeness obs (no CLI-level e2e for the spawn glue) accepted as a follow-up, not a contract gap.
-      judge: cold sdd-impl-judge — IMPLEMENTATION_PASS true; all 4 first-turn scenarios PASS; no regression on the pre-existing frozen suite.
-      cr: github-188-spawn-delivers-turn
+      floor: none — no frozen scenario narrowed; the spec tree is byte-identical to the spec-gate commit (judge-verified: code moved to the contract, never the reverse).
+      blast: low — 6 files in `src/`: a `presence` field on `AgentRecord`, `claimPresence`/`clearPresence`/`resolvePresence`/`presenceOf` in `identity.ts`, the `unit claim` verb, and the presence-first ring in `wakeRecipient`. With no presence bound, the standing-owner main-pane ring and its focus gate are byte-identical to before. 437 tests green; `pnpm verify` 21/21 on the rebased tree.
+      novelty: low — composes existing neutral primitives. The one new seam is `presenceOf()`: a throw-incapable read off an already-held record, which the doorbell must use because resolving by handle can throw.
+      confidence: high — two cold sdd-impl-judge rounds. R1 IMPLEMENTATION_PASS false: all 15 per-scenario checks green, but its orthogonal structural read reproduced a live violation of the frozen "never fails the send" contract (a concurrently-removed standing record crashed `mail send` after durable delivery), and mutation-proved the 2×2 Outline's test a weak discriminator (#211 class). Both fixed. R2 fresh-context PASS: re-ran both proofs, caught a second introspective gate (`spawnedBy`), mutation-tested every new behavior, no regression on the 4 pre-existing doorbell scenarios.
+      judge: cold sdd-impl-judge round 2 — IMPLEMENTATION_PASS true; 15/15 frozen scenarios PASS with independently re-derived oracles; metaphor grep clean.
+      hitl: self-asserted within leash on the owner's live-ratified design; the landing is the owner's at the PR. `Refs #212`, never `Closes` — #212 closes only when CR-C lands.
+      cr: github-212-standing-presence
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — 4 additive scenarios on the frozen `unit/lifecycle/lifecycle.feature` for `unit spawn` delivering the peer's first turn (gherkin-cli addOnly:true, 4 added / 0 modified / 0 removed); stays `@frozen`, no re-open.
-      blast: low — first-turn ring on the existing spawn behavioral node; `README.md` synced (Use-Case bullet + 3 scenario-map rows + Non-goals note for the out-of-scope warm-pool / `--visible` axes).
-      novelty: low — spawn now completes turn-delivery (a best-effort first-turn doorbell over the boot-race submit-verify path) on top of payload-delivery (the brief file); mirrors `mail/doorbell`'s best-effort ring atop the fail-loud `nudge` primitive; `--no-wake` opts out. Mechanism, not routing — dumb-hands charter intact.
-      confidence: high — cold sdd-spec-judge ALIGNED true (oracle/builder/architect all PASS); no open markers; coverage complete (happy ring, boot-race re-submit, best-effort warning, `--no-wake`).
-      judge: cold sdd-spec-judge — oracle/builder/architect all PASS; ALIGNED true.
-      cr: github-188-spawn-delivers-turn
+      floor: none — 10 additive scenarios on `unit/registry/registry.feature` + 5 on `mail/doorbell/doorbell.feature` (gherkin-cli addOnly:true, 0 modified / 0 removed on both); both stay `@frozen`, no re-open.
+      blast: low — spec + suite only. `unit/registry` (presence pointer + spawn-capability gate + live-only resolution), `mail/doorbell` (presence-aware ring + focus-gated main-pane fallback), `attach` (README non-goal only). Composes existing neutral primitives (`kind: standing`, `probeMultiplexer`, the ratified peer-vs-human ring split).
+      novelty: low — the split falls out of already-ratified doctrine, not against it: the doorbell already rings a peer regardless of focus because "a peer is an agent expected to take the turn, not a human whose attention is the scarce resource". A bound presence IS an agent → inherits the peer rule; the focus gate (#172) stays on the human read-pane.
+      confidence: high — two cold sdd-spec-judge rounds. R1 ALIGNED false, 4 findings all accepted+fixed (a literal "seat" metaphor leak ×2; an internal-call assertion; an unfalsifiable subagent scenario → falsifiable 2×2 Outline; a pre-existing "ship" leak on an already-+line). R2 fresh-context ALIGNED true, all three lenses PASS, metaphor grep clean on every added line, addOnly independently re-verified.
+      judge: cold sdd-spec-judge round 2 — oracle/builder/architect all PASS; ALIGNED true; ship.
+      hitl: the two load-bearing decisions (handle `council`; presence split from the read-pane) were ratified live by the owner before drafting; the landing stays the owner's at the PR.
+      cr: github-212-standing-presence
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging

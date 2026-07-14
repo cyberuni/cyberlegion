@@ -1,4 +1,4 @@
-import { type Exec, loadAgent } from '../identity.ts'
+import { type Exec, loadAgent, presenceOf } from '../identity.ts'
 import type { Store } from '../store/store.ts'
 import { type NudgeOptions, nudge } from './nudge.ts'
 import type { SessionAdapter, SessionTarget } from './session.ts'
@@ -49,10 +49,11 @@ function paneOf(store: Store, id: string): string | undefined {
 
 /**
  * Best-effort wake the recipient of a just-delivered message so it checks its inbox. A peer's live
- * session pane, or — for a standing owner (which has no session pane of its own) — the hub's bound
- * main pane, is rung via the nudge submit-verify path (a taken turn, not fire-and-forget). Durable
- * delivery already happened; the ring is opportunistic on top, so a legitimate no-op (`--no-nudge`, a
- * headless/absent recipient with no live pane, a standing-owner send with no main pane bound, or a
+ * session pane, a standing owner's bound presence (`unit claim` — the live unit standing in for it,
+ * an exited one falling back below), or — with neither — the hub's bound main pane, is rung via the
+ * nudge submit-verify path (a taken turn, not fire-and-forget). Durable delivery already happened;
+ * the ring is opportunistic on top, so a legitimate no-op (`--no-nudge`, a headless/absent recipient
+ * with no live pane, a standing-owner send with no presence and no main pane bound, or a
  * self-addressed send) rings nothing, and a ring that never completes within nudge's retry cap is
  * swallowed into a warning. This never throws — it can never fail the send.
  *
@@ -70,16 +71,36 @@ export async function wakeRecipient(
 	if (input.noNudge) return { rung: false }
 	const recipient = loadAgent(store, input.toId)
 	if (!recipient) return { rung: false }
-	// A standing owner has no session pane of its own → ring the human's bound main pane.
-	const pane = recipient.kind === 'standing' ? store.getMainPane() : paneOf(store, recipient.id)
+	// A standing owner has no session pane of its own. With a LIVE bound presence (`unit claim`) it
+	// rings that unit's pane — the existing peer rule reaching its proper subject: a presence is an
+	// agent expected to take the turn, not a human whose attention is the scarce resource, so it is
+	// never focus-gated. With no presence bound (or an exited one — never ring a corpse), it falls
+	// back to the human's bound main pane, focus-gated exactly as before.
+	let pane: string | undefined
+	let focusGated = false
+	if (recipient.kind === 'standing') {
+		// Off the record already in hand, never re-resolved by handle: `resolvePresence` throws when the
+		// standing record races away (a concurrent close/decommission), and this wake must never fail a
+		// send that already landed durably.
+		const presenceUnit = presenceOf(store, recipient)
+		if (presenceUnit) {
+			pane = paneOf(store, presenceUnit.id)
+		} else {
+			pane = store.getMainPane()
+			focusGated = true
+		}
+	} else {
+		pane = paneOf(store, recipient.id)
+	}
 	if (!pane) return { rung: false }
 	// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).
 	if (pane === paneOf(store, input.fromId)) return { rung: false }
-	// The focus gate applies only to a standing owner's bound main pane (human-presence signal) — a
-	// peer's live pane is always rung regardless of focus. Skip the ring only when POSITIVELY not
-	// focused; `true` or `undefined` (probe error, no backend, unresolvable pane) fail open and still
-	// ring, so the doorbell never silently drops on an ambiguous probe.
-	if (recipient.kind === 'standing') {
+	// The focus gate applies only to a standing owner's bound-main-pane fallback (human-presence
+	// signal) — a peer's live pane, and a standing owner's bound presence, are always rung regardless
+	// of focus. Skip the ring only when POSITIVELY not focused; `true` or `undefined` (probe error, no
+	// backend, unresolvable pane) fail open and still ring, so the doorbell never silently drops on an
+	// ambiguous probe.
+	if (focusGated) {
 		let focused: boolean | undefined
 		try {
 			focused = getAdapter().isPaneFocused(exec, { id: pane })

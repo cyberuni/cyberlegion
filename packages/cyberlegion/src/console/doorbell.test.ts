@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Exec } from '../identity.ts'
-import { registerStanding, saveAgent } from '../identity.ts'
+import { claimPresence, registerStanding, saveAgent } from '../identity.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
 import { DELIVERY_DOORBELL, SPAWN_DOORBELL, wakeRecipient, wakeSpawn } from './doorbell.ts'
@@ -216,6 +216,111 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'bob', fromId: 'alice' })
 		expect(result.rung).toBe(true)
 		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	// A presence unit is bound via `claimPresence`, keying self-id off the $CYBERLEGION_MUX_PANE
+	// fast-path (mirrors identity.test.ts's own presence fixtures) so the pane it claims from is the
+	// exact pane `paneOf` resolves back through the unit's own record.
+	function presenceUnit(id: string, ownerHandle: string, pane: string): AgentRecord {
+		const rec = peer(id, pane)
+		store.putPaneIndex(pane, id) // resolveSelfId (inside claimPresence) resolves via the pane index
+		claimPresence(
+			{ store, env: { CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane }, exec, now: () => 1_700_000_000_000 },
+			ownerHandle,
+		)
+		return rec
+	}
+
+	it("sending to a standing owner with a bound presence rings that unit's pane, not the main pane", async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		presenceUnit('bob', 'owner', '%1')
+		store.setMainPane('%9')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT])
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(result.pane).toBe('%1')
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	it('a bound presence is rung even when nothing is focused', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		presenceUnit('bob', 'owner', '%1')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], false) // "not currently viewing"
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	it('a standing owner whose presence unit has exited falls back to the bound main pane', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		presenceUnit('bob', 'owner', '%1')
+		const dead = { ...peer('bob', '%1'), status: 'exited' as const }
+		saveAgent(store, dead)
+		store.setMainPane('%9')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT], true) // main pane focused
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' })
+		expect(result.rung).toBe(true)
+		expect(result.pane).toBe('%9')
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+	})
+
+	it('a presence ring that never completes is a best-effort warning, not a send error', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		presenceUnit('bob', 'owner', '%1')
+		const { adapter } = fakeAdapter([STAGED])
+		const result = await wakeRecipient(
+			store,
+			() => adapter,
+			exec,
+			{ toId: 'standing-owner', fromId: 'alice' },
+			{ attempts: 2, sleep: async () => {} },
+		)
+		expect(result.rung).toBe(false)
+		expect(result.warning).toBeTruthy()
+	})
+
+	// Regression: the standing record can race away between wakeRecipient's own loadAgent(toId) and
+	// its presence read (a concurrent `unit close`/`decommission` — neither excludes kind: standing).
+	// Resolving the presence by HANDLE would throw `no standing owner` straight out of the wake and,
+	// since cli.ts's `mail send` awaits it bare, crash the CLI AFTER the message already landed. The
+	// wake reads the record it already holds, so a vanished record is just a no-op ring.
+	it('a standing record that disappears mid-wake never throws out of the send', async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		presenceUnit('bob', 'owner', '%1')
+		const recipient = store.getAgent('standing-owner')!
+		// Race the record away the instant the wake takes hold of it: the wake's own loadAgent(toId)
+		// hands back the record and, in the same beat, a concurrent close/decommission wipes it from the
+		// registry. Every later read (getAgent AND the listAgents scan resolveStandingOwner runs) then
+		// genuinely sees no standing record — the exact window the pointer must survive.
+		const realGetAgent = store.getAgent.bind(store)
+		store.getAgent = (id: string) => {
+			if (id === 'standing-owner') {
+				store.getAgent = realGetAgent
+				store.removeAgent('standing-owner')
+				return recipient
+			}
+			return realGetAgent(id)
+		}
+		const { adapter } = fakeAdapter([SCROLLED_OUT])
+		// The claim is precisely that it RESOLVES rather than throwing. What it resolves to is secondary
+		// and legitimate either way: the record it is holding is a valid snapshot whose presence unit is
+		// itself still live, so the ring lands on that unit's pane.
+		await expect(
+			wakeRecipient(store, () => adapter, exec, { toId: 'standing-owner', fromId: 'alice' }),
+		).resolves.toMatchObject({ rung: true, pane: '%1' })
+	})
+
+	it("--no-nudge suppresses the doorbell to a standing owner's bound presence", async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'owner' })
+		presenceUnit('bob', 'owner', '%1')
+		const { adapter, sendCalls } = fakeAdapter([SCROLLED_OUT])
+		const result = await wakeRecipient(store, () => adapter, exec, {
+			toId: 'standing-owner',
+			fromId: 'alice',
+			noNudge: true,
+		})
+		expect(result.rung).toBe(false)
+		expect(sendCalls).toEqual([])
 	})
 
 	it("--no-nudge suppresses the doorbell to a standing owner's bound main pane", async () => {

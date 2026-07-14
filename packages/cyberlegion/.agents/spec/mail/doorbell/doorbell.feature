@@ -2,10 +2,12 @@
 Feature: mail doorbell — wake the recipient on delivery
   The push counterpart to mail/surface's pull. On mail send, after the durable write, best-effort
   ring the recipient so it checks its inbox with no separate manual nudge — a peer agent's live
-  session pane, or, for a standing owner recipient (which has no session pane of its own), the hub's
+  session pane; a standing owner recipient (which has no session pane of its own) with a presence
+  bound (unit claim), rung at that live unit's pane; or a standing owner with none, rung at the hub's
   bound main pane. The ring reuses the unit/lifecycle nudge submit-verify path (a taken turn, not
   fire-and-forget). Durable delivery is the guaranteed effect; the ring is best-effort on top — a
-  recipient with no live pane, a standing owner with no bound main pane, or a ring that never
+  recipient with no live pane, a standing owner with no bound presence and no bound main pane, or a
+  ring that never
   completes is a legitimate no-op that never fails the send (mail stays store-and-forward and surfaces
   on the recipient's next SessionStart, mail/surface). The plain send/inbox primitives live in
   mail/core; the pull-side hook injection lives in mail/surface; the standalone unit nudge verb and
@@ -45,6 +47,37 @@ Feature: mail doorbell — wake the recipient on delivery
     When the sender runs mail send --to <peer>
     Then the message still lands durably and the send succeeds
     And the failed ring is reported as a best-effort warning, not a send error
+
+  # ── A standing owner with a bound presence is rung there, never focus-gated ──
+
+  Scenario: sending to a standing owner with a bound presence rings that unit's pane, not the main pane
+    Given a standing owner inbox whose presence is bound to a live unit, and a different session bound as the hub's main pane
+    When a session runs mail send --to <owner>
+    Then the presence unit's pane is rung with the delivery doorbell
+    And the bound main pane is not rung
+
+  Scenario: a bound presence is rung even when nothing is focused
+    Given a standing owner inbox whose presence is bound to a live unit that a mux client is not currently viewing
+    When a session runs mail send --to <owner>
+    Then the presence unit's pane is rung with the delivery doorbell
+
+  Scenario: a standing owner whose presence unit has exited falls back to the bound main pane
+    Given a standing owner inbox whose bound presence unit has exited, and a focused bound main pane
+    When a session runs mail send --to <owner>
+    Then the exited presence unit's pane is not rung
+    And the bound main pane is rung with the delivery doorbell
+
+  Scenario: a presence ring that never completes is a best-effort warning, not a send error
+    Given a standing owner inbox whose presence is bound to a live unit that keeps the doorbell staged past the retry cap
+    When a session runs mail send --to <owner>
+    Then the message still lands durably in the owner inbox
+    And the send reports a best-effort warning and succeeds
+
+  Scenario: --no-nudge suppresses the doorbell to a standing owner's bound presence
+    Given a standing owner inbox whose presence is bound to a live unit
+    When a session runs mail send --to <owner> --no-nudge
+    Then no pane is rung
+    And the message still lands durably in the owner inbox
 
   # ── A standing owner recipient is notified at the bound main pane ──
 
