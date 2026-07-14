@@ -426,6 +426,73 @@ describe('spec:cyberlegion/identity', () => {
 			expect(resolveRecipient(store, rec.id)).toBe(rec.id)
 			expect(() => resolveRecipient(store, 'ghost')).toThrow(/ghost/)
 		})
+
+		/** Registers a record directly at a chosen status — handles are reused across units over time,
+		 * so a live one routinely shares its handle with the dead ones that held it before. */
+		const seed = (id: string, handle: string, status: 'active' | 'exited', pane?: string) =>
+			saveAgent(store, {
+				id,
+				handle,
+				kind: 'session',
+				harness: 'claude',
+				cwd: '/repo',
+				pane: pane ? { mux: 'tmux', id: pane } : null,
+				status,
+				createdAt: '2026-07-01T00:00:00.000Z',
+				lastSeen: '2026-07-01T00:00:00.000Z',
+			})
+
+		it('a handle held by both a live and an exited unit resolves to the live one', () => {
+			seed('dead01', 'operator', 'exited', '%4')
+			seed('live01', 'operator', 'active', '%9')
+			expect(resolveRecipient(store, 'operator')).toBe('live01')
+			expect(resolveAgent(store, 'operator').id).toBe('live01')
+		})
+
+		it('a handle held only by exited units throws instead of addressing a corpse', () => {
+			seed('dead01', 'operator', 'exited', '%4')
+			seed('dead02', 'operator', 'exited')
+			// The incident shape: mail --to operator silently resolved to an exited unit and was
+			// "delivered" to an inbox with no reader. Name the dead units so the cause is legible.
+			expect(() => resolveRecipient(store, 'operator')).toThrow(/matches only exited unit\(s\)/)
+			expect(() => resolveRecipient(store, 'operator')).toThrow(/dead01 \(%4\), dead02/)
+			expect(() => resolveAgent(store, 'operator')).toThrow(/matches only exited unit\(s\)/)
+		})
+
+		it('an explicit id still addresses an exited unit — naming it outright is deliberate', () => {
+			seed('dead01', 'operator', 'exited', '%4')
+			expect(resolveRecipient(store, 'dead01')).toBe('dead01')
+			expect(resolveAgent(store, 'dead01').id).toBe('dead01')
+		})
+
+		it('a branch ref resolves to the live unit, never an exited one on the same branch', () => {
+			const branch = 'cyberlegion/unit-abc'
+			saveAgent(store, {
+				id: 'dead01',
+				handle: 'old',
+				kind: 'session',
+				harness: 'claude',
+				cwd: '/repo',
+				pane: null,
+				status: 'exited',
+				worktree: { root: '/repo', branch },
+				createdAt: '2026-07-01T00:00:00.000Z',
+				lastSeen: '2026-07-01T00:00:00.000Z',
+			})
+			saveAgent(store, {
+				id: 'live01',
+				handle: 'new',
+				kind: 'session',
+				harness: 'claude',
+				cwd: '/repo',
+				pane: null,
+				status: 'active',
+				worktree: { root: '/repo', branch },
+				createdAt: '2026-07-01T00:00:00.000Z',
+				lastSeen: '2026-07-01T00:00:00.000Z',
+			})
+			expect(resolveAgent(store, branch).id).toBe('live01')
+		})
 	})
 
 	describe('standing identity', () => {
