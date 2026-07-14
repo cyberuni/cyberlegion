@@ -8,7 +8,10 @@ const MESSAGE = 'You have unread mail — check your inbox.'
 const noopSleep = async () => {}
 
 /** A fake adapter whose `read` returns queued values across successive calls (send/submit are spies). */
-function fakeAdapter(reads: string[]): { adapter: SessionAdapter; sendCalls: string[]; submitCalls: number[] } {
+function fakeAdapter(
+	reads: string[],
+	opts: { paneExists?: boolean } = {},
+): { adapter: SessionAdapter; sendCalls: string[]; submitCalls: number[] } {
 	const sendCalls: string[] = []
 	let submitCount = 0
 	const submitCalls: number[] = []
@@ -32,7 +35,7 @@ function fakeAdapter(reads: string[]): { adapter: SessionAdapter; sendCalls: str
 		},
 		focus: () => {},
 		teardown: () => {},
-		paneExists: () => true,
+		paneExists: () => opts.paneExists ?? true,
 		isPaneFocused: () => undefined,
 		listPanes: () => [],
 	}
@@ -80,6 +83,17 @@ const SCROLLED_OUT = [
 ].join('\n')
 
 describe('nudge', () => {
+	it('rejects a pane that no longer exists — distinctly from a peer that never takes the turn', async () => {
+		const { adapter, sendCalls, submitCalls } = fakeAdapter([''], { paneExists: false })
+		await expect(nudge(adapter, exec, target, MESSAGE, { sleep: noopSleep })).rejects.toThrow(
+			/pane p-1 no longer exists — the peer's session is gone, not busy/,
+		)
+		// Fails fast: never types at a dead pane, never burns the re-submit budget, and never
+		// reports the boot-race shape ("never took the turn") for a pane that is simply gone.
+		expect(sendCalls).toEqual([])
+		expect(submitCalls).toEqual([])
+	})
+
 	it('scenario 1: first submit lands — reports success without re-submitting', async () => {
 		const { adapter, sendCalls, submitCalls } = fakeAdapter([SCROLLED_OUT])
 		const result = await nudge(adapter, exec, target, MESSAGE, { sleep: noopSleep })
