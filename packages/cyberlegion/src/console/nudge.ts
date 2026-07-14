@@ -49,6 +49,10 @@ export function isStaged(visible: string | null | undefined, message: string): b
  * would otherwise report false success. Sends exactly once; a swallowed submit is recovered by
  * flushing the staged buffer (`adapter.submit`, a bare Enter) — never re-typing the message — up
  * to a bounded number of attempts. Throws if the turn is never taken within the cap.
+ *
+ * A pane that no longer exists is rejected up front rather than retried: a gone pane and a booting
+ * one both read back empty, so without the liveness probe the retry loop reports a dead peer as
+ * "never took the turn" — a boot-race shape — and buries the real cause.
  */
 export async function nudge(
 	adapter: SessionAdapter,
@@ -60,6 +64,13 @@ export async function nudge(
 	const attempts = opts.attempts ?? DEFAULT_ATTEMPTS
 	const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS
 	const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+
+	if (!adapter.paneExists(exec, target)) {
+		throw new Error(
+			`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy. ` +
+				`Run 'cyberlegion unit prune' to cull dead records.`,
+		)
+	}
 
 	adapter.send(exec, target, message)
 	await sleep(settleMs)

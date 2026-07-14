@@ -185,6 +185,31 @@ function preferStanding(matches: AgentRecord[]): AgentRecord | undefined {
 	return matches.find((a) => a.kind === 'standing') ?? matches[0]
 }
 
+/** Split a handle's matches into live and exited. An exited unit's pane is gone and its inbox has
+ * no reader, so a *name* must never resolve to one — a handle is reusable across units, and the
+ * dead holders of it outnumber the live one over time. Standing records never exit. An explicit id
+ * still resolves either way: naming a unit outright is a deliberate choice, unlike reaching for a
+ * handle and silently landing on a corpse. */
+function matchHandle(agents: AgentRecord[], handle: string): { live: AgentRecord[]; exited: AgentRecord[] } {
+	const matched = agents.filter((a) => a.handle === handle)
+	return {
+		live: matched.filter((a) => a.status !== 'exited'),
+		exited: matched.filter((a) => a.status === 'exited'),
+	}
+}
+
+/** Fail loudly when a handle names only the dead — never fall through to a corpse. */
+function unaddressable(ref: string, exited: AgentRecord[], tried: string): Error {
+	if (exited.length > 0) {
+		const dead = exited.map((a) => `${a.id.slice(0, 6)}${a.pane ? ` (${a.pane.id})` : ''}`).join(', ')
+		return new Error(
+			`"${ref}" matches only exited unit(s) — ${dead} — which have no reader. ` +
+				`Address a live unit ('cyberlegion unit who'), or run 'cyberlegion unit register --standing --handle ${ref}' for a durable inbox.`,
+		)
+	}
+	return new Error(`no agent addressable as "${ref}" (tried ${tried})`)
+}
+
 /** Resolve a handle to its standing owner record's id — never falls back to a live session agent
  * sharing that handle, so `--owner` can never be pointed at a session's inbox by mistake. */
 export function resolveStandingOwner(store: Store, handle: string): string {
@@ -195,16 +220,13 @@ export function resolveStandingOwner(store: Store, handle: string): string {
 	return match.id
 }
 
-/** Resolve a recipient argument (id or handle) to an agent id. */
+/** Resolve a recipient argument (id or handle) to an agent id. A handle resolves to live units
+ * only — mail addressed to an exited unit lands in an inbox nobody reads. */
 export function resolveRecipient(store: Store, to: string): string {
 	if (loadAgent(store, to)) return to
-	const matches = listAgents(store).filter((a) => a.handle === to)
-	const match = preferStanding(matches)
-	if (!match) {
-		throw new Error(
-			`no agent addressable as "${to}" — run 'cyberlegion unit register --standing --handle ${to}' to create a standing inbox`,
-		)
-	}
+	const { live, exited } = matchHandle(listAgents(store), to)
+	const match = preferStanding(live)
+	if (!match) throw unaddressable(to, exited, 'id and handle')
 	return match.id
 }
 
@@ -217,11 +239,16 @@ export function resolveAgent(store: Store, ref: string): AgentRecord {
 	const byId = loadAgent(store, ref)
 	if (byId) return byId
 	const agents = listAgents(store)
-	const byHandle = preferStanding(agents.filter((a) => a.handle === ref))
+	const { live, exited } = matchHandle(agents, ref)
+	const byHandle = preferStanding(live)
 	if (byHandle) return byHandle
-	const byBranch = agents.find((a) => a.worktree?.branch === ref)
+	const byBranchAll = agents.filter((a) => a.worktree?.branch === ref)
+	const byBranch = byBranchAll.find((a) => a.status !== 'exited')
 	if (byBranch) return byBranch
-	throw new Error(`no agent addressable as "${ref}" (tried id, handle, and worktree branch/CR)`)
+	const dead = [...exited, ...byBranchAll.filter((a) => a.status === 'exited')].filter(
+		(a, i, all) => all.findIndex((b) => b.id === a.id) === i,
+	)
+	throw unaddressable(ref, dead, 'id, handle, and worktree branch/CR')
 }
 
 export function bumpLastSeen(ctx: IdContext, id: string): void {
