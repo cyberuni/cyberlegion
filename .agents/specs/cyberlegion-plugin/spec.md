@@ -83,3 +83,20 @@ a stray root-level `ledger/` directory instead of this project's own sibling `le
 concurrent commit, not this pass's mission) — relocated in-session via a zero-content-delta move to
 `ledger/cyberlegion-plugin-init-skill.6a31c8.jsonl` here; self-cleared (pure structural relocation,
 no line rewritten, no verdict changed).
+
+<!-- BEGIN generated: by-concept (project-spec/concept-index) -->
+
+## By concept
+
+> Generated from `concept:` frontmatter by `project-spec/concept-index` — do not edit by hand.
+
+| Concept | Facets |
+|---|---|
+| `conformance` | `session-adapter/` (behavior) |
+| `identity` | `inbox/` (behavior) · `init/` (behavior) |
+| `mail` | `inbox/` (behavior) |
+| `onboarding` | `init/` (behavior) |
+| `routing` | `dispatch/` (behavior) · `gateway/` (behavior) |
+| `session` | `session-adapter/` (behavior) |
+
+<!-- END generated: by-concept -->

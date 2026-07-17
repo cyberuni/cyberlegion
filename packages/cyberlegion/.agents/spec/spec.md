@@ -68,3 +68,15 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 > `unit spawn` + `mail await` (channel) or a cold Task subagent that returns via Task-result — and the
 > routing brain (warm-peer vs subagent vs run-inline) lives in the Legate plugin, not the CLI. See
 > `.agents/plans/cyberlegion-cli-realign.migration-map.md` for the full scenario→target contract.
+
+<!-- BEGIN generated: by-concept (project-spec/concept-index) -->
+
+## By concept
+
+> Generated from `concept:` frontmatter by `project-spec/concept-index` — do not edit by hand.
+
+| Concept | Facets |
+|---|---|
+| `cyberlegion` | `admin/` (behavior) · `agent/` (behavior) · `attach/` (behavior) · `init/` (behavior) · `mail/` (index) · `mail/core/` (behavior) · `mail/doorbell/` (behavior) · `mail/surface/` (behavior) · `mail/wait/` (behavior) · `mux/` (behavior) · `unit/lifecycle/` (behavior) · `unit/registry/` (behavior) |
+
+<!-- END generated: by-concept -->
