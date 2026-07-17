@@ -34,6 +34,7 @@
 	],
 	"scripts": {
 		"build": "tsdown",
+		"check:spec": "sdd-check-specs",
 		"dev": "tsx src/cli.ts",
 		"prepack": "pnpm build",
 		"test": "vitest run src",
