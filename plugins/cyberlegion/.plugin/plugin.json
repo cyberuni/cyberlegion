@@ -8,5 +8,5 @@
 	"repository": "https://github.com/cyberuni/cyberplace",
 	"keywords": ["agent", "dispatch", "inter-agent", "multiplexer"],
 	"skills": "./skills",
-	"agents": "./agents"
+	"agents": ["./agents/headless-legate.md"]
 }
