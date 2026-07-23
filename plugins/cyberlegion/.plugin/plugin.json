@@ -1,5 +1,5 @@
 {
-	"$schema": "https://raw.githubusercontent.com/cyberuni/marketplace/main/schema/claude/plugin.json",
+	"$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
 	"name": "cyberlegion",
 	"version": "0.0.0",
 	"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
@@ -8,5 +8,5 @@
 	"repository": "https://github.com/cyberuni/cyberplace",
 	"keywords": ["agent", "dispatch", "inter-agent", "multiplexer"],
 	"skills": "./skills",
-	"agents": "./agents"
+	"agents": ["./agents/headless-legate.md"]
 }
