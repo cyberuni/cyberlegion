@@ -9,7 +9,7 @@ const nullExec: Exec = () => null
 // refused before opening anything". This GUARD is cyberlegion's own replacement for the fork's
 // `selectSessionAdapter` — cyber-mux itself happily drives wezterm/zellij, so the refusal has to live
 // here, before `unit spawn` ever calls `.open()`.
-describe('spec:cyberlegion/mux-select', () => {
+describe('spec:cyberlegion/mux', () => {
 	it('binds the tmux adapter when $TMUX is set', () => {
 		expect(selectSessionAdapter({ TMUX: 't' }, nullExec).name).toBe('tmux')
 	})

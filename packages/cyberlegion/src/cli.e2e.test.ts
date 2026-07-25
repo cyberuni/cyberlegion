@@ -667,7 +667,7 @@ describe('agent group', () => {
 	})
 })
 
-describe('mux group', () => {
+describe('spec:cyberlegion/mux', () => {
 	it('doctor reports harness, mux, hub root, and self-id', () => {
 		const out = legion(['mux', 'doctor'])
 		expect(out).toContain('hubRoot:')
@@ -677,6 +677,16 @@ describe('mux group', () => {
 	it('mode reports the detected session-backend mode', () => {
 		const out = legion(['mux', 'mode'])
 		expect(out).toContain('mode:')
+	})
+
+	// "mux mode reports none when no backend is selectable" — the pair above only proves a `mode:`
+	// label prints, which a run that genuinely detects tmux/herdr satisfies just as well as `none`.
+	// baseEnv only strips env vars, not real process ancestry, so a bare invocation still resolves
+	// truthfully on a machine that is itself inside a real multiplexer. CYBER_MUX=none is the
+	// frozen override — it forces the none-branch host-independently without touching ancestry at
+	// all, giving a deterministic value assertion instead of a presence-only one.
+	it('mode reports none when no backend is selectable', () => {
+		expect(legion(['mux', 'mode'], { CYBER_MUX: 'none' })).toContain('mode: none')
 	})
 
 	// The two below run BEHIND A DETECTED MULTIPLEXER — the precondition the pair above never meets,

@@ -5,7 +5,7 @@ import { normalizeMuxEnv } from './mux-env.ts'
 // "the current fast-path vars win over the legacy pair when both are set". This is cyberlegion's own
 // transitional seam (not cyber-mux's) — cyber-mux's `currentPane`/`probeMultiplexer` cannot be
 // steered onto a differently-named legacy pair, so normalizeMuxEnv is the one place this rule lives.
-describe('spec:cyberlegion/mux-env', () => {
+describe('spec:cyberlegion/mux', () => {
 	it('copies the legacy pair onto the current names when only the legacy pair is set', () => {
 		const env = normalizeMuxEnv({ CYBERLEGION_MUX: 'herdr', CYBERLEGION_MUX_PANE: 'w1:p2' })
 		expect(env.CYBER_MUX).toBe('herdr')
