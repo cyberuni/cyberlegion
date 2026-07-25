@@ -17,7 +17,16 @@ beforeEach(() => {
 // Strip any ambient multiplexer signal from the inherited env: these tests drive identity through
 // fresh registration or an explicit $CYBERLEGION_AGENT_ID, so a real tmux/herdr pane in the host
 // env (this suite may itself run inside one) must not key or override the caller's self-identity.
-const MUX_ENV_KEYS = ['TMUX', 'TMUX_PANE', 'HERDR_ENV', 'HERDR_PANE_ID', 'CYBERLEGION_MUX', 'CYBERLEGION_MUX_PANE']
+const MUX_ENV_KEYS = [
+	'TMUX',
+	'TMUX_PANE',
+	'HERDR_ENV',
+	'HERDR_PANE_ID',
+	'CYBER_MUX',
+	'CYBER_MUX_PANE',
+	'CYBERLEGION_MUX',
+	'CYBERLEGION_MUX_PANE',
+]
 function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const merged = { ...process.env, ...env }
 	for (const k of MUX_ENV_KEYS) if (!(k in env)) delete merged[k]
@@ -135,10 +144,10 @@ describe('spec:cyberlegion/unit', () => {
 	})
 
 	describe('standing owner presence — unit claim', () => {
-		// The caller's pane + multiplexer in one env: $CYBERLEGION_MUX is the override probeMultiplexer
+		// The caller's pane + multiplexer in one env: $CYBER_MUX is the override probeMultiplexer
 		// trusts outright (so the claim's spawn-capability gate passes with no real mux), and
-		// $CYBERLEGION_MUX_PANE is the fast-path pane that keys the caller's own self-id.
-		const claimEnv = (pane: string) => ({ CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane })
+		// $CYBER_MUX_PANE is the fast-path pane that keys the caller's own self-id.
+		const claimEnv = (pane: string) => ({ CYBER_MUX: 'tmux', CYBER_MUX_PANE: pane })
 
 		/** A registered caller in its own pane — the unit a claim binds as the presence. */
 		const caller = (handle: string, pane: string) => {
@@ -201,7 +210,7 @@ describe('spec:cyberlegion/unit', () => {
 
 		it('unit claim throws when the caller reports no multiplexer', () => {
 			legion(['unit', 'register', '--standing', '--handle', 'homa'])
-			const noMux = { CYBERLEGION_MUX: 'none', CYBERLEGION_AGENT_ID: 'lone1' }
+			const noMux = { CYBER_MUX: 'none', CYBERLEGION_AGENT_ID: 'lone1' }
 			legion(['unit', 'register', '--harness', 'claude', '--handle', 'lone'], noMux)
 			expect(() => legion(['unit', 'claim', 'homa'], noMux)).toThrow()
 			const { stderr } = legionOut(['unit', 'claim', 'homa'], noMux)
@@ -523,7 +532,7 @@ describe('the standing owner mailbox — mail --owner', () => {
 // no ring is attempted and no warning appears. The slow baseline send exhausts nudge's retry cap
 // (~4s), hence the widened timeouts.
 describe('spec:cyberlegion/mail/doorbell — CLI --no-nudge', () => {
-	const muxEnv = { CYBERLEGION_MUX: 'tmux' }
+	const muxEnv = { CYBER_MUX: 'tmux' }
 
 	it('--no-nudge suppresses the delivery doorbell to a peer (the flag reaches the behavior)', () => {
 		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])

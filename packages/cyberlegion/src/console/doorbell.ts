@@ -1,7 +1,6 @@
+import { type MuxAdapter, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
 import { type Exec, loadAgent, presenceOf } from '../identity.ts'
 import type { Store } from '../store/store.ts'
-import { type NudgeOptions, nudge } from './nudge.ts'
-import type { SessionAdapter, SessionTarget } from './session.ts'
 
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 export const DELIVERY_DOORBELL = 'You have unread mail — check your inbox.'
@@ -63,7 +62,7 @@ function paneOf(store: Store, id: string): string | undefined {
  */
 export async function wakeRecipient(
 	store: Store,
-	getAdapter: () => SessionAdapter,
+	getAdapter: () => MuxAdapter,
 	exec: Exec,
 	input: WakeInput,
 	nudgeOpts?: NudgeOptions,
@@ -119,7 +118,7 @@ export async function wakeRecipient(
 
 export interface WakeSpawnInput {
 	/** The freshly-opened peer's session pane. */
-	target: SessionTarget
+	target: MuxTarget
 	/** Suppress the first-turn doorbell entirely (`unit spawn --no-wake`). */
 	noWake?: boolean
 }
@@ -140,7 +139,7 @@ export interface WakeSpawnInput {
  * no-op rather than a failed spawn.
  */
 export async function wakeSpawn(
-	getAdapter: () => SessionAdapter,
+	getAdapter: () => MuxAdapter,
 	exec: Exec,
 	input: WakeSpawnInput,
 	nudgeOpts: NudgeOptions = SPAWN_NUDGE_OPTS,

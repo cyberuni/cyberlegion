@@ -15,7 +15,16 @@ beforeEach(() => {
 })
 
 // Strip mux + harness-detection env so each test controls detection precisely.
-const MUX_ENV_KEYS = ['TMUX', 'TMUX_PANE', 'HERDR_ENV', 'HERDR_PANE_ID', 'CYBERLEGION_MUX', 'CYBERLEGION_MUX_PANE']
+const MUX_ENV_KEYS = [
+	'TMUX',
+	'TMUX_PANE',
+	'HERDR_ENV',
+	'HERDR_PANE_ID',
+	'CYBER_MUX',
+	'CYBER_MUX_PANE',
+	'CYBERLEGION_MUX',
+	'CYBERLEGION_MUX_PANE',
+]
 function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const merged = { ...process.env, ...env }
 	for (const k of Object.keys(merged)) {

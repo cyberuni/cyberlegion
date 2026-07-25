@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { selectSessionAdapter } from './console/index.ts'
-import type { SessionPlacement, SessionTarget } from './console/session.ts'
-import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from './console/worktree.ts'
+import { callerPane, type MuxPlacement, type MuxTarget } from 'cyber-mux'
+import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import {
 	type AgentRecord,
 	type Harness,
@@ -13,6 +12,8 @@ import {
 	resolveSelfId,
 	saveAgent,
 } from './identity.ts'
+import { normalizeMuxEnv } from './mux-env.ts'
+import { selectSessionAdapter } from './mux-select.ts'
 import { ensureMarker, paths, resolveUnitWorktreePath } from './paths.ts'
 
 /** How each harness's own CLI is launched in the new pane. */
@@ -83,7 +84,7 @@ export interface SpawnInput {
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
 	cwd?: string
 	/** Placement relative to the caller; defaults to 'tab'. */
-	at?: SessionPlacement
+	at?: MuxPlacement
 }
 
 export interface SpawnResult {
@@ -108,6 +109,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
 	const sessionAdapter = selectSessionAdapter(env, exec)
+	const normalizedEnv = normalizeMuxEnv(env)
 
 	const harness = input.harness as Harness | undefined
 	if (!harness || !(harness in LAUNCH_MAP)) {
@@ -126,10 +128,15 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const primaryRoot = resolvePrimaryRoot(exec)
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	const fullLaunch = `${muxEnvPrefix(sessionAdapter.name)}${launch}`
+	// A pane placement splits the CALLER's own pane, never whichever pane the backend defaults to —
+	// each backend's own default tracks the pane a HUMAN is looking at, which diverges exactly when a
+	// program is driving, which spawn always is (mux.feature: "a pane placement splits the calling
+	// pane, not whichever pane is active"). Ignored by tab/workspace opens, which split nothing.
+	const from = callerPane(sessionAdapter, normalizedEnv)
 
 	let cwd: string
 	let worktree: { root: string; branch: string } | null
-	let target: SessionTarget
+	let target: MuxTarget
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) {
 			throw new Error(`--cwd directory must already exist: ${input.cwd}`)
@@ -139,7 +146,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		worktree = null
 		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
 		// the caller opted into an existing dir, not into carving out an isolated space.
-		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at ?? 'tab' })
+		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at ?? 'tab', from })
 	} else {
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
 		// A spawn that CREATES A NEW WORKTREE gets its own isolated, VISIBLE space by default — the
@@ -150,11 +157,11 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
 		// the directory name lines up with what's already shown to the caller.
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
-		if (at === 'workspace' && sessionAdapter.openInNewWorktree) {
+		if (at === 'workspace' && sessionAdapter.worktree) {
 			// The backend can create the worktree and open its new workspace in one atomic call —
 			// a real organizational improvement (herdr nests the worktree under its source workspace)
 			// over a separate worktree-add followed by a disconnected open().
-			const opened = sessionAdapter.openInNewWorktree(exec, {
+			const opened = sessionAdapter.worktree.createInWorkspace(exec, {
 				primaryRoot,
 				branch,
 				path: worktreePath,
@@ -174,7 +181,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
 			cwd = added.root
 			worktree = added
-			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at })
+			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at, from })
 		}
 	}
 
@@ -203,14 +210,14 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 
 /**
  * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
- * multiplexer fast-path and never has to run its own ancestry discovery (`$CYBERLEGION_MUX` /
- * `$CYBERLEGION_MUX_PANE`). `VAR=val cmd` scopes the vars to that one process (and its children)
+ * multiplexer fast-path and never has to run its own ancestry discovery (`$CYBER_MUX` /
+ * `$CYBER_MUX_PANE`). `VAR=val cmd` scopes the vars to that one process (and its children)
  * without needing `export`. tmux natively sets `$TMUX_PANE` for a pane's own processes, so the
  * pane var is expanded by the child's own shell rather than baked in here.
  */
 function muxEnvPrefix(muxName: string): string {
-	if (muxName === 'tmux') return 'CYBERLEGION_MUX=tmux CYBERLEGION_MUX_PANE=$TMUX_PANE '
-	if (muxName === 'herdr') return 'CYBERLEGION_MUX=herdr '
+	if (muxName === 'tmux') return 'CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE '
+	if (muxName === 'herdr') return 'CYBER_MUX=herdr '
 	return ''
 }
 
@@ -238,7 +245,12 @@ export function clearUnit(ctx: IdContext, ref: string): ClearResult {
 	const command = resetCommandFor(agent.harness)
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
-	selectSessionAdapter(env, exec).send(exec, { id: pane }, command)
+	// `submit`, not `sendText` — cyber-mux's `sendText` types literal characters and presses NO Enter
+	// (the text is left staged in the pane's input box), while the old fork's `send()` this replaces
+	// typed the reset command AND pressed Enter atomically. A one-shot reset command has to actually
+	// run, so `submit(exec, target, text)` — "type text, then always press Enter" — is the equivalent
+	// primitive here, not `sendText`.
+	selectSessionAdapter(env, exec).submit(exec, { id: pane }, command)
 	return { agent, pane, command }
 }
 
