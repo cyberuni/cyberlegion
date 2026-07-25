@@ -43,7 +43,7 @@ without being told it, and discovering its live peers:
 - **Self-identity recovery has one source of truth per context, no shared file** — `resolveSelfId`
   first tries the pane-keyed pointer when the session is in a multiplexer pane, resolving "my pane id"
   mux-agnostically through the shared current-pane helper (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`,
-  and the `$CYBERLEGION_MUX_PANE` fast-path a spawn propagates); an unmapped pane resolves to
+  and the `$CYBER_MUX_PANE` fast-path a spawn propagates); an unmapped pane resolves to
   `undefined` and does NOT fall back further. Only when the session is in **no** multiplexer pane at
   all does it fall back to `$CYBERLEGION_AGENT_ID`. There is no shared bare `self` file — self-id is
   always pane-keyed or explicit via the env var.
@@ -91,7 +91,7 @@ without being told it, and discovering its live peers:
   only useful if it can act on what the mailbox delivers, and the caller's dispatch mechanism is its
   **own** multiplexer (this CLI has no subagent-spawning primitive by design — spawning is always the
   caller's). So the gate is a **checkable precondition**: probe the multiplexer (`mux`'s
-  `probeMultiplexer`, which already honors the `CYBERLEGION_MUX=none` override). A caller reporting
+  `probeMultiplexer`, which already honors the `CYBER_MUX=none` override). A caller reporting
   **no multiplexer** cannot open panes, so it **cannot claim** — `unit claim` throws and the pointer is
   left untouched. This is deliberately **not** an introspective carve-out about whether the caller is a
   subagent: a named subagent inside a real pane can spawn and may hold the presence, while a
@@ -154,7 +154,7 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 | **who lists peers** | single list command (folded `session list`): TOON list with a `pane` field; aggregate "N units"; empty is "0 units"; `--all` includes exited; top-level alias |
 | **bare status (AXI #8)** | no-subcommand prints compact self+harness+unread+live-units; exit 0 unregistered with a register next-step, never help+error |
 | **prune** | marks dead-pane/stale agents exited; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents |
-| **self-identity recovery** | pane pointer first, resolving "my pane" mux-agnostically (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`, plus the `$CYBERLEGION_MUX_PANE` fast-path); `$CYBERLEGION_AGENT_ID` only when in no multiplexer pane; unmapped pane doesn't fall through; no shared `self` file |
+| **self-identity recovery** | pane pointer first, resolving "my pane" mux-agnostically (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`, plus the `$CYBER_MUX_PANE` fast-path, and the legacy `$CYBERLEGION_MUX_PANE` transitionally); `$CYBERLEGION_AGENT_ID` only when in no multiplexer pane; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
 | **standing identity** | `unit register --standing` mints a handle-keyed, pane-less `kind: standing` record; idempotent; prune-exempt; listed by `who`; standing-precedence on handle collision; absent `kind` ⇒ session (no migration) |

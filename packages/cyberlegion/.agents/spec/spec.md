@@ -1,31 +1,19 @@
 ---
-status: implemented
+status: approved
 project-path: packages/cyberlegion
 approval:
-  impl:
-    verdict: approve
-    by: agent
-    cause: dimension
-    why:
-      floor: none — no frozen scenario narrowed; the spec tree is byte-identical to the spec-gate commit (judge-verified: code moved to the contract, never the reverse).
-      blast: low — 6 files in `src/`: a `presence` field on `AgentRecord`, `claimPresence`/`clearPresence`/`resolvePresence`/`presenceOf` in `identity.ts`, the `unit claim` verb, and the presence-first ring in `wakeRecipient`. With no presence bound, the standing-owner main-pane ring and its focus gate are byte-identical to before. 437 tests green; `pnpm verify` 21/21 on the rebased tree.
-      novelty: low — composes existing neutral primitives. The one new seam is `presenceOf()`: a throw-incapable read off an already-held record, which the doorbell must use because resolving by handle can throw.
-      confidence: high — two cold sdd-impl-judge rounds. R1 IMPLEMENTATION_PASS false: all 15 per-scenario checks green, but its orthogonal structural read reproduced a live violation of the frozen "never fails the send" contract (a concurrently-removed standing record crashed `mail send` after durable delivery), and mutation-proved the 2×2 Outline's test a weak discriminator (#211 class). Both fixed. R2 fresh-context PASS: re-ran both proofs, caught a second introspective gate (`spawnedBy`), mutation-tested every new behavior, no regression on the 4 pre-existing doorbell scenarios.
-      judge: cold sdd-impl-judge round 2 — IMPLEMENTATION_PASS true; 15/15 frozen scenarios PASS with independently re-derived oracles; metaphor grep clean.
-      hitl: self-asserted within leash on the owner's live-ratified design; the landing is the owner's at the PR. `Refs #212`, never `Closes` — #212 closes only when CR-C lands.
-      cr: github-212-standing-presence
   spec:
     verdict: approve
     by: agent
     cause: dimension
     why:
-      floor: none — 10 additive scenarios on `unit/registry/registry.feature` + 5 on `mail/doorbell/doorbell.feature` (gherkin-cli addOnly:true, 0 modified / 0 removed on both); both stay `@frozen`, no re-open.
-      blast: low — spec + suite only. `unit/registry` (presence pointer + spawn-capability gate + live-only resolution), `mail/doorbell` (presence-aware ring + focus-gated main-pane fallback), `attach` (README non-goal only). Composes existing neutral primitives (`kind: standing`, `probeMultiplexer`, the ratified peer-vs-human ring split).
-      novelty: low — the split falls out of already-ratified doctrine, not against it: the doorbell already rings a peer regardless of focus because "a peer is an agent expected to take the turn, not a human whose attention is the scarce resource". A bound presence IS an agent → inherits the peer rule; the focus gate (#172) stays on the human read-pane.
-      confidence: high — two cold sdd-spec-judge rounds. R1 ALIGNED false, 4 findings all accepted+fixed (a literal "seat" metaphor leak ×2; an internal-call assertion; an unfalsifiable subagent scenario → falsifiable 2×2 Outline; a pre-existing "ship" leak on an already-+line). R2 fresh-context ALIGNED true, all three lenses PASS, metaphor grep clean on every added line, addOnly independently re-verified.
-      judge: cold sdd-spec-judge round 2 — oracle/builder/architect all PASS; ALIGNED true; ship.
-      hitl: the two load-bearing decisions (handle `council`; presence split from the read-pane) were ratified live by the owner before drafting; the landing stays the owner's at the PR.
-      cr: github-212-standing-presence
+      floor: clearance — GRANTED LIVE by the owner before drafting. The namespace migration rewrites frozen scenarios on `mux/mux.feature` (gherkin-cli structural diff: 7 added / 3 modified / 3 removed; all 3 removed are retitles whose replacements are among the added, independently re-verified by the cold judge in rounds 2 and 4 — no behavior dropped). The owner selected the option whose statement named the frozen-scenario rewrite and the Clearance floor; that selection is the pre-authorization. Alternatives (keep the old namespace behind the package's `envPrefix` seam; block on a further upstream change) were presented and declined.
+      blast: medium — spec + suite only at this gate. One node rewritten (`mux/`, +3 required sections it never carried) and three prose lines retargeted on `unit/registry/` so the corpus does not document two different current namespaces. The implementation this contract admits is larger (a forked seam deleted, ~14 import sites retargeted), which is what the impl gate judges.
+      novelty: low — the contract barely moves. Detection, placement and focus reporting keep their existing scenarios; what changed is which env names carry the fast-path, plus two guards that fall out of consuming a package that detects more backends than this project can store.
+      confidence: high — four cold spec-judge rounds. R1 short-circuited on a governance pre-flight miss (producer had declared 1 of 7 bars). R2 ALIGNED false on two real defects: a pairwise-consistency contradiction (adding a precedence tier without excluding it in the lower-tier siblings' Givens) and knowledge duplication restating a sibling node's storable-set fact. R3 verified both fixed but failed architect on section order introduced by R2's own remediation. R4 ALIGNED true, re-deriving R2's fixes independently rather than deferring to R3.
+      judge: cold sdd-spec-judge round 4 — oracle/builder/architect all PASS; ALIGNED true; 26/26 scenarios clean; metaphor grep clean.
+      hitl: the load-bearing decision (migrate the namespace rather than adopt the compat seam) was ratified live by the owner before drafting, as was the choice not to file a new issue (#339 already covers this exactly). The landing stays the owner's at the PR.
+      cr: github-339-cyberlegion-on-cyber-mux
 ---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
