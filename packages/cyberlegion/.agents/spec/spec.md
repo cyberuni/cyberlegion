@@ -25,7 +25,8 @@ approval:
       confidence: high — four cold spec-judge rounds. R1 short-circuited on a governance pre-flight miss (producer had declared 1 of 7 bars). R2 ALIGNED false on two real defects: a pairwise-consistency contradiction (adding a precedence tier without excluding it in the lower-tier siblings' Givens) and knowledge duplication restating a sibling node's storable-set fact. R3 verified both fixed but failed architect on section order introduced by R2's own remediation. R4 ALIGNED true, re-deriving R2's fixes independently rather than deferring to R3.
       judge: cold sdd-spec-judge round 4 — oracle/builder/architect all PASS; ALIGNED true; 26/26 scenarios clean; metaphor grep clean.
       hitl: the load-bearing decision (migrate the namespace rather than adopt the compat seam) was ratified live by the owner before drafting, as was the choice not to file a new issue (#339 already covers this exactly). The landing stays the owner's at the PR.
-      cr: github-339-cyberlegion-on-cyber-mux---
+      cr: github-339-cyberlegion-on-cyber-mux
+---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
 
