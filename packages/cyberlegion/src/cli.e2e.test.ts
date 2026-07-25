@@ -678,6 +678,42 @@ describe('mux group', () => {
 		const out = legion(['mux', 'mode'])
 		expect(out).toContain('mode:')
 	})
+
+	// The two below run BEHIND A DETECTED MULTIPLEXER — the precondition the pair above never meets,
+	// because `baseEnv` strips every mux var unless the test passes one. Without them, the frozen
+	// scenarios "mux doctor reports the detected mux and prints a pin hint" and "mux mode reports the
+	// detected session backend" have no verification at all: the pair above assert only that a label
+	// is present, which a run reporting `none` satisfies just as well as a run that detected tmux.
+
+	it('doctor reports the detected mux and pane, and prints the pin hint', () => {
+		// The pin hint is an AXI next-step, so it rides stderr — read both streams or it is invisible.
+		const { stdout, stderr } = legionOut(['mux', 'doctor'], { CYBER_MUX: 'tmux', CYBER_MUX_PANE: '%3' })
+		expect(stdout).toContain('mux: tmux')
+		expect(stdout).toContain('pane: %3')
+		// via=env proves the fast-path was TRUSTED rather than the ancestry walk having run.
+		expect(stdout).toContain('via: env')
+		// The pin hint carries the CURRENT namespace — the whole user-visible half of the migration.
+		expect(stderr).toContain('export CYBER_MUX=tmux')
+		expect(stderr).not.toContain('CYBERLEGION_MUX=')
+	})
+
+	it('mode reports the detected session backend by name, not just a label', () => {
+		expect(legion(['mux', 'mode'], { CYBER_MUX: 'tmux', CYBER_MUX_PANE: '%3' })).toContain('mode: tmux')
+		expect(legion(['mux', 'mode'], { CYBER_MUX: 'herdr', CYBER_MUX_PANE: 'w1:p2' })).toContain('mode: herdr')
+	})
+
+	// The legacy pair drives the same two verbs, so a pane spawned before the namespace migration
+	// still resolves — and the hint it is told to pin is the CURRENT name, not the one it carries.
+	it('doctor honors the legacy fast-path pair and still pins the current namespace', () => {
+		const { stdout, stderr } = legionOut(['mux', 'doctor'], {
+			CYBERLEGION_MUX: 'herdr',
+			CYBERLEGION_MUX_PANE: 'w1:p2',
+		})
+		expect(stdout).toContain('mux: herdr')
+		expect(stdout).toContain('pane: w1:p2')
+		expect(stdout).toContain('via: env')
+		expect(stderr).toContain('export CYBER_MUX=herdr')
+	})
 })
 
 describe('admin group', () => {
