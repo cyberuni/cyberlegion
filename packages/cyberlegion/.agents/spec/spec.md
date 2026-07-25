@@ -1,7 +1,19 @@
 ---
-status: approved
+status: implemented
 project-path: packages/cyberlegion
 approval:
+  impl:
+    verdict: approve
+    by: agent
+    cause: dimension
+    why:
+      floor: none — no frozen scenario narrowed during deliver; the spec tree is byte-identical to the spec-gate commit (the code moved to the contract, never the reverse). The Clearance the spec gate carried was granted before drafting and is unchanged.
+      blast: medium — a forked seam deleted (7 modules, 77 tests), a published dependency added pinned exact, ~14 import sites retargeted, and a user-visible env-namespace migration. Contained by the transitional read: a pane spawned before this lands keeps its identity rather than silently losing it.
+      novelty: low — the mechanism is the package's and was already proven upstream; what is new here is three small seams encoding this project's own policy (the transitional env read, the unstorable-backend refusal, and naming the pane a split splits from).
+      confidence: high — three cold impl-judge rounds, each finding a real gap the previous had missed. R1: two scenarios with no verification at all, because the end-to-end harness strips the very environment they need. R2: eight MORE, proven by stubbing the installed dependency and watching all 378 tests still pass — the fork's deleted tests had been waved through as "covered upstream", which protects the package's behavior and not this project's contract. R3: all 26 mutation-killed individually, dependency restored byte-for-byte and checksum-verified against the published tarball.
+      judge: cold sdd-impl-judge round 3 — IMPLEMENTATION_PASS true; 26/26 frozen scenarios mutation-proven; no absorption findings; no structural blocker.
+      hitl: the namespace decision was the owner's, taken live before any drafting. Verified beyond the suite against a live multiplexer — a real spawn opened a real pane and worktree, mail delivered, and prune discriminated (reaping nothing while the pane lived, the record once it died). The landing stays the owner's at the PR.
+      cr: github-339-cyberlegion-on-cyber-mux
   spec:
     verdict: approve
     by: agent
@@ -13,8 +25,7 @@ approval:
       confidence: high — four cold spec-judge rounds. R1 short-circuited on a governance pre-flight miss (producer had declared 1 of 7 bars). R2 ALIGNED false on two real defects: a pairwise-consistency contradiction (adding a precedence tier without excluding it in the lower-tier siblings' Givens) and knowledge duplication restating a sibling node's storable-set fact. R3 verified both fixed but failed architect on section order introduced by R2's own remediation. R4 ALIGNED true, re-deriving R2's fixes independently rather than deferring to R3.
       judge: cold sdd-spec-judge round 4 — oracle/builder/architect all PASS; ALIGNED true; 26/26 scenarios clean; metaphor grep clean.
       hitl: the load-bearing decision (migrate the namespace rather than adopt the compat seam) was ratified live by the owner before drafting, as was the choice not to file a new issue (#339 already covers this exactly). The landing stays the owner's at the PR.
-      cr: github-339-cyberlegion-on-cyber-mux
----
+      cr: github-339-cyberlegion-on-cyber-mux---
 
 # cyberlegion — the CLI: harness-agnostic agent spawn and messaging
 
