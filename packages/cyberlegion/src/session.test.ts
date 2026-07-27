@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
-import { clearUnit, resetCommandFor, resolveBrief, spawn } from './session.ts'
+import { clearUnit, labelFor, resetCommandFor, resolveBrief, spawn } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -454,6 +454,18 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		}
 	}
 
+	// Bound directly, not only through a backend's arguments: cyber-mux names whatever tier `at`
+	// opens, so this gate is what keeps a tab spawn from renaming the caller's own tab.
+	it('labelFor resolves a label for a workspace placement and nothing at all for any other', () => {
+		const input = { harness: 'claude' as const, task: 'audit the governance provenance check' }
+		expect(labelFor('workspace', input, input.task, 'abc123def')).toEqual({
+			label: '9S-governance-provenance-check',
+		})
+		for (const at of ['tab', 'pane:right', 'pane:down'] as const) {
+			expect(Object.hasOwn(labelFor(at, input, input.task, 'abc123def'), 'label')).toBe(false)
+		}
+	})
+
 	it('a new-worktree spawn with no --at defaults to its own visible workspace (herdr nested worktree)', () => {
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'default-ws-unit')
@@ -480,7 +492,10 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 			return null
 		}
 		const res = spawn({ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
-		expect(calls[0]!.slice(0, 2)).toEqual(['new-window', '-d'])
+		// `-d` (background, visible) is asserted by presence, not position: a workspace spawn also
+		// carries a label now, and where the backend orders `-n <label>` against `-d` is its own affair.
+		expect(calls[0]![0]).toBe('new-window')
+		expect(calls[0]).toContain('-d')
 		expect(calls.some((c) => c[0] === 'new-session')).toBe(false)
 		expect(res.pane).toBe('%42')
 	})
@@ -619,5 +634,59 @@ describe('clear on a unit with no known session pane errors and sends nothing', 
 		registerUnit({ id: 'nopane1', pane: null })
 		expect(() => clearUnit(ctx(), 'nopane1')).toThrow(/no known session pane/)
 		expect(sent).toHaveLength(0)
+	})
+})
+
+// The handoff itself — which placements open under a resolved name — is the mux node's contract; what
+// the name SAYS is unit/lifecycle's (workspace-label.test.ts). These bind the mux scenarios.
+describe('spec:cyberlegion/mux', () => {
+	function herdrLabelExec(calls: string[][], worktreeRoot: string): Exec {
+		return (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) return ''
+				return null
+			}
+			calls.push(args)
+			if (args[0] === 'worktree' && args[1] === 'create') {
+				const branch = args[args.indexOf('--branch') + 1]
+				return JSON.stringify({
+					result: {
+						root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+						worktree: { branch, path: worktreeRoot },
+						workspace: { workspace_id: 'w9' },
+					},
+				})
+			}
+			if (args[0] === 'tab' && args[1] === 'create') {
+				return JSON.stringify({ result: { root_pane: { pane_id: 'w3:pT', tab_id: 'w3:pT' } } })
+			}
+			return null
+		}
+	}
+
+	it('a workspace placement opens under the label the legion resolved', () => {
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'labeled-unit')
+		spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrLabelExec(calls, worktreeRoot), now: () => 1 },
+			{ harness: 'claude', task: 'audit the governance provenance check', at: 'workspace' },
+		)
+		// Asserted as "the name reached the space-opening call", never as a flag spelling — how a
+		// backend writes a name onto its own tier is the multiplexer package's business, not this one's.
+		expect(calls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+		expect(calls[0]).toContain('9S-governance-provenance-check')
+	})
+
+	it('a pane or tab placement carries no name at all', () => {
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'tabbed-unit')
+		spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrLabelExec(calls, worktreeRoot), now: () => 1 },
+			// The same brief that names a workspace above — so what differs is the placement, not the brief.
+			{ harness: 'claude', task: 'audit the governance provenance check', at: 'tab' },
+		)
+		expect(calls[0]!.slice(0, 2)).toEqual(['tab', 'create'])
+		expect(calls[0]!.some((a) => a.startsWith('9S-'))).toBe(false)
 	})
 })

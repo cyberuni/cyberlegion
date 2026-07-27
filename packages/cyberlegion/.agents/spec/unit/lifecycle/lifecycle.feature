@@ -84,6 +84,64 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When unit spawn runs
     Then the session opens at workspace, not the --cwd default of tab
 
+  # ── A workspace placement is labeled so a human can find it by eye ──
+  # A unit's own visible space is what the human scans to locate a session, so spawn resolves a
+  # LABEL for it — `<code>-<subject>`, capped at 30 characters INCLUDING the code. The code is a
+  # NieR YoRHa unit class picked from the brief's leading action in one fixed order (A2 teardown,
+  # then 9S recon, else 2B), so the same brief always yields the same code. Only a `workspace`
+  # placement is named; the handoff of a resolved name onto the backend is mux/'s.
+
+  Scenario: a workspace spawn labels the space with a code and a subject drawn from the brief
+    Given a caller running unit spawn --at workspace --task "add a retry budget to the mail poller"
+    When unit spawn runs
+    Then the space is opened under the label 2B-retry-budget-to-the-mail
+    And the label is at most 30 characters including the code
+
+  Scenario Outline: the brief's leading action selects the code, in a fixed order
+    Given a caller running unit spawn --at workspace --task "<brief>"
+    When unit spawn runs
+    Then the space's label starts with <code>
+
+    Examples:
+      | brief                             | code |
+      | remove the dead reconcile branch  | A2-  |
+      | investigate the flaky mail wait   | 9S-  |
+      | rename the pane index to locator  | 2B-  |
+
+  Scenario: a matched leading action and article are dropped from the subject, never repeated in it
+    Given a caller running unit spawn --at workspace --task "audit the governance provenance check"
+    When unit spawn runs
+    Then the space is opened under the label 9S-governance-provenance-check
+    And the subject repeats neither the matched action word nor the article it led with
+
+  Scenario: a leading word that matches no action is kept — only a recognized action is dropped
+    Given a caller running unit spawn --at workspace --task "governance provenance check"
+    When unit spawn runs
+    Then the space is opened under the label 2B-governance-provenance-check
+    And the subject still leads with its own first noun
+
+  Scenario: a brief too long for the cap is cut at a word boundary, not mid-word
+    Given a caller running unit spawn --at workspace --task "refactor the session adapter placement resolution"
+    When unit spawn runs
+    Then the space is opened under the label 2B-session-adapter-placement
+    And the label ends on a whole word rather than a partial one
+
+  Scenario: --handle supplies the subject in place of the brief-derived one, and the code still comes from the brief
+    Given a caller running unit spawn --at workspace --handle scribe --task "diagnose the boot race"
+    When unit spawn runs
+    Then the space is opened under the label 9S-scribe
+
+  Scenario: a brief with no usable subject falls back to the unit's own short id
+    Given a caller running unit spawn --at workspace --task "!!! ???"
+    When unit spawn runs
+    Then the space is opened under a label whose subject is the unit's 6-character short id
+    And the label still carries a code
+
+  Scenario: no label is derived at all for a pane or tab placement
+    Given a caller running unit spawn --at tab --task "add a retry budget to the mail poller"
+    When unit spawn runs
+    Then no label is derived — a pane or tab opens into a space the caller is already in
+
   # ── Spawn into an existing dir without a worktree (--cwd) ──
 
   Scenario: --cwd spawns a session into an existing directory and creates no worktree

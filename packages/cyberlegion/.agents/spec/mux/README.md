@@ -72,6 +72,12 @@ session opens through, independent of any unit's identity or lifecycle:
   `tab create` — never a split pane. `workspace` maps to each backend's own **visible** space — herdr
   `worktree create` (a new workspace nested under the source), tmux `new-window` (a window visible in
   the status bar). Every placement opens without stealing the caller's focus.
+- **A `workspace` placement opens under a name the legion resolved** — *what* the name says is
+  [`unit/` lifecycle](../unit/lifecycle/README.md)'s; *how* a backend writes it onto its own tier is
+  the multiplexer package's. What this node holds it to is only the handoff: a `workspace` placement
+  opens under the resolved name, and a placement that opens into a space the caller is already in
+  (`pane:*`, `tab`) carries none — the backend names whatever tier it opens, so a name passed on a
+  `tab` would rename the caller's own tab rather than title a new space.
 - **Multiplexer detection is two-mode** — `probeMultiplexer` first trusts `$CYBER_MUX`
   (`tmux`|`herdr`|`screen`|`none`) outright — this doubles as an override (`=none` forces no-mux even
   inside a real multiplexer). Failing that it walks the process ancestry from `$$` looking for a
@@ -179,6 +185,8 @@ coverage, not duplication.
 | `workspace` → the backend's visible space | any bound adapter | `--at workspace opens the unit's own VISIBLE space on each backend` |
 | `workspace` → the backend's visible space | tmux, which has no Workspace tier | `tmux --at workspace opens a visible window in the current session, never a detached session` |
 | `workspace` → the backend's visible space | herdr, which has a Workspace tier | `herdr --at workspace creates its own workspace nested under the source` |
+| a resolved name → the space it opens | any bound adapter | `a workspace placement opens under the label the legion resolved` |
+| no name → a space the caller is already in | any bound adapter | `a pane or tab placement carries no name at all` |
 | `tab` → the backend's Tab primitive | any bound adapter | `--at tab opens a new tab in the current window, never a split pane` |
 | `tab` → the backend's Tab primitive | a caller currently focused elsewhere | `the tab placement opens in the background without stealing focus` |
 | unrecognized `--at` → reject | any bound adapter | `--at accepts only pane:right, pane:down, tab, and workspace` |

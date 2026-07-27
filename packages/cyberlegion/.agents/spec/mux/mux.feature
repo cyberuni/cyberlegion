@@ -89,6 +89,23 @@ Feature: mux — the unit-agnostic pane abstraction
     When unit spawn runs
     Then the herdr adapter creates a new workspace of its own, nested under the source workspace
 
+  # ── A workspace placement is opened under a name the legion resolved ──
+  # WHAT the name says is unit/lifecycle's; HOW a backend writes it onto its own tier is the
+  # multiplexer package's, not this contract's. What legion holds it to is only the handoff: a
+  # workspace placement opens under the resolved name, and a placement that opens into a space the
+  # caller is already in carries none — the backend names whatever tier it opens, so a label passed
+  # on a tab would rename the caller's own tab.
+
+  Scenario: a workspace placement opens under the label the legion resolved
+    Given spawn resolved the label 2B-retry-budget
+    When unit spawn --at workspace runs
+    Then the space-opening call carries 2B-retry-budget as the name for the space it opens
+
+  Scenario: a pane or tab placement carries no name at all
+    Given spawn resolved a label for a workspace placement
+    When unit spawn --at tab runs instead
+    Then the space-opening call carries no name, so the caller's own space keeps the name it had
+
   Scenario Outline: --at tab opens a new tab in the current window, never a split pane
     Given a caller running unit spawn --at tab with <env>
     When unit spawn runs
