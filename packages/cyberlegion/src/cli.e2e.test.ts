@@ -17,7 +17,16 @@ beforeEach(() => {
 // Strip any ambient multiplexer signal from the inherited env: these tests drive identity through
 // fresh registration or an explicit $CYBERLEGION_AGENT_ID, so a real tmux/herdr pane in the host
 // env (this suite may itself run inside one) must not key or override the caller's self-identity.
-const MUX_ENV_KEYS = ['TMUX', 'TMUX_PANE', 'HERDR_ENV', 'HERDR_PANE_ID', 'CYBERLEGION_MUX', 'CYBERLEGION_MUX_PANE']
+const MUX_ENV_KEYS = [
+	'TMUX',
+	'TMUX_PANE',
+	'HERDR_ENV',
+	'HERDR_PANE_ID',
+	'CYBER_MUX',
+	'CYBER_MUX_PANE',
+	'CYBERLEGION_MUX',
+	'CYBERLEGION_MUX_PANE',
+]
 function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const merged = { ...process.env, ...env }
 	for (const k of MUX_ENV_KEYS) if (!(k in env)) delete merged[k]
@@ -135,10 +144,10 @@ describe('spec:cyberlegion/unit', () => {
 	})
 
 	describe('standing owner presence — unit claim', () => {
-		// The caller's pane + multiplexer in one env: $CYBERLEGION_MUX is the override probeMultiplexer
+		// The caller's pane + multiplexer in one env: $CYBER_MUX is the override probeMultiplexer
 		// trusts outright (so the claim's spawn-capability gate passes with no real mux), and
-		// $CYBERLEGION_MUX_PANE is the fast-path pane that keys the caller's own self-id.
-		const claimEnv = (pane: string) => ({ CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane })
+		// $CYBER_MUX_PANE is the fast-path pane that keys the caller's own self-id.
+		const claimEnv = (pane: string) => ({ CYBER_MUX: 'tmux', CYBER_MUX_PANE: pane })
 
 		/** A registered caller in its own pane — the unit a claim binds as the presence. */
 		const caller = (handle: string, pane: string) => {
@@ -201,7 +210,7 @@ describe('spec:cyberlegion/unit', () => {
 
 		it('unit claim throws when the caller reports no multiplexer', () => {
 			legion(['unit', 'register', '--standing', '--handle', 'homa'])
-			const noMux = { CYBERLEGION_MUX: 'none', CYBERLEGION_AGENT_ID: 'lone1' }
+			const noMux = { CYBER_MUX: 'none', CYBERLEGION_AGENT_ID: 'lone1' }
 			legion(['unit', 'register', '--harness', 'claude', '--handle', 'lone'], noMux)
 			expect(() => legion(['unit', 'claim', 'homa'], noMux)).toThrow()
 			const { stderr } = legionOut(['unit', 'claim', 'homa'], noMux)
@@ -523,7 +532,7 @@ describe('the standing owner mailbox — mail --owner', () => {
 // no ring is attempted and no warning appears. The slow baseline send exhausts nudge's retry cap
 // (~4s), hence the widened timeouts.
 describe('spec:cyberlegion/mail/doorbell — CLI --no-nudge', () => {
-	const muxEnv = { CYBERLEGION_MUX: 'tmux' }
+	const muxEnv = { CYBER_MUX: 'tmux' }
 
 	it('--no-nudge suppresses the delivery doorbell to a peer (the flag reaches the behavior)', () => {
 		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
@@ -658,7 +667,7 @@ describe('agent group', () => {
 	})
 })
 
-describe('mux group', () => {
+describe('spec:cyberlegion/mux', () => {
 	it('doctor reports harness, mux, hub root, and self-id', () => {
 		const out = legion(['mux', 'doctor'])
 		expect(out).toContain('hubRoot:')
@@ -668,6 +677,52 @@ describe('mux group', () => {
 	it('mode reports the detected session-backend mode', () => {
 		const out = legion(['mux', 'mode'])
 		expect(out).toContain('mode:')
+	})
+
+	// "mux mode reports none when no backend is selectable" — the pair above only proves a `mode:`
+	// label prints, which a run that genuinely detects tmux/herdr satisfies just as well as `none`.
+	// baseEnv only strips env vars, not real process ancestry, so a bare invocation still resolves
+	// truthfully on a machine that is itself inside a real multiplexer. CYBER_MUX=none is the
+	// frozen override — it forces the none-branch host-independently without touching ancestry at
+	// all, giving a deterministic value assertion instead of a presence-only one.
+	it('mode reports none when no backend is selectable', () => {
+		expect(legion(['mux', 'mode'], { CYBER_MUX: 'none' })).toContain('mode: none')
+	})
+
+	// The two below run BEHIND A DETECTED MULTIPLEXER — the precondition the pair above never meets,
+	// because `baseEnv` strips every mux var unless the test passes one. Without them, the frozen
+	// scenarios "mux doctor reports the detected mux and prints a pin hint" and "mux mode reports the
+	// detected session backend" have no verification at all: the pair above assert only that a label
+	// is present, which a run reporting `none` satisfies just as well as a run that detected tmux.
+
+	it('doctor reports the detected mux and pane, and prints the pin hint', () => {
+		// The pin hint is an AXI next-step, so it rides stderr — read both streams or it is invisible.
+		const { stdout, stderr } = legionOut(['mux', 'doctor'], { CYBER_MUX: 'tmux', CYBER_MUX_PANE: '%3' })
+		expect(stdout).toContain('mux: tmux')
+		expect(stdout).toContain('pane: %3')
+		// via=env proves the fast-path was TRUSTED rather than the ancestry walk having run.
+		expect(stdout).toContain('via: env')
+		// The pin hint carries the CURRENT namespace — the whole user-visible half of the migration.
+		expect(stderr).toContain('export CYBER_MUX=tmux')
+		expect(stderr).not.toContain('CYBERLEGION_MUX=')
+	})
+
+	it('mode reports the detected session backend by name, not just a label', () => {
+		expect(legion(['mux', 'mode'], { CYBER_MUX: 'tmux', CYBER_MUX_PANE: '%3' })).toContain('mode: tmux')
+		expect(legion(['mux', 'mode'], { CYBER_MUX: 'herdr', CYBER_MUX_PANE: 'w1:p2' })).toContain('mode: herdr')
+	})
+
+	// The legacy pair drives the same two verbs, so a pane spawned before the namespace migration
+	// still resolves — and the hint it is told to pin is the CURRENT name, not the one it carries.
+	it('doctor honors the legacy fast-path pair and still pins the current namespace', () => {
+		const { stdout, stderr } = legionOut(['mux', 'doctor'], {
+			CYBERLEGION_MUX: 'herdr',
+			CYBERLEGION_MUX_PANE: 'w1:p2',
+		})
+		expect(stdout).toContain('mux: herdr')
+		expect(stdout).toContain('pane: w1:p2')
+		expect(stdout).toContain('via: env')
+		expect(stderr).toContain('export CYBER_MUX=herdr')
 	})
 })
 

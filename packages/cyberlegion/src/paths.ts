@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { resolvePrimaryRoot } from './console/worktree.ts'
+import { resolvePrimaryRoot } from 'cyber-mux/worktree'
 
 /** The tracked marker file that makes a hub root initialized (see ensureMarker). */
 const MARKER_FILE = 'config.json'

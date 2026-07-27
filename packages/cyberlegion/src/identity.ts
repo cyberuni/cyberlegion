@@ -1,24 +1,37 @@
-import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { basename } from 'node:path'
-import { currentPane, type PaneMux, probeMultiplexer } from './console/mux-probe.ts'
-import { herdrSessionAdapter } from './console/session.herdr.ts'
-import { tmuxSessionAdapter } from './console/session.tmux.ts'
-import type { LivePane } from './console/session.ts'
+import {
+	currentPane,
+	type Exec,
+	herdrMuxAdapter,
+	type LivePane,
+	nodeExec,
+	probeMultiplexer,
+	tmuxMuxAdapter,
+} from 'cyber-mux'
+import { normalizeMuxEnv } from './mux-env.ts'
 import { sanitizePane } from './paths.ts'
 import type { AgentRecord, Harness, Store } from './store/store.ts'
 
+// The cyber-mux package now owns the synchronous command-runner seam; re-exported under the same
+// names (`Exec`/`realExec`) so this public façade is unchanged for every existing consumer.
+export type { Exec } from 'cyber-mux'
 export type { AgentRecord, Harness } from './store/store.ts'
+export const realExec = nodeExec
 
-/** Runs a command synchronously; returns trimmed stdout, or null on any failure. */
-export type Exec = (cmd: string, args: string[]) => string | null
+/** The two backends `unit/registry`'s `AgentRecord.pane` can carry a locator under — narrower than
+ * cyber-mux's own `PaneMux` (which also spans wezterm/zellij). Never widened here (mux.feature: "a
+ * detected backend a unit record cannot carry is refused before opening anything") — the store's own
+ * `pane.mux` type is the enforcement, this is just its local name. */
+type StorablePaneMux = 'tmux' | 'herdr'
 
-export const realExec: Exec = (cmd, args) => {
-	try {
-		return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-	} catch {
-		return null
-	}
+/** `currentPane`, narrowed to a backend the registry can actually store a locator under. A caller
+ * inside a pane-carrying-but-unstorable multiplexer (wezterm/zellij) is simply unpaned here — it can
+ * still resolve an identity via the `$CYBERLEGION_AGENT_ID` env fallback, it just cannot bind a pane
+ * locator to it. */
+function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pane: string } | undefined {
+	const cur = currentPane(normalizeMuxEnv(env))
+	return cur && (cur.mux === 'tmux' || cur.mux === 'herdr') ? { mux: cur.mux, pane: cur.pane } : undefined
 }
 
 export interface IdContext {
@@ -75,7 +88,7 @@ export function detectHarness(explicit: string | undefined, ctx: IdContext): Har
  */
 export function resolveSelfId(ctx: IdContext): string | undefined {
 	const env = ctx.env ?? process.env
-	const cur = currentPane(env)
+	const cur = currentPane(normalizeMuxEnv(env))
 	if (cur) return ctx.store.resolvePaneId(cur.pane)
 	return env.CYBERLEGION_AGENT_ID || undefined
 }
@@ -99,7 +112,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 	// only mint a fresh id when nothing self-identifies (a fresh tmux pane).
 	const id = existing?.id ?? existingId ?? randomId()
 	const ts = nowIso(ctx)
-	const cur = currentPane(env)
+	const cur = storablePane(env)
 	const exec = ctx.exec ?? realExec
 
 	const rec: AgentRecord = {
@@ -123,7 +136,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 /** Build the record's pane locator. `window`/`session` are tmux-only (herdr's pane id is
  * self-contained and its CLI needs nothing more to address a pane). */
 function paneLocator(
-	cur: { mux: PaneMux; pane: string },
+	cur: { mux: StorablePaneMux; pane: string },
 	exec: Exec,
 	env: NodeJS.ProcessEnv,
 ): NonNullable<AgentRecord['pane']> {
@@ -234,7 +247,7 @@ export function claimPresence(ctx: IdContext, handle: string): AgentRecord {
 	// Gated on spawn capability, not on what kind of agent asks: a caller with no multiplexer has no
 	// dispatch mechanism to act on what the mailbox delivers, so it cannot claim — checked BEFORE any
 	// write, leaving the pointer untouched. Never introspect whether the caller is a subagent/fork.
-	const probe = probeMultiplexer(ctx.exec ?? realExec, ctx.env ?? process.env)
+	const probe = probeMultiplexer(ctx.exec ?? realExec, normalizeMuxEnv(ctx.env ?? process.env))
 	if (probe.mux === 'none') {
 		throw new Error('claiming a presence needs a multiplexer to open panes')
 	}
@@ -344,7 +357,7 @@ const STALE_MS = 15 * 60 * 1000
 
 /** The per-mux session adapters `prune` consults for pane liveness — each answers with its own
  * backend primitive so a herdr pane is never probed with a tmux query, and vice versa. */
-const PANE_ADAPTERS = { tmux: tmuxSessionAdapter, herdr: herdrSessionAdapter } as const
+const PANE_ADAPTERS = { tmux: tmuxMuxAdapter, herdr: herdrMuxAdapter } as const
 
 /** Map a backend-reported agent string to a known harness — substring-matched like the tmux
  * pane-command probe in `detectHarness`; anything else is unclassifiable. */
@@ -369,6 +382,10 @@ function adopt(ctx: IdContext, panes: LivePane[]): AgentRecord[] {
 	const agents = listAgents(ctx.store)
 	const adopted: AgentRecord[] = []
 	for (const pane of panes) {
+		// PANE_ADAPTERS only ever calls listPanes on the tmux/herdr adapters, so pane.mux is always one
+		// of those two at runtime — narrowed explicitly since cyber-mux's LivePane.mux also spans
+		// wezterm/zellij and AgentRecord.pane.mux must never widen to carry them (mux.feature).
+		if (pane.mux !== 'tmux' && pane.mux !== 'herdr') continue
 		const harness = harnessFromAgent(pane.harness)
 		if (!harness) continue
 		const boundId = ctx.store.resolvePaneId(pane.id)
@@ -404,7 +421,7 @@ function adopt(ctx: IdContext, panes: LivePane[]): AgentRecord[] {
 export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentRecord[] {
 	const exec = ctx.exec ?? realExec
 	const env = ctx.env ?? process.env
-	const cur = currentPane(env)
+	const cur = storablePane(env)
 	if (!cur) return []
 	const panes = PANE_ADAPTERS[cur.mux].listPanes(exec)
 	const live = new Set(panes.map((p) => p.id))

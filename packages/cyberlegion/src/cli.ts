@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
+import { currentPane, nudge, probeMultiplexer } from 'cyber-mux'
 import { migrateStore } from './admin.ts'
 import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { DELIVERY_DOORBELL, wakeRecipient, wakeSpawn } from './console/doorbell.ts'
-import { selectSessionAdapter } from './console/index.ts'
-import { currentPane, probeMultiplexer } from './console/mux-probe.ts'
-import { nudge } from './console/nudge.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
@@ -31,6 +29,8 @@ import {
 } from './identity.ts'
 import { install } from './install.ts'
 import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send } from './message.ts'
+import { normalizeMuxEnv } from './mux-env.ts'
+import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
@@ -719,7 +719,7 @@ withGlobals(mux.command('doctor'))
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		const harness = detectHarness(undefined, ctx) ?? 'unknown'
-		const probe = probeMultiplexer(ctx.exec ?? realExec, ctx.env ?? process.env)
+		const probe = probeMultiplexer(ctx.exec ?? realExec, normalizeMuxEnv(ctx.env ?? process.env))
 		const selfId = resolveSelfId(ctx) ?? '-'
 		emit(formatOf(opts), {
 			toon: toonObject({ harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId }),
@@ -727,7 +727,7 @@ withGlobals(mux.command('doctor'))
 		})
 		if (probe.mux !== 'none') {
 			nextStep(
-				`export CYBERLEGION_MUX=${probe.mux}${probe.pane ? ` CYBERLEGION_MUX_PANE=${probe.pane}` : ''}` +
+				`export CYBER_MUX=${probe.mux}${probe.pane ? ` CYBER_MUX_PANE=${probe.pane}` : ''}` +
 					' — pin the fast-path, skip ancestry discovery on later calls',
 			)
 		}
@@ -766,7 +766,7 @@ withGlobals(program.command('attach'))
 			emit(formatOf(opts), { toon: toonObject({ mainPane: 'none' }), json: { mainPane: null } })
 			return
 		}
-		const cur = currentPane(ctx.env ?? process.env)
+		const cur = currentPane(normalizeMuxEnv(ctx.env ?? process.env))
 		if (!cur) fail('no multiplexer pane to bind — run this from inside a tmux or herdr pane')
 		ctx.store.setMainPane(cur.pane)
 		emit(formatOf(opts), { toon: toonObject({ mainPane: cur.pane }), json: { mainPane: cur.pane } })

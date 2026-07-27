@@ -1,16 +1,17 @@
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { MuxAdapter } from 'cyber-mux'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Exec } from '../identity.ts'
 import { claimPresence, registerStanding, saveAgent } from '../identity.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
 import { DELIVERY_DOORBELL, SPAWN_DOORBELL, wakeRecipient, wakeSpawn } from './doorbell.ts'
-import type { SessionAdapter } from './session.ts'
 
 // spec: mail/doorbell/doorbell.feature — one test per frozen scenario, unit-level with a fake
-// SessionAdapter (mirrors console/nudge.test.ts's fakeAdapter: reads queue + send/submit spies).
+// MuxAdapter (mirrors cyber-mux's own nudge.test.ts fakeAdapter: reads queue + submit spy, text vs
+// bare-flush distinguished by whether `submit` was called with text).
 
 let store: FileStore
 beforeEach(() => {
@@ -31,7 +32,12 @@ const SCROLLED_OUT = [
 ].join('\n')
 
 /**
- * A fake adapter whose `read` returns queued values across successive calls (send/submit are spies).
+ * A fake adapter whose `read` returns queued values across successive calls. cyber-mux's `nudge`
+ * calls `submit(exec, target, text)` once with the message (typed-plus-Enter) and, on every re-submit
+ * to flush a staged buffer, `submit(exec, target)` with no text (bare Enter) — the fake splits those
+ * into `sendCalls`/`submitCalls` on exactly that distinction, so existing assertions ("rang exactly
+ * once", "flushed the staged buffer") read the same as before the migration.
+ *
  * `isPaneFocused` returns `focused` verbatim — omit it for the unknown/fail-open path (rings), or pass
  * `true`/`false` to exercise the doorbell's focus gate. No default: an omitted arg is genuinely
  * `undefined` (unknown), so passing `undefined` explicitly reaches the same path rather than a default.
@@ -39,22 +45,31 @@ const SCROLLED_OUT = [
 function fakeAdapter(
 	reads: string[],
 	focused?: boolean,
-): { adapter: SessionAdapter; sendCalls: string[]; submitCalls: number[] } {
+): { adapter: MuxAdapter; sendCalls: string[]; submitCalls: number[] } {
 	const sendCalls: string[] = []
 	let submitCount = 0
 	const submitCalls: number[] = []
 	let readIndex = 0
-	const adapter: SessionAdapter = {
+	const adapter: MuxAdapter = {
 		name: 'fake',
 		open: () => {
 			throw new Error('not used')
 		},
-		send: (_exec, _t, text) => {
-			sendCalls.push(text)
+		rename: () => {},
+		group: () => {},
+		sendText: () => {
+			throw new Error('not used')
 		},
-		submit: () => {
-			submitCount++
-			submitCalls.push(submitCount)
+		sendKeys: () => {
+			throw new Error('not used')
+		},
+		submit: (_exec, _t, text) => {
+			if (text) {
+				sendCalls.push(text)
+			} else {
+				submitCount++
+				submitCalls.push(submitCount)
+			}
 		},
 		read: () => {
 			const value = reads[Math.min(readIndex, reads.length - 1)] ?? ''
@@ -218,14 +233,14 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
 	})
 
-	// A presence unit is bound via `claimPresence`, keying self-id off the $CYBERLEGION_MUX_PANE
-	// fast-path (mirrors identity.test.ts's own presence fixtures) so the pane it claims from is the
-	// exact pane `paneOf` resolves back through the unit's own record.
+	// A presence unit is bound via `claimPresence`, keying self-id off the $CYBER_MUX_PANE fast-path
+	// (mirrors identity.test.ts's own presence fixtures) so the pane it claims from is the exact pane
+	// `paneOf` resolves back through the unit's own record.
 	function presenceUnit(id: string, ownerHandle: string, pane: string): AgentRecord {
 		const rec = peer(id, pane)
 		store.putPaneIndex(pane, id) // resolveSelfId (inside claimPresence) resolves via the pane index
 		claimPresence(
-			{ store, env: { CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane }, exec, now: () => 1_700_000_000_000 },
+			{ store, env: { CYBER_MUX: 'tmux', CYBER_MUX_PANE: pane }, exec, now: () => 1_700_000_000_000 },
 			ownerHandle,
 		)
 		return rec
