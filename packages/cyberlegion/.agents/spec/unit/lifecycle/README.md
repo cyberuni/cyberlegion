@@ -42,6 +42,22 @@ cleanly — the deterministic inverse pair:
     into an existing space, so with no `--at` it defaults to a `tab` in the caller's current space. An
     explicit `--at` always overrides the mode default (either direction). This keeps a bare `unit
     spawn` doing the right thing on any mux without the caller naming a mux-specific placement.
+  - **A `workspace` placement is labeled so a human can find it by eye** — a unit's own visible space
+    is what the human scans to locate a session, so spawn resolves a **label** for it and hands it to
+    `mux/`: `<code>-<subject>`, capped at **30 characters including the code**. The **code** is a NieR
+    YoRHa unit class chosen from the brief's leading action word in one fixed order — `A2-` when the
+    action tears down or reverts, else `9S-` when it is read-only recon (investigate / audit / review
+    / diagnose and kin), else `2B-`, the build-and-change class, which is also the code for a brief
+    whose leading word matches no action at all — so the same brief always yields the same code. The
+    **subject** is `--handle` when the caller gave one (already the human's own short name for the
+    unit), otherwise the brief's first non-empty line: lowercased, a **recognized** action word and
+    any leading article dropped (the code already carries the action — an **unrecognized** leading
+    word is kept, since it is the subject's own first noun), every run of
+    non-alphanumerics collapsed to a single `-`, then whole `-`-separated words taken greedily while
+    they fit the remaining budget, so the label ends on a whole word rather than mid-word. A subject
+    that survives none of that falls back to the unit's own 6-character short id — the same slice the
+    default handle uses — so a label is always resolvable and always carries a code. Only a
+    `workspace` placement is labeled; `pane:*` and `tab` pass none.
   - **The brief is delivered by file, never typed** — the resolved brief text is written to the peer's
     own brief file in the hub, never appended to the typed launch command.
   - **Spawn delivers the peer's first turn — a fresh paned session boots idle otherwise** — for a

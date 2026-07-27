@@ -15,6 +15,7 @@ import {
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 import { ensureMarker, paths, resolveUnitWorktreePath } from './paths.ts'
+import { deriveWorkspaceLabel } from './workspace-label.ts'
 
 /** How each harness's own CLI is launched in the new pane. */
 export const LAUNCH_MAP: Record<Harness, string> = {
@@ -146,7 +147,8 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		worktree = null
 		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
 		// the caller opted into an existing dir, not into carving out an isolated space.
-		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at: input.at ?? 'tab', from })
+		const at = input.at ?? 'tab'
+		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at, from, ...labelFor(at, input, brief, id) })
 	} else {
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
 		// A spawn that CREATES A NEW WORKTREE gets its own isolated, VISIBLE space by default — the
@@ -166,6 +168,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 				branch,
 				path: worktreePath,
 				launch: fullLaunch,
+				...labelFor(at, input, brief, id),
 			})
 			assertDistinctFromPrimary(opened.worktree.root, primaryRoot)
 			ensureMarker(join(opened.worktree.root, '.agents', 'cyberlegion'))
@@ -181,7 +184,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
 			cwd = added.root
 			worktree = added
-			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at, from })
+			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at, from, ...labelFor(at, input, brief, id) })
 		}
 	}
 
@@ -206,6 +209,27 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.writeBrief(id, brief)
 
 	return { agent: rec, pane: target.id, launch }
+}
+
+/**
+ * The label a `workspace` placement opens under — the short human-scannable name that makes a unit's
+ * own visible space findable by eye (`console/workspace-label.ts` owns the naming rule). Only the
+ * `workspace` placement carries one: a pane or tab lives inside a space the caller is already
+ * looking at, so it has nothing of its own to name. Spread into the adapter options, so a
+ * non-workspace placement passes no `label` key at all rather than an explicit `undefined`.
+ *
+ * The gate is load-bearing, not defensive: cyber-mux names whatever tier `at` opens — a workspace,
+ * a tab, or a pane — so passing a label on a `tab` placement would rename the caller's own tab.
+ * Exported so that gate is tested directly rather than only through a backend's arguments.
+ */
+export function labelFor(
+	at: MuxPlacement,
+	input: SpawnInput,
+	brief: string,
+	id: string,
+): { label: string } | Record<string, never> {
+	if (at !== 'workspace') return {}
+	return { label: deriveWorkspaceLabel({ brief, handle: input.handle, id }) }
 }
 
 /**
