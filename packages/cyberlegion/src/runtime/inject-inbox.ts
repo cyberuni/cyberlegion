@@ -1,6 +1,7 @@
-import { currentPane } from '../console/mux-probe.ts'
+import { currentPane } from 'cyber-mux'
 import { type IdContext, listAgents, loadAgent, register, resolveSelfId, saveAgent } from '../identity.ts'
 import { inbox } from '../message.ts'
+import { normalizeMuxEnv } from '../mux-env.ts'
 
 export type HookEvent = 'SessionStart' | 'PostToolUse'
 const EVENTS: HookEvent[] = ['SessionStart', 'PostToolUse']
@@ -23,7 +24,7 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 		// No identity yet. If the session IS in a live multiplexer pane, self-register it here so a
 		// human who never ran `unit register` still gets a first-class hub presence. Best-effort:
 		// a register failure (e.g. no detectable harness) must never fail the harness turn.
-		if (currentPane(ctx.env ?? process.env)) {
+		if (currentPane(normalizeMuxEnv(ctx.env ?? process.env))) {
 			try {
 				register(ctx, {})
 				meId = resolveSelfId(ctx)
@@ -53,7 +54,7 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 		parts.push(`## Unread mail (${unread.length})\n\n${lines.join('\n')}`)
 	}
 
-	const cur = currentPane(ctx.env ?? process.env)
+	const cur = currentPane(normalizeMuxEnv(ctx.env ?? process.env))
 
 	// Owner mail — a top-level session (no spawnedBy: not a legion-spawned unit) also surfaces every
 	// standing owner's unread mail, read-only, so a human roaming across sessions sees a frameless

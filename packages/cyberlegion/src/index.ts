@@ -6,15 +6,14 @@
 // Keep this narrow and intentional: the domain types + Store seam + the reusable operations, never
 // internal helpers.
 
+// ── cyber-mux re-exports (the pane-mechanism package this node depends on one-way) ───────────────
+export type { MuxProbe } from 'cyber-mux'
+export { probeMultiplexer } from 'cyber-mux'
+export { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 export { realizeLaunch } from './agentdef/realize.ts'
 // ── Agent definitions ──────────────────────────────────────────────────────────────────────────
 export type { AgentDef } from './agentdef/resolve.ts'
 export { listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
-export { selectSessionAdapter } from './console/index.ts'
-// ── Wake ───────────────────────────────────────────────────────────────────────────────────────
-export type { MuxProbe } from './console/mux-probe.ts'
-export { probeMultiplexer } from './console/mux-probe.ts'
-export { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from './console/worktree.ts'
 export type { DecommissionInput, DecommissionResult } from './decommission.ts'
 export { decommission } from './decommission.ts'
 // ── Identity + registry ────────────────────────────────────────────────────────────────────────
@@ -36,6 +35,8 @@ export { install } from './install.ts'
 // ── Mail ───────────────────────────────────────────────────────────────────────────────────────
 export type { InboxItem, InboxQuery, SendInput } from './message.ts'
 export { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts'
+// ── Mux (the pane layer, ADR-0024/ADR-0021 — mechanism is the cyber-mux package) ─────────────────
+export { selectSessionAdapter } from './mux-select.ts'
 // ── AXI output helpers (so a sibling emits the same TOON/next-step contract) ─────────────────────
 export type { Format } from './output.ts'
 export { emit, fail, nextStep, toonList, toonObject } from './output.ts'

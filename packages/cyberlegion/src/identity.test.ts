@@ -560,11 +560,11 @@ describe('spec:cyberlegion/identity', () => {
 	})
 
 	describe('standing owner presence', () => {
-		// A caller's multiplexer, keyed via the $CYBERLEGION_MUX fast-path probeMultiplexer trusts
-		// outright ('none' is the override that drives the "reports none" fixture; 'tmux' pairs with
-		// $CYBERLEGION_MUX_PANE so both probeMultiplexer and currentPane/resolveSelfId agree on the pane).
+		// A caller's multiplexer, keyed via the $CYBER_MUX fast-path probeMultiplexer trusts outright
+		// ('none' is the override that drives the "reports none" fixture; 'tmux' pairs with
+		// $CYBER_MUX_PANE so both probeMultiplexer and currentPane/resolveSelfId agree on the pane).
 		const muxEnv = (mux: 'tmux' | 'none', pane = '%1') =>
-			mux === 'none' ? { CYBERLEGION_MUX: 'none' } : { CYBERLEGION_MUX: 'tmux', CYBERLEGION_MUX_PANE: pane }
+			mux === 'none' ? { CYBER_MUX: 'none' } : { CYBER_MUX: 'tmux', CYBER_MUX_PANE: pane }
 
 		it("unit claim binds the caller's unit as a standing owner's presence", () => {
 			registerStanding(ctx({}), { handle: 'homa' })
@@ -629,7 +629,7 @@ describe('spec:cyberlegion/identity', () => {
 		 * How the caller was REALIZED, as signals a would-be introspective gate could actually branch on
 		 * — the harness-detection env markers identity.ts itself already probes, plus the `spawnedBy`
 		 * field a derived caller carries on its record. Deliberately disjoint from the probe signal
-		 * ($CYBERLEGION_MUX): neither marker moves `probeMultiplexer`'s answer, so the two columns of the
+		 * ($CYBER_MUX): neither marker moves `probeMultiplexer`'s answer, so the two columns of the
 		 * Outline vary independently and the invariance across realization is an earned claim.
 		 */
 		const realizationEnv = (realization: 'a named subagent' | 'a plain session') =>

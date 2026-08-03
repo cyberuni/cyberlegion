@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { selectSessionAdapter } from './console/index.ts'
-import { gitWorktreeAdapter, resolvePrimaryRoot } from './console/worktree.ts'
+import { gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, realExec } from './identity.ts'
+import { selectSessionAdapter } from './mux-select.ts'
 
 export interface DecommissionInput {
 	id: string

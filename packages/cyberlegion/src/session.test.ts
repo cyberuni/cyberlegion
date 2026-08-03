@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
-import { clearUnit, resetCommandFor, resolveBrief, spawn } from './session.ts'
+import { clearUnit, labelFor, resetCommandFor, resolveBrief, spawn } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -20,6 +20,7 @@ beforeEach(() => {
 	worktreeAddCalls = []
 })
 
+// tmux `open` asks for `#{pane_id}\t#{window_id}` (tab-separated — `OpenedPane.tab` is required).
 const fakeExec: Exec = (cmd, args) => {
 	if (cmd === 'git') {
 		if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
@@ -29,7 +30,7 @@ const fakeExec: Exec = (cmd, args) => {
 		}
 		return null
 	}
-	if (args[0] === 'split-window') return '%9'
+	if (args[0] === 'split-window' || args[0] === 'new-window') return '%9\t@1'
 	if (args[0] === 'send-keys') sent.push(args)
 	return null
 }
@@ -78,14 +79,11 @@ describe('per-harness launch', () => {
 		const res = spawn(ctx(), { harness, task: 't', at: 'pane:right' })
 		expect(res.launch).toBe(launch)
 		// The mux fast-path env is prefixed onto the typed launch command, so the spawned peer
-		// inherits it and never re-runs its own ancestry discovery.
-		expect(sent.at(-1)).toEqual([
-			'send-keys',
-			'-t',
-			'%9',
-			`CYBERLEGION_MUX=tmux CYBERLEGION_MUX_PANE=$TMUX_PANE ${launch}`,
-			'Enter',
-		])
+		// inherits it and never re-runs its own ancestry discovery. cyber-mux's `submit(text)` composes
+		// two tmux calls (no atomic literal-text-plus-Enter primitive): a literal `-l` type, then a
+		// bare Enter.
+		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', `CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE ${launch}`])
+		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
 	})
 })
 
@@ -136,7 +134,7 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			}
 			if (args[0] === 'split-window') {
 				openCalls.push(args)
-				return '%9'
+				return '%9\t@1'
 			}
 			return null
 		}
@@ -145,7 +143,7 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			{ harness: 'claude', task: 't', at: 'pane:right' },
 		)
 		const expectedPath = expectedWorktreePath(res.agent.id)
-		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', expectedPath, '-P', '-F', '#{pane_id}'])
+		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', expectedPath, '-P', '-F', '#{pane_id}\t#{window_id}'])
 	})
 
 	it('accepts an explicit --branch and --worktree-path', () => {
@@ -212,7 +210,7 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 			}
 			if (args[0] === 'split-window') {
 				openCalls.push(args)
-				return '%9'
+				return '%9\t@1'
 			}
 			return null
 		}
@@ -220,7 +218,15 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' },
 		)
-		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', resolve(existingDir), '-P', '-F', '#{pane_id}'])
+		expect(openCalls[0]).toEqual([
+			'split-window',
+			'-h',
+			'-c',
+			resolve(existingDir),
+			'-P',
+			'-F',
+			'#{pane_id}\t#{window_id}',
+		])
 	})
 
 	it('throws when the --cwd directory does not exist, opening nothing', () => {
@@ -254,72 +260,161 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 	})
 })
 
-describe('backend selection: herdr', () => {
-	it('spawns via the herdr adapter when $HERDR_ENV is set and no $TMUX', () => {
-		const herdrCalls: string[][] = []
-		const exec: Exec = (cmd, args) => {
-			if (cmd === 'git') {
-				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
-				if (args.includes('worktree')) return ''
+// spec: mux/mux.feature — "a pane placement splits the calling pane, not whichever pane is active".
+// A pane:* open must name the caller's own pane explicitly (`from`) — each backend's own default
+// tracks whichever pane a HUMAN is looking at, which is only coincidentally the caller's and diverges
+// exactly when a program (spawn, always) is driving.
+// Bound to the mux node: this block and the herdr backend-selection block below verify mux/ scenarios
+// outright. The rest of this file straddles nodes — worktree creation and the reset map are unit/'s —
+// so they are deliberately left unbound rather than wrapped, since a binding that names the wrong node
+// claims coverage the node does not have.
+describe('spec:cyberlegion/mux', () => {
+	describe("a pane placement splits the caller's own pane, not whichever pane is active", () => {
+		it("tmux: --at pane:right passes the caller's own pane via -t, from $TMUX_PANE", () => {
+			const openCalls: string[][] = []
+			const exec: Exec = (cmd, args) => {
+				if (cmd === 'git') {
+					if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+					if (args.includes('worktree')) return ''
+					return null
+				}
+				if (args[0] === 'split-window') {
+					openCalls.push(args)
+					return '%9\t@1'
+				}
 				return null
 			}
-			if (cmd === 'herdr') {
+			// $TMUX_PANE is the caller's own fast-path pane — distinct from whatever tmux's own "active
+			// pane" default would resolve to, which this test never even fakes.
+			spawn(
+				{ store, env: { TMUX: 't', TMUX_PANE: '%caller' }, exec, now: () => 1 },
+				{ harness: 'claude', task: 't', at: 'pane:right' },
+			)
+			expect(openCalls[0]).toEqual(
+				expect.arrayContaining(['split-window', '-h', '-t', '%caller', '-P', '-F', '#{pane_id}\t#{window_id}']),
+			)
+		})
+
+		it("herdr: --at pane:down passes the caller's own pane explicitly, never --current", () => {
+			const herdrCalls: string[][] = []
+			const exec: Exec = (cmd, args) => {
+				if (cmd === 'git') {
+					if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+					if (args.includes('worktree')) return ''
+					return null
+				}
+				if (cmd === 'herdr') {
+					herdrCalls.push(args)
+					if (args[1] === 'split') {
+						return JSON.stringify({
+							result: { pane: { pane_id: 'herdr-pane-1', tab_id: 'w3:tT' }, type: 'pane_info' },
+						})
+					}
+					return null
+				}
+				return null
+			}
+			spawn(
+				{ store, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:pCaller' }, exec, now: () => 1 },
+				{ harness: 'claude', task: 't', at: 'pane:down' },
+			)
+			expect(herdrCalls[0]).toEqual(['pane', 'split', 'w1:pCaller', '--direction', 'down', '--cwd', expect.any(String)])
+			expect(herdrCalls[0]).not.toContain('--current')
+		})
+
+		it("tmux: without a known caller pane, falls back to the backend's own default (no -t)", () => {
+			const openCalls: string[][] = []
+			const exec: Exec = (cmd, args) => {
+				if (cmd === 'git') {
+					if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+					if (args.includes('worktree')) return ''
+					return null
+				}
+				if (args[0] === 'split-window') {
+					openCalls.push(args)
+					return '%9\t@1'
+				}
+				return null
+			}
+			// $TMUX set but no $TMUX_PANE — the caller's own pane is unknown, so the conservative fallback
+			// is the backend's own default rather than a foreign/guessed pane id.
+			spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't', at: 'pane:right' })
+			expect(openCalls[0]).not.toContain('-t')
+		})
+	})
+
+	describe('backend selection: herdr', () => {
+		it('spawns via the herdr adapter when $HERDR_ENV is set and no $TMUX', () => {
+			const herdrCalls: string[][] = []
+			const exec: Exec = (cmd, args) => {
+				if (cmd === 'git') {
+					if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+					if (args.includes('worktree')) return ''
+					return null
+				}
+				if (cmd === 'herdr') {
+					herdrCalls.push(args)
+					if (args[1] === 'split') {
+						return JSON.stringify({
+							id: 'cli:pane:split',
+							result: { pane: { pane_id: 'herdr-pane-1', tab_id: 'w3:tT' }, type: 'pane_info' },
+						})
+					}
+					return null
+				}
+				return null
+			}
+			const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't', at: 'pane:right' })
+			expect(res.pane).toBe('herdr-pane-1')
+			expect(herdrCalls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', res.agent.cwd])
+			expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBER_MUX=herdr claude'])
+			// The herdr spawn now tags its pane locator with the mux (previously left null) — so the
+			// unit's own `prune` runs the herdr liveness check, never a tmux one.
+			expect(loadAgent(store, res.agent.id)?.pane).toEqual({ mux: 'herdr', id: 'herdr-pane-1' })
+		})
+
+		it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", () => {
+			const gitWorktreeCalls: string[][] = []
+			const herdrCalls: string[][] = []
+			const worktreeRoot = join(dirname(primaryRoot), 'atomic-unit')
+			const exec: Exec = (cmd, args) => {
+				if (cmd === 'git') {
+					if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+					if (args.includes('worktree')) {
+						gitWorktreeCalls.push(args)
+						return ''
+					}
+					return null
+				}
 				herdrCalls.push(args)
-				if (args[1] === 'split') {
+				if (args[0] === 'worktree' && args[1] === 'create') {
+					const branch = args[args.indexOf('--branch') + 1]
 					return JSON.stringify({
-						id: 'cli:pane:split',
-						result: { pane: { pane_id: 'herdr-pane-1' }, type: 'pane_info' },
+						id: 'cli:worktree:create',
+						result: {
+							root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+							worktree: { branch, path: worktreeRoot },
+							workspace: { workspace_id: 'w9' },
+						},
 					})
 				}
 				return null
 			}
-			return null
-		}
-		const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't', at: 'pane:right' })
-		expect(res.pane).toBe('herdr-pane-1')
-		expect(herdrCalls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', res.agent.cwd])
-		expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBERLEGION_MUX=herdr claude'])
-		// The herdr spawn now tags its pane locator with the mux (previously left null) — so the
-		// unit's own `prune` runs the herdr liveness check, never a tmux one.
-		expect(loadAgent(store, res.agent.id)?.pane).toEqual({ mux: 'herdr', id: 'herdr-pane-1' })
+			const res = spawn(
+				{ store, env: { CYBER_MUX: 'herdr' }, exec, now: () => 1 },
+				{ harness: 'claude', task: 't', at: 'workspace' },
+			)
+			expect(gitWorktreeCalls).toHaveLength(0)
+			expect(herdrCalls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+			expect(res.agent.worktree).toEqual({ root: resolve(worktreeRoot), branch: `cyberlegion/unit-${res.agent.id}` })
+			expect(res.agent.cwd).toBe(resolve(worktreeRoot))
+			expect(res.pane).toBe('w9:p1')
+		})
 	})
 
-	it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", () => {
-		const gitWorktreeCalls: string[][] = []
-		const herdrCalls: string[][] = []
-		const worktreeRoot = join(dirname(primaryRoot), 'atomic-unit')
-		const exec: Exec = (cmd, args) => {
-			if (cmd === 'git') {
-				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
-				if (args.includes('worktree')) {
-					gitWorktreeCalls.push(args)
-					return ''
-				}
-				return null
-			}
-			herdrCalls.push(args)
-			if (args[0] === 'worktree' && args[1] === 'create') {
-				const branch = args[args.indexOf('--branch') + 1]
-				return JSON.stringify({
-					id: 'cli:worktree:create',
-					result: { root_pane: { pane_id: 'w9:p1' }, worktree: { branch, path: worktreeRoot } },
-				})
-			}
-			return null
-		}
-		const res = spawn(
-			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec, now: () => 1 },
-			{ harness: 'claude', task: 't', at: 'workspace' },
-		)
-		expect(gitWorktreeCalls).toHaveLength(0)
-		expect(herdrCalls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
-		expect(res.agent.worktree).toEqual({ root: resolve(worktreeRoot), branch: `cyberlegion/unit-${res.agent.id}` })
-		expect(res.agent.cwd).toBe(resolve(worktreeRoot))
-		expect(res.pane).toBe('w9:p1')
-	})
+	// ── spec:cyberlegion/unit/lifecycle — spawn resolves the default placement by mode ──────────────
 })
 
-// ── spec:cyberlegion/unit/lifecycle — spawn resolves the default placement by mode ──────────────
 describe('spawn resolves the default --at by spawn mode (own visible space vs current space)', () => {
 	// herdr is the discriminating backend — 'workspace' → `worktree create` (own nested workspace),
 	// 'tab' → `tab create` (a tab in the caller's current space) are distinct herdr verbs.
@@ -335,27 +430,47 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 				const branch = args[args.indexOf('--branch') + 1]
 				return JSON.stringify({
 					id: 'cli:worktree:create',
-					result: { root_pane: { pane_id: 'w9:p1' }, worktree: { branch, path: worktreeRoot } },
+					result: {
+						root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+						worktree: { branch, path: worktreeRoot },
+						workspace: { workspace_id: 'w9' },
+					},
 				})
 			}
 			if (args[0] === 'tab' && args[1] === 'create') {
-				return JSON.stringify({ result: { root_pane: { pane_id: 'w3:pT' }, type: 'tab_created' } })
+				return JSON.stringify({
+					result: { root_pane: { pane_id: 'w3:pT', tab_id: 'w3:pT' }, type: 'tab_created' },
+				})
 			}
 			if (args[0] === 'workspace' && args[1] === 'create') {
-				return JSON.stringify({ result: { root_pane: { pane_id: 'w5:pW' }, type: 'workspace_created' } })
+				return JSON.stringify({
+					result: { root_pane: { pane_id: 'w5:pW', tab_id: 'w5:pW' }, type: 'workspace_created' },
+				})
 			}
 			if (args[0] === 'pane' && args[1] === 'split') {
-				return JSON.stringify({ result: { pane: { pane_id: 'w3:pS' }, type: 'pane_info' } })
+				return JSON.stringify({ result: { pane: { pane_id: 'w3:pS', tab_id: 'w3:pT' }, type: 'pane_info' } })
 			}
 			return null
 		}
 	}
 
+	// Bound directly, not only through a backend's arguments: cyber-mux names whatever tier `at`
+	// opens, so this gate is what keeps a tab spawn from renaming the caller's own tab.
+	it('labelFor resolves a label for a workspace placement and nothing at all for any other', () => {
+		const input = { harness: 'claude' as const, task: 'audit the governance provenance check' }
+		expect(labelFor('workspace', input, input.task, 'abc123def')).toEqual({
+			label: '9S-governance-provenance-check',
+		})
+		for (const at of ['tab', 'pane:right', 'pane:down'] as const) {
+			expect(Object.hasOwn(labelFor(at, input, input.task, 'abc123def'), 'label')).toBe(false)
+		}
+	})
+
 	it('a new-worktree spawn with no --at defaults to its own visible workspace (herdr nested worktree)', () => {
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'default-ws-unit')
 		const res = spawn(
-			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
 			{ harness: 'claude', task: 't' },
 		)
 		// No mux placement passed by the caller, yet it lands in its own nested workspace — deterministic.
@@ -373,11 +488,14 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 				return null
 			}
 			calls.push(args)
-			if (args[0] === 'new-window') return '%42'
+			if (args[0] === 'new-window') return '%42\t@2'
 			return null
 		}
-		const res = spawn({ store, env: { CYBERLEGION_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
-		expect(calls[0]!.slice(0, 2)).toEqual(['new-window', '-d'])
+		const res = spawn({ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
+		// `-d` (background, visible) is asserted by presence, not position: a workspace spawn also
+		// carries a label now, and where the backend orders `-n <label>` against `-d` is its own affair.
+		expect(calls[0]![0]).toBe('new-window')
+		expect(calls[0]).toContain('-d')
 		expect(calls.some((c) => c[0] === 'new-session')).toBe(false)
 		expect(res.pane).toBe('%42')
 	})
@@ -386,7 +504,7 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		const calls: string[][] = []
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-cwd-'))
 		spawn(
-			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir },
 		)
 		expect(calls[0]!.slice(0, 2)).toEqual(['tab', 'create'])
@@ -397,7 +515,7 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'override-unit')
 		spawn(
-			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
 			{ harness: 'claude', task: 't', at: 'tab' },
 		)
 		// Explicit tab wins even though the new-worktree default would have been workspace.
@@ -409,7 +527,7 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		const calls: string[][] = []
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-cwd-'))
 		spawn(
-			{ store, env: { CYBERLEGION_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir, at: 'workspace' },
 		)
 		// Explicit workspace wins even though the --cwd default would have been tab.
@@ -463,7 +581,9 @@ describe('clear injects the harness reset into a warm peer and tears nothing dow
 		registerUnit({ id: 'w1' })
 		const res = clearUnit(ctx(), 'w1')
 		expect(res).toEqual({ agent: expect.objectContaining({ id: 'w1' }), pane: '%9', command: '/clear' })
-		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', '/clear', 'Enter'])
+		// cyber-mux's `submit(text)` composes two tmux calls: a literal `-l` type, then a bare Enter.
+		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', '/clear'])
+		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
 		// nothing torn down — record, pane index binding, and worktree are exactly as registered
 		const rec = loadAgent(store, 'w1')
 		expect(rec).toMatchObject({ id: 'w1', status: 'active', pane: { mux: 'tmux', id: '%9' } })
@@ -481,7 +601,8 @@ describe('clear resolves each harness own fresh-context command from the per-har
 		registerUnit({ id: `h-${harness}`, harness: harness as Harness })
 		const res = clearUnit(ctx(), `h-${harness}`)
 		expect(res.command).toBe(command)
-		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', command, 'Enter'])
+		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', command])
+		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
 	})
 })
 
@@ -513,5 +634,59 @@ describe('clear on a unit with no known session pane errors and sends nothing', 
 		registerUnit({ id: 'nopane1', pane: null })
 		expect(() => clearUnit(ctx(), 'nopane1')).toThrow(/no known session pane/)
 		expect(sent).toHaveLength(0)
+	})
+})
+
+// The handoff itself — which placements open under a resolved name — is the mux node's contract; what
+// the name SAYS is unit/lifecycle's (workspace-label.test.ts). These bind the mux scenarios.
+describe('spec:cyberlegion/mux', () => {
+	function herdrLabelExec(calls: string[][], worktreeRoot: string): Exec {
+		return (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) return ''
+				return null
+			}
+			calls.push(args)
+			if (args[0] === 'worktree' && args[1] === 'create') {
+				const branch = args[args.indexOf('--branch') + 1]
+				return JSON.stringify({
+					result: {
+						root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+						worktree: { branch, path: worktreeRoot },
+						workspace: { workspace_id: 'w9' },
+					},
+				})
+			}
+			if (args[0] === 'tab' && args[1] === 'create') {
+				return JSON.stringify({ result: { root_pane: { pane_id: 'w3:pT', tab_id: 'w3:pT' } } })
+			}
+			return null
+		}
+	}
+
+	it('a workspace placement opens under the label the legion resolved', () => {
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'labeled-unit')
+		spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrLabelExec(calls, worktreeRoot), now: () => 1 },
+			{ harness: 'claude', task: 'audit the governance provenance check', at: 'workspace' },
+		)
+		// Asserted as "the name reached the space-opening call", never as a flag spelling — how a
+		// backend writes a name onto its own tier is the multiplexer package's business, not this one's.
+		expect(calls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+		expect(calls[0]).toContain('9S-governance-provenance-check')
+	})
+
+	it('a pane or tab placement carries no name at all', () => {
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'tabbed-unit')
+		spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrLabelExec(calls, worktreeRoot), now: () => 1 },
+			// The same brief that names a workspace above — so what differs is the placement, not the brief.
+			{ harness: 'claude', task: 'audit the governance provenance check', at: 'tab' },
+		)
+		expect(calls[0]!.slice(0, 2)).toEqual(['tab', 'create'])
+		expect(calls[0]!.some((a) => a.startsWith('9S-'))).toBe(false)
 	})
 })
