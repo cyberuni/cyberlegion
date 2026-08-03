@@ -25,9 +25,9 @@ flowchart TD
   S -->|probe| D[cyberlegion mux doctor]
   S -->|register hook| I["cyberlegion init [--agent]"]
   S -->|root? derive from probe / selfId| R{root session<br/>!spawnedBy?}
-  R -->|no: spawned unit| STOP[stop after hook — no bind ask]
+  R -->|no: spawned unit| STOP["stop after hook — no bind ask"]
   R -->|yes, no legate bound| ASK{ask user:<br/>bind this pane as legate?}
-  ASK -->|no| KEEP[hook stays — nothing minted]
+  ASK -->|no| KEEP["hook stays — nothing minted"]
   ASK -->|yes| MINT[cyberlegion unit register --standing --handle legate]
   MINT --> BIND[cyberlegion attach]
   BIND -.->|no multiplexer pane| NOOP[attach no-op; owner still minted;<br/>root surfaces mail via !spawnedBy fallback]
