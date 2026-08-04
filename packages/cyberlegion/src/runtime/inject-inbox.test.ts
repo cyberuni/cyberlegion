@@ -90,7 +90,7 @@ describe('empty / error cases', () => {
 	})
 
 	it('auto-registers a live-pane session that has no identity yet, then injects nothing (empty inbox)', () => {
-		// A fresh herdr pane, no identity, no unread mail, no brief, but a detectable harness. Bind
+		// A fresh herdr pane, no identity, no unread mail, but a detectable harness. Bind
 		// this pane as the hub main pane so the (mux) session-start setup nudge is silenced —
 		// isolating this test to the auto-register + empty-inbox precondition it targets.
 		store.setMainPane('w5:p1')

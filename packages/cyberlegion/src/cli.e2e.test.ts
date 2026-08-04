@@ -432,15 +432,17 @@ describe('mail group', () => {
 		expect(out).toContain('0 messages (0 unread)')
 	})
 
-	it('mail hook emits raw JSON (not TOON) on stdout', () => {
+	it('mail hook injects nothing for a registered caller with an empty inbox', () => {
 		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
-		// isolating this test to the no-brief/no-unread-mail precondition it targets.
+		// isolating this test to the empty-inbox precondition it targets. NOTE: this covers the
+		// "injects nothing" scenario only. The raw-JSON/not-TOON payload SHAPE is a different
+		// scenario and is not asserted here — the old title claimed it and the body never checked it.
 		legion(['unit', 'register', '--standing', '--handle', 'homa'])
 		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
 		const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
 		const aliceId = who.find((a: { handle: string }) => a.handle === 'alice').id
 		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
-		expect(out.trim()).toBe('') // no brief, no unread mail — nothing injected, still exit 0
+		expect(out.trim()).toBe('') // empty inbox — nothing injected, still exit 0
 	})
 })
 

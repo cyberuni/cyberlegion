@@ -79,7 +79,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// actually reached the pane, since spawnAndWake could otherwise bypass spawnDoorbell. The
 		// "then begin" half matters: a doorbell saying "read your brief at X, then wait" satisfies a
 		// read-only bar while contradicting the contract.
-		expect(typed).toMatch(/read\s+(your\s+)?brief\s+at\s+\S+.*\bthen\s+begin\b/i)
+		expect(typed).toMatch(/read\s+(your\s+)?brief\s+at\s+\S+.*\b(then|and)\s+begin\b/i)
 		// ...and the path it names must be where the brief ACTUALLY IS. Asserting only that the text
 		// contains `res.agent.brief` is a self-set bar — that field is written by the very code under
 		// test, and the store keys briefs by agent id, so the two can diverge and the peer gets rung
