@@ -198,7 +198,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		worktree,
 		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
 		pane: muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null,
-		status: 'spawning',
+		status: 'active',
 		createdAt: ts,
 		lastSeen: ts,
 		brief: paths.briefFile(ctx.store.root, id),

@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type AgentRecord, register, registerStanding, saveAgent } from '../identity.ts'
+import { type AgentRecord, loadAgent, register, registerStanding, saveAgent } from '../identity.ts'
 import { ack, send } from '../message.ts'
 import { FileStore } from '../store/file-store.ts'
 import { injectInbox } from './inject-inbox.ts'
@@ -21,6 +21,9 @@ beforeEach(() => {
 
 const bobCtx = () => ({ store, env: { CYBERLEGION_AGENT_ID: bob.id } })
 
+/** A brief body distinctive enough that its absence from a payload is a real assertion. */
+const BRIEF_BODY = 'do the migration'
+
 describe('mail hook emits the SessionStart payload', () => {
 	it('emits additionalContext with unread mail', () => {
 		const payload = injectInbox(bobCtx(), 'SessionStart')
@@ -28,22 +31,50 @@ describe('mail hook emits the SessionStart payload', () => {
 		expect(payload?.hookSpecificOutput.additionalContext).toContain('ping')
 	})
 
-	it('surfaces a spawned peer brief with no mail present', () => {
-		// A fresh peer with a pending brief and an empty inbox — isolates the "and no mail" precondition.
+	it("a spawned peer's hook call injects no brief", () => {
+		// A spawned peer whose brief file is on disk, with one unread message so the payload is
+		// non-empty — the suppression must hold inside a real payload, not vacuously against no output.
 		const peer = register(
 			{ store, env: { TMUX: 't', TMUX_PANE: '%9' }, exec: () => null },
 			{ handle: 'peer', harness: 'claude' },
 		)
-		saveAgent(store, { ...peer, status: 'spawning' })
-		store.writeBrief(peer.id, 'do the migration')
+		saveAgent(store, { ...peer, spawnedBy: bob.id })
+		store.writeBrief(peer.id, BRIEF_BODY)
+		send({ store, now: () => 2 }, { fromId: bob.id, to: 'peer', body: 'ping peer' })
+
 		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: peer.id } }, 'SessionStart')
-		expect(payload?.hookSpecificOutput.additionalContext).toContain('do the migration')
-		expect(payload?.hookSpecificOutput.additionalContext).not.toContain('Unread')
+		const ctxText = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxText).toContain('ping peer')
+		expect(ctxText).not.toContain(BRIEF_BODY)
+		expect(ctxText).not.toContain('Your brief')
+		// the brief file is left for the peer to read at the path the spawn wake named
+		expect(store.readBrief(peer.id)).toBe(BRIEF_BODY)
+	})
+
+	it('a peer record carrying a legacy spawning status still gets no brief', () => {
+		// `admin migrate` carries records from an older hub, so a `spawning` status is still reachable
+		// even though this version never writes one. The hook must not inject on it, and must not flip
+		// it — the status is preserved verbatim.
+		const peer = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%8' }, exec: () => null },
+			{ handle: 'legacy', harness: 'claude' },
+		)
+		saveAgent(store, { ...peer, status: 'spawning', spawnedBy: bob.id })
+		store.writeBrief(peer.id, BRIEF_BODY)
+		send({ store, now: () => 3 }, { fromId: bob.id, to: 'legacy', body: 'ping legacy' })
+
+		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: peer.id } }, 'SessionStart')
+		const ctxText = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxText).toContain('ping legacy')
+		expect(ctxText).not.toContain(BRIEF_BODY)
+		expect(ctxText).not.toContain('Your brief')
+		// the migrated status is kept, not normalized to `active`
+		expect(loadAgent(store, peer.id)?.status).toBe('spawning')
 	})
 })
 
 describe('empty / error cases', () => {
-	it('injects nothing when there is no unread mail and no brief', () => {
+	it('injects nothing when there is no unread mail', () => {
 		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
 		// isolating this test to the brief/mail-only precondition it targets.
 		registerStanding({ store }, { handle: 'somebody' })

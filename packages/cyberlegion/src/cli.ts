@@ -308,11 +308,14 @@ function defineSpawn(cmd: Command): Command {
 				at: opts.at,
 			})
 			// The worktree/session/registry record is the guaranteed effect of spawn; deliver the peer's
-			// first turn best-effort on top so a fresh paned pod acts on its loaded brief with no human
-			// nudge — never fails the spawn. The adapter is resolved lazily inside wakeSpawn (only when a
-			// pane is actually rung). `--no-wake` opts out (Commander sets opts.wake === false).
+			// first turn best-effort on top so a fresh paned pod acts on its brief with no human nudge —
+			// never fails the spawn. The doorbell carries the instruction and names the brief's file path
+			// (`res.agent.brief`), so pickup does not depend on a hook firing in the child. The adapter is
+			// resolved lazily inside wakeSpawn (only when a pane is actually rung). `--no-wake` opts out
+			// (Commander sets opts.wake === false).
 			const wake = await wakeSpawn(() => selectSessionAdapter(ctx.env ?? process.env), realExec, {
 				target: { id: res.pane },
+				briefPath: res.agent.brief ?? '',
 				noWake: opts.wake === false,
 			})
 			if (wake.warning) {

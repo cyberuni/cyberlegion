@@ -43,11 +43,13 @@ const expectedWorktreePath = (id: string) =>
 	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id.slice(0, 6)}`))
 
 describe('spawn opens a pane + pre-registers the peer', () => {
-	it('registers the peer (spawning, pane, spawnedBy) and writes its brief', () => {
+	it('registers the peer (active, pane, spawnedBy) and writes its brief', () => {
 		const res = spawn(ctx(), { harness: 'claude', task: 'reply to alice', handle: 'bob', at: 'pane:right' })
 		expect(res.pane).toBe('%9')
 		const rec = loadAgent(store, res.agent.id)
-		expect(rec).toMatchObject({ harness: 'claude', status: 'spawning', spawnedBy: 'spawner' })
+		// `active` outright — there is no intermediate `spawning` status and nothing later flips it
+		// (the SessionStart hook injects no brief and mutates no status).
+		expect(rec).toMatchObject({ harness: 'claude', status: 'active', spawnedBy: 'spawner' })
 		expect(rec?.pane).toEqual({ mux: 'tmux', id: '%9' })
 		expect(store.resolvePaneId('%9')).toBe(res.agent.id)
 		expect(store.readBrief(res.agent.id)).toBe('reply to alice')
