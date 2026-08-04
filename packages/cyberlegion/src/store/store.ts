@@ -39,9 +39,10 @@ export interface AgentRecord {
 	 * (`mail/surface` freezes that a legacy `spawning` record keeps the status it was migrated with).
 	 * A write that merely round-trips a record preserves it too.
 	 *
-	 * One deliberate exception, and it is not a normalization: `register` (`identity.ts`) asserts
-	 * that a session is live *now*, so it always writes `active`. Re-registering a legacy record
-	 * therefore does move it off `spawning` — by explicit re-registration, never by a read.
+	 * The exceptions are deliberate lifecycle writes, not normalizations: `register` asserts a session
+	 * is live *now* and so writes `active`, while `prune`/`reconcile` write `exited` over whatever a
+	 * record carried (`identity.ts`). A legacy record therefore does move off `spawning` — by an
+	 * explicit lifecycle act, never by being read.
 	 *
 	 * The open member keeps the guarantee typed rather than accidental. */
 	status: AgentStatus | (string & {})

@@ -326,7 +326,7 @@ function defineSpawn(cmd: Command): Command {
 					pane: res.pane,
 					rung: res.rung,
 				}),
-				json: res,
+				json: { agent: res.agent, pane: res.pane, launch: res.launch, rung: res.rung },
 			})
 			nextStep(`cyberlegion unit read ${res.agent.id}`)
 		})

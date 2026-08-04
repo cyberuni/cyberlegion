@@ -357,7 +357,6 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 // spawn-side counterpart to wakeRecipient. Same fake-adapter harness; fast via injected nudge opts.
 // The brief lives at a path; the doorbell names that path and never carries the brief's body.
 const BRIEF_PATH = '/hub/agents/ab12cd/brief.md'
-const BRIEF_BODY = 'Reply to alice about the migration, then open a PR.'
 const SPAWN_DOORBELL = spawnDoorbell(BRIEF_PATH)
 const SPAWN_STAGED = `> ${SPAWN_DOORBELL.slice(0, 45)}`
 const SPAWN_SCROLLED_OUT = [SPAWN_DOORBELL, 'boot line 1', 'boot line 2', 'boot line 3', 'boot line 4', '> '].join('\n')
@@ -381,9 +380,10 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		// wake ("your brief is loaded in context — read it and begin work") passes such a check with
 		// the path merely appended, which is the exact text this contract exists to replace.
 		expect(doorbell).toMatch(/read\s+(your\s+)?brief\s+at\s+\S/i)
-		// ...naming that path rather than carrying the brief's body
+		// ...naming that path. That it never carries the brief's BODY cannot be asserted here —
+		// wakeSpawn is never handed the body — so that half is bound in session.test.ts, against a
+		// real spawn where the body exists to leak.
 		expect(doorbell).toContain(BRIEF_PATH)
-		expect(doorbell).not.toContain(BRIEF_BODY)
 	})
 
 	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {

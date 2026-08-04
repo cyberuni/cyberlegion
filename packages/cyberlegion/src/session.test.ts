@@ -75,7 +75,10 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
 		)
 		const typed = sent.flat().join(' ')
-		// the path the peer is told to read is the one its own record points at
+		// it is an INSTRUCTION to read, not a bare path — asserted on the text that actually reached
+		// the pane, since spawnAndWake could otherwise bypass spawnDoorbell and type the path alone.
+		expect(typed).toMatch(/read\s+(your\s+)?brief\s+at\s+\S/i)
+		// ...and the path it names is the one the peer's own record points at
 		expect(res.agent.brief).toBeTruthy()
 		expect(typed).toContain(res.agent.brief)
 		// ...and the brief's body is never typed into the pane, only its path

@@ -25,8 +25,8 @@ child's harness, with the hub's hook correctly installed — none of which the s
 observe or guarantee. When that chain breaks the peer is woken and told to read a brief that is not
 there, which is worse than not being woken: the failure is silent and the peer improvises.
 
-The hook branch also carried the *only* reader of the `spawning` status and the *only* transition to
-`active`, so a bookkeeping status existed purely to sequence a one-shot injection.
+The hook branch also carried the *only* reader of the `spawning` status and the *only* transition
+*out of* it, so a bookkeeping status existed purely to sequence a one-shot injection.
 
 ## Decision Drivers
 
@@ -54,7 +54,7 @@ Keep hook-injection, and make spawn verify the child's hook actually fired befor
 
 The first-turn doorbell becomes the instruction itself — *read your brief at `<path>`, then begin
 work* — naming the file path rather than carrying the brief's body. The hook's injection branch is
-retired; `mail hook` surfaces unread mail and owner mail only.
+retired; `mail hook` surfaces unread mail, owner mail and the Legion-setup nudge — never a brief.
 
 - **Pros**: one mechanism delivers the turn *and* the instruction, so pickup cannot depend on a hook
   firing in the child. The brief is still written to its file and still never typed into the pane, so
@@ -80,7 +80,8 @@ Adopt **Option B**.
 - `console/doorbell.ts` exposes `spawnDoorbell(briefPath)` — the instruction naming the path. The
   former `SPAWN_DOORBELL` constant is gone; `WakeSpawnInput` carries `briefPath`.
 - `runtime/inject-inbox.ts` no longer reads or injects a brief, on any status, on the first hook call
-  as on every later one.
+  as on every later one — it surfaces unread mail, owner mail, and the Legion-setup nudge, nothing
+  else.
 - `session.ts` registers a spawned peer `status: 'active'` outright, and `spawning` leaves
   `AgentStatus`.
 
@@ -124,9 +125,10 @@ single bounded line, which is what lets it survive the boot-race re-submit path 
   hubs, so the retired value remains reachable on disk. **Reads therefore preserve an unknown status
   verbatim** — no read path validates, coerces, or normalizes a status, and none may start doing so.
   This is frozen on `mail/surface` (a legacy `spawning` record gets no brief and keeps the status it
-  was migrated with) and typed by the open member on `AgentRecord`. The one exception is deliberate
-  and is not a normalization: `register` asserts a session is live now, so it writes `active` — a
-  legacy record moves off `spawning` by explicit re-registration, never by being read.
+  was migrated with) and typed by the open member on `AgentRecord`. The exceptions are deliberate
+  lifecycle writes, not normalizations: `register` asserts a session is live now and writes `active`;
+  `prune`/`reconcile` write `exited`. A legacy record moves off `spawning` by an explicit lifecycle
+  act, never by being read.
 
 ## Implementation Notes
 

@@ -98,8 +98,10 @@ export interface SpawnResult {
 /**
  * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
  * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
- * its cwd set to that worktree, pre-register the peer, and drop its brief as a file the peer's own
- * SessionStart hook reads — never typed into its prompt.
+ * its cwd set to that worktree, pre-register the peer, and drop its brief as a file — never typed
+ * into its prompt. Nothing loads that file for the peer: it is the spawn wake that tells the peer to
+ * go read it, naming its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a
+ * peer sitting idle with its brief unread, which is why callers want `spawnAndWake`.
  *
  * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/legion-<id6>`),
  * never nested inside it, even though the registry/mailbox itself lives in the global hub — the hub
