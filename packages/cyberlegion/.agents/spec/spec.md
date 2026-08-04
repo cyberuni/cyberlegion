@@ -60,6 +60,7 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 | [`attach/`](./attach/README.md) | the human's read-pane — an attention pointer to the hub's main pane |
 | [`init/`](./init/README.md) | the onboarding front door — auto-detect the harness and register the surfacing hook (owns the per-harness installer) |
 | [`admin/`](./admin/README.md) | hub-state maintenance (`admin migrate`) |
+| [`metaphor-free/`](./metaphor-free/README.md) | the vocabulary-boundary guard — a mechanical check that fails when a banned fleet-persona term appears unsanctioned in the package (enforces the metaphor-free charter above) |
 
 > CR-2 (`cyberlegion-cli-realign`, ADR-0024) realigned this tree to command groups + one node per
 > real architectural layer (`mux`); `identity`/`session` dissolved into `unit`, `surfacing`/`wake`
@@ -77,6 +78,6 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 
 | Concept | Facets |
 |---|---|
-| `cyberlegion` | `admin/` (behavior) · `agent/` (behavior) · `attach/` (behavior) · `init/` (behavior) · `mail/` (index) · `mail/core/` (behavior) · `mail/doorbell/` (behavior) · `mail/surface/` (behavior) · `mail/wait/` (behavior) · `mux/` (behavior) · `unit/lifecycle/` (behavior) · `unit/registry/` (behavior) |
+| `cyberlegion` | `admin/` (behavior) · `agent/` (behavior) · `attach/` (behavior) · `init/` (behavior) · `mail/` (index) · `mail/core/` (behavior) · `mail/doorbell/` (behavior) · `mail/surface/` (behavior) · `mail/wait/` (behavior) · `metaphor-free/` (behavior) · `mux/` (behavior) · `unit/lifecycle/` (behavior) · `unit/registry/` (behavior) |
 
 <!-- END generated: by-concept -->
