@@ -18,26 +18,35 @@ import {
 import { FileStore } from './store/file-store.ts'
 
 /**
- * Does `text` name exactly `path` — as a standalone token, not as a prefix of a longer one?
- * `<path>.bak` and `'<path>'` both CONTAIN the path while pointing somewhere else, so containment
- * is too weak; but pinning the surrounding phrasing (a fixed ", then") is too strong, since the
- * frozen Then constrains what the doorbell says, not the order it says it in.
+ * Every path the text names as a LOCATION — a token introduced by a locative cue. Trailing sentence
+ * punctuation is stripped; nothing else is.
+ *
+ * Binding the location is what closes the whole decoration family at once. Bounding the path's edges
+ * with a string bar only ever closes the side you thought of: `<path>.bak` (suffix) and
+ * `/repo<path>` / `file://<path>` (prefix) are the same defect mirrored, and a bar patched on one
+ * side keeps passing the other. A decorated path is simply not the token the cue introduces.
  */
-function namesPathExactly(text: string, path: string): boolean {
-	const i = text.indexOf(path)
-	if (i < 0) return false
-	// the path may be followed by sentence punctuation, but must then end or break to whitespace
-	return /^[.,;:!?]?(\s|$)/.test(text.slice(i + path.length))
+function locatedPaths(text: string): string[] {
+	return [...text.matchAll(/\b(?:at|in|from|under)\s+(\S+?)[.,;:!?]?(?=\s|$)/gi)].map((m) => m[1] as string)
 }
 
-/** The frozen Then: instructs the peer to READ the brief at its file path AND BEGIN. Order-free. */
+/**
+ * The frozen Then: the doorbell INSTRUCTS the peer to read the brief AT ITS FILE PATH and BEGIN.
+ * Order-free — the Then constrains what is said, not the order it is arranged in.
+ *
+ * The locative requirement is load-bearing, not decoration: keyword conjunction alone
+ * (read + brief + begin + path present) is satisfied by the superseded ADR-0027 wake —
+ * "Your brief is loaded in context — read it and begin work. <path>" — which tells the peer its
+ * context is already populated and leaves the path as unexplained trailing prose. That is the exact
+ * failure this contract exists to prevent, so the path must be named AS the brief's location.
+ */
 function isBriefInstruction(text: string, path: string): boolean {
 	return (
 		/\bread\b/i.test(text) &&
 		/\bbrief\b/i.test(text) &&
 		/\bbegin\b/i.test(text) &&
 		!/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(text) &&
-		namesPathExactly(text, path)
+		locatedPaths(text).includes(path)
 	)
 }
 

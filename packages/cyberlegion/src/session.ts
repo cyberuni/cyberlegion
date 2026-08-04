@@ -289,14 +289,6 @@ export interface ClearResult {
 }
 
 /**
- * Reset a warm peer's context to cold WITHOUT tearing anything down — injects the peer's own
- * harness fresh-context command (`resetCommandFor`) into its pane through the session adapter.
- * Warmth is the unit (pane/process stays warm — no cold-start), coldness is the context. The
- * command is resolved (and any false-friend/unmapped harness throws) BEFORE anything is sent, so
- * a fail-loud harness never has anything typed into its pane. Touches neither the registry record
- * nor the worktree — `close` (`decommission`) owns teardown.
- */
-/**
  * Resolve a unit's live session pane from a ref, or throw naming the ref. The one place
  * focus/nudge/read agree on what "addressable" means — a record's own pane, else a pane pointer
  * keyed by its id (a herdr peer stores its pane only in that index).
@@ -360,10 +352,17 @@ export function readUnit(
 	return { agent, pane: target.id, output }
 }
 
+/**
+ * Reset a warm peer's context to cold WITHOUT tearing anything down — injects the peer's own
+ * harness fresh-context command (`resetCommandFor`) into its pane through the session adapter.
+ * Warmth is the unit (pane/process stays warm — no cold-start), coldness is the context. The
+ * command is resolved (and any false-friend/unmapped harness throws) BEFORE anything is sent, so
+ * a fail-loud harness never has anything typed into its pane. Touches neither the registry record
+ * nor the worktree — `close` (`decommission`) owns teardown.
+ */
 export function clearUnit(ctx: IdContext, ref: string): ClearResult {
-	const agent = resolveAgent(ctx.store, ref)
-	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
-	if (!pane) throw new Error(`unit "${ref}" has no known session pane`)
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const pane = target.id
 	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`)
 	// Resolve (and validate) the reset command before sending anything — a false-friend or
 	// unmapped harness must fail loud with nothing injected into the pane.

@@ -383,6 +383,11 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		expect(/\bbrief\b/i.test(doorbell)).toBe(true)
 		expect(/\bbegin\b/i.test(doorbell)).toBe(true)
 		expect(/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(doorbell)).toBe(false)
+		// ...and the path is named AS THE BRIEF'S LOCATION. Without this, the keywords alone are
+		// satisfied by the pre-CR content-free wake ("your brief is loaded in context — read it and
+		// begin work") with the path merely appended — the exact text this contract replaces.
+		const located = [...doorbell.matchAll(/\b(?:at|in|from|under)\s+(\S+?)[.,;:!?]?(?=\s|$)/gi)].map((m) => m[1])
+		expect(located).toContain(BRIEF_PATH)
 		// ...naming that path. That it never carries the brief's BODY cannot be asserted here —
 		// wakeSpawn is never handed the body — so that half is bound in session.test.ts, against a
 		// real spawn where the body exists to leak.
