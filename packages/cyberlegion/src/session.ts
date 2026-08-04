@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { callerPane, type MuxPlacement, type MuxTarget } from 'cyber-mux'
+import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
+import { wakeSpawn } from './console/doorbell.ts'
 import {
 	type AgentRecord,
 	type Harness,
@@ -209,6 +210,37 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.writeBrief(id, brief)
 
 	return { agent: rec, pane: target.id, launch }
+}
+
+/**
+ * `unit spawn` end to end: open the peer, then deliver its first turn.
+ *
+ * The two acts live together here rather than at the CLI call site so the **brief path the doorbell
+ * names is derived from the record `spawn` just wrote**, not handed in by a caller. That is the
+ * point of the seam: a caller cannot ring with the wrong string, because it supplies no string. The
+ * impl gate caught exactly that hole — with the path passed in from `cli.ts`, both "the doorbell
+ * names the brief's path" and "it does not carry the brief's body" stayed green while the call site
+ * passed an empty string, or the brief's whole body.
+ *
+ * The ring is best-effort on top of the guaranteed spawn effect (worktree + session + registry
+ * record): `--no-wake` rings nothing, and a ring that never completes is reported as a warning on
+ * the result rather than thrown, so it can never fail a spawn that already landed.
+ */
+export async function spawnAndWake(
+	ctx: IdContext,
+	input: SpawnInput,
+	options: { noWake?: boolean; nudgeOpts?: NudgeOptions } = {},
+): Promise<SpawnResult & { rung: boolean; warning?: string }> {
+	const res = spawn(ctx, input)
+	const env = ctx.env ?? process.env
+	const exec = ctx.exec ?? realExec
+	const wake = await wakeSpawn(
+		() => selectSessionAdapter(env, exec),
+		exec,
+		{ target: { id: res.pane }, briefPath: res.agent.brief ?? '', noWake: options.noWake },
+		options.nudgeOpts,
+	)
+	return { ...res, rung: wake.rung, ...(wake.warning ? { warning: wake.warning } : {}) }
 }
 
 /**

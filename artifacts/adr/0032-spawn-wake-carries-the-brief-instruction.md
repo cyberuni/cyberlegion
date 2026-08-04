@@ -121,10 +121,12 @@ single bounded line, which is what lets it survive the boot-race re-submit path 
   later wants to surface stuck units, that signal needs rebuilding as a turn fact rather than a
   registry status.
 - **A migrated record may still carry `spawning`.** `admin migrate` carries agent records from older
-  hubs, so the retired value remains reachable on disk. The store therefore **preserves an unknown
-  status verbatim** — nothing coerces, validates, or normalizes a status on read or write, and no
-  read path may start doing so. This is frozen on `mail/surface` (a legacy `spawning` record gets no
-  brief and keeps the status it was migrated with) and typed by the open member on `AgentRecord`.
+  hubs, so the retired value remains reachable on disk. **Reads therefore preserve an unknown status
+  verbatim** — no read path validates, coerces, or normalizes a status, and none may start doing so.
+  This is frozen on `mail/surface` (a legacy `spawning` record gets no brief and keeps the status it
+  was migrated with) and typed by the open member on `AgentRecord`. The one exception is deliberate
+  and is not a normalization: `register` asserts a session is live now, so it writes `active` — a
+  legacy record moves off `spawning` by explicit re-registration, never by being read.
 
 ## Implementation Notes
 

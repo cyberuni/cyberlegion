@@ -5,7 +5,7 @@ import { currentPane, nudge, probeMultiplexer } from 'cyber-mux'
 import { migrateStore } from './admin.ts'
 import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
-import { DELIVERY_DOORBELL, wakeRecipient, wakeSpawn } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
@@ -34,7 +34,7 @@ import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
-import { clearUnit, spawn } from './session.ts'
+import { clearUnit, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -296,30 +296,26 @@ function defineSpawn(cmd: Command): Command {
 				command = realized.command
 			}
 			if (!harness) fail('unit spawn needs --harness, or --agent/--agent-file resolving one')
-			const res = spawn(ctx, {
-				harness,
-				command,
-				task: opts.task,
-				briefFile: opts.briefFile,
-				handle: opts.handle,
-				branch: opts.branch,
-				worktreePath: opts.worktreePath,
-				cwd: opts.cwd,
-				at: opts.at,
-			})
-			// The worktree/session/registry record is the guaranteed effect of spawn; deliver the peer's
-			// first turn best-effort on top so a fresh paned pod acts on its brief with no human nudge —
-			// never fails the spawn. The doorbell carries the instruction and names the brief's file path
-			// (`res.agent.brief`), so pickup does not depend on a hook firing in the child. The adapter is
-			// resolved lazily inside wakeSpawn (only when a pane is actually rung). `--no-wake` opts out
-			// (Commander sets opts.wake === false).
-			const wake = await wakeSpawn(() => selectSessionAdapter(ctx.env ?? process.env), realExec, {
-				target: { id: res.pane },
-				briefPath: res.agent.brief ?? '',
-				noWake: opts.wake === false,
-			})
-			if (wake.warning) {
-				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${wake.warning}`)
+			// Spawn AND deliver the first turn — `spawnAndWake` owns both acts so the brief path the
+			// doorbell names is derived from the record spawn just wrote, never assembled here.
+			// `--no-wake` opts out (Commander sets opts.wake === false).
+			const res = await spawnAndWake(
+				ctx,
+				{
+					harness,
+					command,
+					task: opts.task,
+					briefFile: opts.briefFile,
+					handle: opts.handle,
+					branch: opts.branch,
+					worktreePath: opts.worktreePath,
+					cwd: opts.cwd,
+					at: opts.at,
+				},
+				{ noWake: opts.wake === false },
+			)
+			if (res.warning) {
+				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`)
 			}
 			emit(formatOf(opts), {
 				toon: toonObject({
@@ -328,9 +324,9 @@ function defineSpawn(cmd: Command): Command {
 					harness: res.agent.harness,
 					worktree: res.agent.worktree?.root,
 					pane: res.pane,
-					rung: wake.rung,
+					rung: res.rung,
 				}),
-				json: { ...res, rung: wake.rung },
+				json: res,
 			})
 			nextStep(`cyberlegion unit read ${res.agent.id}`)
 		})

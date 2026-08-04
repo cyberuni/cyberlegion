@@ -34,10 +34,16 @@ export interface AgentRecord {
 	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null
 	pid?: number
 	/** A record migrated from an older hub (`admin migrate`) may carry a status this version no
-	 * longer writes — the retired `spawning` is the known case. Such a value is preserved verbatim:
-	 * nothing coerces, validates, or normalizes a status on read or write, and no read path may
-	 * start doing so (`mail/surface` freezes that a legacy `spawning` record keeps the status it was
-	 * migrated with). The open member is what keeps that guarantee typed rather than accidental. */
+	 * longer writes — the retired `spawning` is the known case. **Reads preserve it verbatim**: no
+	 * read path validates, coerces, or normalizes a status, and none may start doing so
+	 * (`mail/surface` freezes that a legacy `spawning` record keeps the status it was migrated with).
+	 * A write that merely round-trips a record preserves it too.
+	 *
+	 * One deliberate exception, and it is not a normalization: `register` (`identity.ts`) asserts
+	 * that a session is live *now*, so it always writes `active`. Re-registering a legacy record
+	 * therefore does move it off `spawning` — by explicit re-registration, never by a read.
+	 *
+	 * The open member keeps the guarantee typed rather than accidental. */
 	status: AgentStatus | (string & {})
 	createdAt: string
 	lastSeen: string

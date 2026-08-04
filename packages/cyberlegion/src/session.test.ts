@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
-import { clearUnit, labelFor, resetCommandFor, resolveBrief, spawn } from './session.ts'
+import { clearUnit, labelFor, resetCommandFor, resolveBrief, spawn, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -53,6 +53,34 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(rec?.pane).toEqual({ mux: 'tmux', id: '%9' })
 		expect(store.resolvePaneId('%9')).toBe(res.agent.id)
 		expect(store.readBrief(res.agent.id)).toBe('reply to alice')
+	})
+
+	// The wire the impl gate caught unbound: the doorbell must name THE PEER'S OWN brief file path,
+	// derived from the record spawn just wrote. Testing `wakeSpawn` with a hand-supplied path proves
+	// only that it echoes a string — it stays green when the call site passes '' or the brief's body.
+	it("the first-turn doorbell names the peer's own brief file path, never the brief body", async () => {
+		const TASK = 'reply to alice about the migration'
+		// The ring probes the pane's liveness before typing; the shared fakeExec answers neither probe,
+		// so it would abort as "pane gone" before sending anything. Answer them here only.
+		const wakeExec: Exec = (cmd, args) => {
+			if (cmd === 'tmux' && args[0] === 'list-panes') return '%9'
+			if (cmd === 'tmux' && args[0] === 'has-session') return ''
+			return fakeExec(cmd, args)
+		}
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: wakeExec },
+			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
+			// One attempt: the ring will not verify a taken turn against a fake pane, and does not need
+			// to — the doorbell is typed before verification, and its CONTENT is what this test binds.
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
+		)
+		const typed = sent.flat().join(' ')
+		// the path the peer is told to read is the one its own record points at
+		expect(res.agent.brief).toBeTruthy()
+		expect(typed).toContain(res.agent.brief)
+		// ...and the brief's body is never typed into the pane, only its path
+		expect(typed).not.toContain(TASK)
+		expect(store.readBrief(res.agent.id)).toBe(TASK)
 	})
 
 	it('takes the brief from a file too', () => {
