@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, loadAgent, register, registerStanding, saveAgent } from '../identity.ts'
-import { ack, send } from '../message.ts'
+import { ack, inbox, send } from '../message.ts'
 import { FileStore } from '../store/file-store.ts'
 import { injectInbox } from './inject-inbox.ts'
 
@@ -29,6 +29,29 @@ describe('mail hook emits the SessionStart payload', () => {
 		const payload = injectInbox(bobCtx(), 'SessionStart')
 		expect(payload?.hookSpecificOutput.hookEventName).toBe('SessionStart')
 		expect(payload?.hookSpecificOutput.additionalContext).toContain('ping')
+	})
+
+	it('lists every unread message under a counted heading with sender, subject, body, and id', () => {
+		// Two messages from DISTINCT senders so the sender is discriminating rather than incidental,
+		// and a subject on one so the subject field is exercised at all. Each named field is asserted
+		// separately: a payload carrying only bodies satisfies "unread mail is included" while losing
+		// everything a reader needs to act on or ack it.
+		const carol = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%7' }, exec: () => null },
+			{ handle: 'carol', harness: 'claude' },
+		)
+		send({ store, now: () => 2 }, { fromId: carol.id, to: 'bob', subject: 'deploy', body: 'ship it' })
+
+		const ctxText = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxText).toContain('## Unread mail (2)') // the count, not just the heading
+		expect(ctxText).toContain('alice') // sender of the first
+		expect(ctxText).toContain('carol') // sender of the second
+		expect(ctxText).toContain('deploy') // subject
+		expect(ctxText).toContain('ping') // body of the first
+		expect(ctxText).toContain('ship it') // body of the second
+		for (const m of inbox({ store }, { meId: bob.id, unread: true })) {
+			expect(ctxText).toContain(m.id) // every id, so each message is ackable from the payload
+		}
 	})
 
 	it("a spawned peer's hook call injects no brief", () => {

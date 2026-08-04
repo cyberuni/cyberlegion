@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
-import { currentPane, nudge, probeMultiplexer } from 'cyber-mux'
+import { currentPane, probeMultiplexer } from 'cyber-mux'
 import { migrateStore } from './admin.ts'
-import { realizeLaunch } from './agentdef/realize.ts'
+import { resolveSpawnLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
 import { decommission } from './decommission.ts'
@@ -34,7 +34,7 @@ import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
-import { clearUnit, spawnAndWake } from './session.ts'
+import { clearUnit, focusUnit, nudgeUnit, readUnit, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -66,13 +66,6 @@ function requireSelf(ctx: IdContext): string {
 	if (!id) fail('no identity in this session — run `cyberlegion unit register` first')
 	bumpLastSeen(ctx, id)
 	return id
-}
-
-function resolveTarget(ctx: IdContext, ref: string): { id: string } {
-	const agent = resolveAgent(ctx.store, ref)
-	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
-	if (!pane) fail(`unit "${ref}" has no known session pane`)
-	return { id: pane }
 }
 
 function withGlobals(cmd: Command): Command {
@@ -282,18 +275,16 @@ function defineSpawn(cmd: Command): Command {
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
-			let harness = opts.harness as string | undefined
+			let harness: string | undefined
 			let command: string | undefined
-			if (opts.agent || opts.agentFile) {
-				let def: AgentDef
-				try {
-					def = resolveAgentDef({ name: opts.agent, file: opts.agentFile })
-				} catch (err) {
-					fail(err instanceof Error ? err.message : String(err))
-				}
-				const realized = realizeLaunch(def, { harness: opts.harness as Harness | undefined })
-				harness = realized.harness
-				command = realized.command
+			try {
+				;({ harness, command } = resolveSpawnLaunch({
+					agent: opts.agent,
+					agentFile: opts.agentFile,
+					harness: opts.harness,
+				}))
+			} catch (err) {
+				fail(err instanceof Error ? err.message : String(err))
 			}
 			if (!harness) fail('unit spawn needs --harness, or --agent/--agent-file resolving one')
 			// Spawn AND deliver the first turn — `spawnAndWake` owns both acts so the brief path the
@@ -354,9 +345,8 @@ withGlobals(unit.command('focus'))
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const target = resolveTarget(ctx, ref)
-		selectSessionAdapter(ctx.env ?? process.env).focus(realExec, target)
-		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane: target.id }), json: { ref, pane: target.id } })
+		const { pane } = focusUnit(ctx, ref)
+		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane }), json: { ref, pane } })
 	})
 
 // The doorbell must carry a message: a live agent session only takes a turn when it receives
@@ -369,12 +359,10 @@ withGlobals(unit.command('nudge'))
 	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const target = resolveTarget(ctx, ref)
-		const message = opts.message || DELIVERY_DOORBELL
-		const result = await nudge(selectSessionAdapter(ctx.env ?? process.env), realExec, target, message)
+		const { pane, message, resubmits } = await nudgeUnit(ctx, ref, { message: opts.message })
 		emit(formatOf(opts), {
-			toon: toonObject({ nudged: ref, pane: target.id }),
-			json: { ref, pane: target.id, message, resubmits: result.resubmits },
+			toon: toonObject({ nudged: ref, pane }),
+			json: { ref, pane, message, resubmits },
 		})
 	})
 
@@ -385,12 +373,11 @@ withGlobals(unit.command('read'))
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const target = resolveTarget(ctx, ref)
-		const text = selectSessionAdapter(ctx.env ?? process.env).read(realExec, target, { lines: opts.lines })
+		const { pane, output } = readUnit(ctx, ref, { lines: opts.lines })
 		if (formatOf(opts) === 'json') {
-			console.log(JSON.stringify({ ref, pane: target.id, output: text }, null, 2))
+			console.log(JSON.stringify({ ref, pane, output }, null, 2))
 		} else {
-			console.log(text)
+			console.log(output)
 		}
 	})
 

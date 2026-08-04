@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
+import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
-import { wakeSpawn } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
 import {
 	type AgentRecord,
 	type Harness,
@@ -297,6 +297,70 @@ export interface ClearResult {
  * a fail-loud harness never has anything typed into its pane. Touches neither the registry record
  * nor the worktree — `close` (`decommission`) owns teardown.
  */
+/**
+ * Resolve a unit's live session pane from a ref, or throw naming the ref. The one place
+ * focus/nudge/read agree on what "addressable" means — a record's own pane, else a pane pointer
+ * keyed by its id (a herdr peer stores its pane only in that index).
+ */
+function paneTargetOf(ctx: IdContext, ref: string): { agent: AgentRecord; target: MuxTarget } {
+	const agent = resolveAgent(ctx.store, ref)
+	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
+	if (!pane) throw new Error(`unit "${ref}" has no known session pane`)
+	return { agent, target: { id: pane } }
+}
+
+/**
+ * Move input focus to a peer's session. The adapter beams the attached view all the way there —
+ * across workspace and tab — rather than no-opping when the peer sits outside the caller's current
+ * workspace, and surfaces a backend failure instead of reporting a false success.
+ *
+ * Lives here rather than inline in the CLI for the same reason `spawnAndWake` does: composed at the
+ * call site it took a hardcoded `realExec`, so no test could drive it and the frozen scenario stayed
+ * mutable while green.
+ */
+export function focusUnit(ctx: IdContext, ref: string): { agent: AgentRecord; pane: string } {
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const exec = ctx.exec ?? realExec
+	selectSessionAdapter(ctx.env ?? process.env, exec).focus(exec, target)
+	return { agent, pane: target.id }
+}
+
+/**
+ * Ring a peer's session as a **taken turn**, not fire-and-forget: `nudge` submits, reads the pane
+ * back to confirm the text is no longer staged, and flushes the staged buffer (never re-typing) up
+ * to a bounded cap — then throws if the peer never took the turn. A doorbell must carry text; an
+ * empty ring is a no-op, so the default points the peer at its inbox.
+ */
+export async function nudgeUnit(
+	ctx: IdContext,
+	ref: string,
+	options: { message?: string; nudgeOpts?: NudgeOptions } = {},
+): Promise<{ agent: AgentRecord; pane: string; message: string; resubmits: number }> {
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const exec = ctx.exec ?? realExec
+	const message = options.message || DELIVERY_DOORBELL
+	const result = await nudge(
+		selectSessionAdapter(ctx.env ?? process.env, exec),
+		exec,
+		target,
+		message,
+		options.nudgeOpts,
+	)
+	return { agent, pane: target.id, message, resubmits: result.resubmits }
+}
+
+/** Scrape the trailing output of a peer's session screen. */
+export function readUnit(
+	ctx: IdContext,
+	ref: string,
+	options: { lines?: number } = {},
+): { agent: AgentRecord; pane: string; output: string } {
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const exec = ctx.exec ?? realExec
+	const output = selectSessionAdapter(ctx.env ?? process.env, exec).read(exec, target, { lines: options.lines })
+	return { agent, pane: target.id, output }
+}
+
 export function clearUnit(ctx: IdContext, ref: string): ClearResult {
 	const agent = resolveAgent(ctx.store, ref)
 	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)

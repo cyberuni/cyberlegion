@@ -2,8 +2,19 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { DELIVERY_DOORBELL } from './console/doorbell.ts'
 import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
-import { clearUnit, labelFor, resetCommandFor, resolveBrief, spawn, spawnAndWake } from './session.ts'
+import {
+	clearUnit,
+	focusUnit,
+	labelFor,
+	nudgeUnit,
+	readUnit,
+	resetCommandFor,
+	resolveBrief,
+	spawn,
+	spawnAndWake,
+} from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -748,5 +759,138 @@ describe('spec:cyberlegion/mux', () => {
 		)
 		expect(calls[0]!.slice(0, 2)).toEqual(['tab', 'create'])
 		expect(calls[0]!.some((a) => a.startsWith('9S-'))).toBe(false)
+	})
+})
+
+// spec: unit/lifecycle/lifecycle.feature — focus / nudge / read against a peer's live pane.
+// These verbs were composed inline in the CLI with a hardcoded realExec, so nothing could drive
+// them and every success-path scenario stayed mutable while green (only the error branches were
+// covered e2e). They now go through focusUnit/nudgeUnit/readUnit, which honor ctx.exec, so a fake
+// exec drives the real tmux adapter end to end.
+describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', () => {
+	const PANE = '%9'
+	const LOCATIONS = `${PANE} peersession @3\n%1 callersession @1`
+
+	/** A registered peer holding a live tmux pane, plus a fake exec driving the real adapter. */
+	function peerCtx(opts: { locations?: string; captures?: string[] } = {}) {
+		const calls: string[][] = []
+		const captures = [...(opts.captures ?? [''])]
+		const exec: Exec = (cmd, args) => {
+			calls.push([cmd, ...args])
+			if (cmd !== 'tmux') return null
+			// `paneExists` probes with a bare pane-id format; `focus` asks for the full location.
+			if (args[0] === 'list-panes') {
+				return args.includes('#{pane_id} #{session_name} #{window_id}')
+					? (opts.locations ?? LOCATIONS)
+					: (opts.locations ?? LOCATIONS)
+							.split('\n')
+							.map((l) => l.split(' ')[0])
+							.join('\n')
+			}
+			if (args[0] === 'has-session') return ''
+			if (args[0] === 'capture-pane') return captures.length > 1 ? (captures.shift() ?? '') : (captures[0] ?? '')
+			return null
+		}
+		saveAgent(store, {
+			id: 'peer1',
+			handle: 'peer',
+			harness: 'claude',
+			cwd: '/tmp',
+			pane: { mux: 'tmux', id: PANE },
+			status: 'active',
+			createdAt: 'x',
+			lastSeen: 'x',
+		})
+		return { calls, ctx: { store, env: { TMUX: 't', CYBERLEGION_AGENT_ID: 'caller' }, exec } as IdContext }
+	}
+
+	const tmuxArgs = (calls: string[][], verb: string) => calls.filter((c) => c[0] === 'tmux' && c[1] === verb)
+
+	it('focus moves input focus to a peer pane', () => {
+		const { calls, ctx } = peerCtx()
+		expect(focusUnit(ctx, 'peer').pane).toBe(PANE)
+		expect(tmuxArgs(calls, 'select-pane').at(-1)).toEqual(['tmux', 'select-pane', '-t', PANE])
+	})
+
+	it('focus beams the attached client across workspace and tab, in that order, to the peer pane', () => {
+		const { calls, ctx } = peerCtx()
+		focusUnit(ctx, 'peer')
+		// it resolves the pane's OWN workspace and tab from the backend...
+		expect(tmuxArgs(calls, 'list-panes').length).toBeGreaterThan(0)
+		// ...then switches workspace, then tab, then lands focus — the order is the contract, and it
+		// targets the PEER's session/window, never no-opping in the caller's own.
+		const order = calls
+			.filter((c) => c[0] === 'tmux' && ['switch-client', 'select-window', 'select-pane'].includes(c[1]))
+			.map((c) => [c[1], c[3]])
+		expect(order).toEqual([
+			['switch-client', 'peersession'],
+			['select-window', '@3'],
+			['select-pane', PANE],
+		])
+	})
+
+	it('focus surfaces an error instead of a false success when the recorded pane no longer resolves', () => {
+		// the backend no longer knows this pane — distinct from an unresolvable ref or no recorded pane
+		const { calls, ctx } = peerCtx({ locations: '%1 callersession @1' })
+		expect(() => focusUnit(ctx, 'peer')).toThrow()
+		// ...and nothing was switched: no workspace, no tab, no pane
+		expect(tmuxArgs(calls, 'switch-client')).toEqual([])
+		expect(tmuxArgs(calls, 'select-window')).toEqual([])
+		expect(tmuxArgs(calls, 'select-pane')).toEqual([])
+	})
+
+	it('nudge delivers the default check-mail doorbell to the peer pane', async () => {
+		const { calls, ctx } = peerCtx({ captures: ['idle, nothing staged'] })
+		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		expect(res.message).toBe(DELIVERY_DOORBELL)
+		expect(calls.flat().join(' ')).toContain(DELIVERY_DOORBELL)
+	})
+
+	it('nudge carries a caller-supplied message with --message', async () => {
+		const { calls, ctx } = peerCtx({ captures: ['idle, nothing staged'] })
+		const res = await nudgeUnit(ctx, 'peer', { message: 'ship the release', nudgeOpts: { sleep: async () => {} } })
+		expect(res.message).toBe('ship the release')
+		const typed = calls.flat().join(' ')
+		expect(typed).toContain('ship the release')
+		expect(typed).not.toContain(DELIVERY_DOORBELL) // the default is replaced, not appended
+	})
+
+	it('nudge confirms the turn was taken and reports success without re-submitting', async () => {
+		// the pane comes back with the text gone — the turn was taken on the first submit
+		const { ctx } = peerCtx({ captures: ['scrolled away\n> '] })
+		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		expect(res.resubmits).toBe(0) // it issues no re-submit
+	})
+
+	it('nudge re-submits when the harness boot swallows the first submit', async () => {
+		// first read shows the text still staged at the prompt, second shows it taken
+		const { ctx } = peerCtx({ captures: [`> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
+		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		expect(res.resubmits).toBeGreaterThan(0) // reports success only once no longer staged
+	})
+
+	it('a boot-race re-submit flushes the staged buffer rather than re-typing the message', async () => {
+		const { calls, ctx } = peerCtx({ captures: [`> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
+		await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		// the literal text is typed exactly once; the recovery is a bare Enter, so the peer's turn
+		// carries the message once rather than twice
+		const typedLiteral = calls.filter((c) => c[0] === 'tmux' && c[1] === 'send-keys' && c.includes('-l'))
+		expect(typedLiteral).toHaveLength(1)
+	})
+
+	it('nudge fails loud when the turn is never taken within the bounded retry cap', async () => {
+		const { ctx } = peerCtx({ captures: [`> ${DELIVERY_DOORBELL}`] }) // stays staged forever
+		await expect(nudgeUnit(ctx, 'peer', { nudgeOpts: { attempts: 2, sleep: async () => {} } })).rejects.toThrow(
+			/never took the turn/,
+		)
+	})
+
+	it('read scrapes the peer trailing session output and honors --lines', () => {
+		const { calls, ctx } = peerCtx({ captures: ['line one\nline two\nline three'] })
+		const res = readUnit(ctx, 'peer', { lines: 20 })
+		expect(res.output).toBe('line one\nline two\nline three') // the captured output is what is returned
+		const capture = tmuxArgs(calls, 'capture-pane').at(-1) ?? []
+		expect(capture).toContain('-S') // the --lines wire actually reaches the adapter
+		expect(capture).toContain('-20')
 	})
 })
