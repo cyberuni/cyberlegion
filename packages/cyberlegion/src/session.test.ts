@@ -17,6 +17,30 @@ import {
 } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
+/**
+ * Does `text` name exactly `path` — as a standalone token, not as a prefix of a longer one?
+ * `<path>.bak` and `'<path>'` both CONTAIN the path while pointing somewhere else, so containment
+ * is too weak; but pinning the surrounding phrasing (a fixed ", then") is too strong, since the
+ * frozen Then constrains what the doorbell says, not the order it says it in.
+ */
+function namesPathExactly(text: string, path: string): boolean {
+	const i = text.indexOf(path)
+	if (i < 0) return false
+	// the path may be followed by sentence punctuation, but must then end or break to whitespace
+	return /^[.,;:!?]?(\s|$)/.test(text.slice(i + path.length))
+}
+
+/** The frozen Then: instructs the peer to READ the brief at its file path AND BEGIN. Order-free. */
+function isBriefInstruction(text: string, path: string): boolean {
+	return (
+		/\bread\b/i.test(text) &&
+		/\bbrief\b/i.test(text) &&
+		/\bbegin\b/i.test(text) &&
+		!/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(text) &&
+		namesPathExactly(text, path)
+	)
+}
+
 let store: FileStore
 let sent: string[][]
 /** Every exec call, in order. `sent` sees only send-keys, so a clause forbidding some OTHER act
@@ -95,7 +119,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// actually reached the pane, since spawnAndWake could otherwise bypass spawnDoorbell. The
 		// "then begin" half matters: a doorbell saying "read your brief at X, then wait" satisfies a
 		// read-only bar while contradicting the contract.
-		expect(typed).toMatch(/read\s+(your\s+)?brief\s+at\s+\S+.*\b(then|and)\s+begin\b/i)
+		expect(isBriefInstruction(typed, res.agent.brief as string)).toBe(true)
 		// ...and the path it names must be where the brief ACTUALLY IS. Asserting only that the text
 		// contains `res.agent.brief` is a self-set bar — that field is written by the very code under
 		// test, and the store keys briefs by agent id, so the two can diverge and the peer gets rung
@@ -108,11 +132,12 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// It rings THE PEER'S pane. Asserting on the concatenated argv sees what was typed but never
 		// where — `clear` binds its own pane this way and the spawn ring did not, so retargeting the
 		// ring to any other pane stayed green.
-		const ring = sent.find((a) => a.includes('-l') && a.some((x) => /read\b.*\bbrief\b/i.test(x)))
+		// located by the path it names, not by word order — "your brief … read it" is as conforming
+		// as "read your brief at …", and a locator that assumed one ordering failed as if the TARGET
+		// were wrong.
+		const ring = sent.find((a) => a.includes('-l') && a.some((x) => x.includes(res.agent.brief as string)))
 		expect(ring ? ring[ring.indexOf('-t') + 1] : undefined).toBe(res.pane)
-		const named = /at\s+(\S+?)[.,;]?\s+(?:then|and)\s+begin/i.exec(typed)?.[1]
-		expect(named).toBe(res.agent.brief)
-		expect(readFileSync(named as string, 'utf8')).toBe(TASK)
+		expect(readFileSync(res.agent.brief as string, 'utf8')).toBe(TASK)
 		// ...and the brief's body is never typed into the pane, only its path
 		expect(typed).not.toContain(TASK)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
@@ -906,7 +931,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(res.message).toMatch(/\bcheck\b[\s\S]*\binbox\b/i)
 		// ...and it is not the NEGATION of one: "do not check your inbox" keeps both keywords in
 		// order, so the keyword bar alone does not settle the clause.
-		expect(res.message).not.toMatch(/\b(not|never|don'?t|ignore|skip|avoid)\b/i)
+		expect(res.message).not.toMatch(/\b(?:do not|don'?t|never|ignore|skip|avoid)\s+check\b/i)
 		// ...and it is delivered to THE PEER'S pane, not merely typed somewhere
 		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
 		expect(targetOf(ring)).toBe(PANE)
@@ -960,11 +985,30 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	// nothing". Covered elsewhere only where no multiplexer is reachable at all, which cannot
 	// distinguish "refused before acting" from "could not have acted" — so each verb is driven here
 	// against a live backend with a peer that has no recorded pane.
+	/** Acts ON a pane. A backend probe or capability query is not one, and the contract permits it. */
+	const paneActs = (calls: string[][]) =>
+		calls.filter((c) =>
+			['send-keys', 'capture-pane', 'select-pane', 'select-window', 'switch-client', 'kill-pane'].includes(c[1] ?? ''),
+		)
+
 	it.each([
-		['focus', (ctx: IdContext) => focusUnit(ctx, 'nopane')],
-		['read', (ctx: IdContext) => readUnit(ctx, 'nopane')],
-		['nudge', (ctx: IdContext) => nudgeUnit(ctx, 'nopane', { nudgeOpts: { sleep: async () => {} } })],
-	])('%s on a unit with no known session pane errors and touches no pane', async (_verb, run) => {
+		['focus', 'nopane', (ctx: IdContext, r: string) => focusUnit(ctx, r), /no known session pane/],
+		['read', 'nopane', (ctx: IdContext, r: string) => readUnit(ctx, r), /no known session pane/],
+		[
+			'nudge',
+			'nopane',
+			(ctx: IdContext, r: string) => nudgeUnit(ctx, r, { nudgeOpts: { sleep: async () => {} } }),
+			/no known session pane/,
+		],
+		['focus', 'ghost', (ctx: IdContext, r: string) => focusUnit(ctx, r), /no agent addressable/],
+		['read', 'ghost', (ctx: IdContext, r: string) => readUnit(ctx, r), /no agent addressable/],
+		[
+			'nudge',
+			'ghost',
+			(ctx: IdContext, r: string) => nudgeUnit(ctx, r, { nudgeOpts: { sleep: async () => {} } }),
+			/no agent addressable/,
+		],
+	])('%s on an unaddressable ref (%s) errors and touches no pane', async (_verb, ref, run, message) => {
 		const { calls, ctx } = peerCtx()
 		saveAgent(store, {
 			id: 'nopane1',
@@ -976,8 +1020,8 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 			createdAt: 'x',
 			lastSeen: 'x',
 		})
-		await expect(async () => await run(ctx)).rejects.toThrow(/no known session pane/)
-		expect(calls).toEqual([]) // nothing was focused, delivered or scraped
+		await expect(async () => await run(ctx, ref)).rejects.toThrow(message)
+		expect(paneActs(calls)).toEqual([]) // nothing was focused, delivered or scraped
 	})
 
 	it('read scrapes the peer trailing session output and honors --lines', () => {

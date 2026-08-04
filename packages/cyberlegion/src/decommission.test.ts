@@ -81,6 +81,9 @@ describe('teardown worktree + session', () => {
 		const { exec, calls } = makeExec()
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'a1' })
 		expect(calls.worktreeRemove[0]).toEqual(expect.arrayContaining(['-C', primaryRoot, 'worktree', 'remove']))
+		// ...and it removes THIS unit's worktree. `arrayContaining` ignores the path argument, so a
+		// remove aimed at the parent directory — which holds every sibling unit's worktree — passes it.
+		expect(calls.worktreeRemove[0]).toContain(worktreeRoot)
 		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
 	})
 
@@ -192,6 +195,7 @@ describe('dirty-worktree refusal', () => {
 		const { exec, calls } = makeExec({ dirty: true })
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'd2', force: true })
 		expect(calls.worktreeRemove).toHaveLength(1)
+		expect(calls.worktreeRemove[0]).toContain(worktreeRoot) // this unit's worktree, not a parent
 		expect(store.getAgent('d2')).toBeUndefined()
 	})
 })
