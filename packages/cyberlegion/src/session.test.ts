@@ -100,7 +100,12 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// Containment alone is too weak: a doorbell naming a DECORATED superstring of the real path
 		// ("<brief>.bak", or the path shell-quoted) contains it while pointing at a file that does
 		// not exist. Pull the path back out of the doorbell text and read it.
-		const named = /at\s+(.+?),\s*then begin/i.exec(typed)?.[1]
+		// It rings THE PEER'S pane. Asserting on the concatenated argv sees what was typed but never
+		// where — `clear` binds its own pane this way and the spawn ring did not, so retargeting the
+		// ring to any other pane stayed green.
+		const ring = sent.find((a) => a.includes('-l') && a.some((x) => x.startsWith('Read your brief')))
+		expect(ring?.[2]).toBe(res.pane)
+		const named = /at\s+(\S+?)[.,;]?\s+(?:then|and)\s+begin/i.exec(typed)?.[1]
 		expect(named).toBe(res.agent.brief)
 		expect(readFileSync(named as string, 'utf8')).toBe(TASK)
 		// ...and the brief's body is never typed into the pane, only its path
@@ -253,17 +258,15 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 
 describe('refusing the primary checkout', () => {
 	it('throws a clear error rather than opening a session in the primary', () => {
-		const exec: Exec = (cmd, args) => {
-			if (cmd === 'git') {
-				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
-				if (args.includes('worktree')) return ''
-				return null
-			}
-			return null
-		}
+		// Driven through the shared fakeExec so the refusal's second clause is checkable: it must
+		// throw AND open nothing. A local recording-nothing exec can only see that it threw.
 		expect(() =>
-			spawn({ store, env: { TMUX: 't' }, exec }, { harness: 'claude', task: 't', worktreePath: primaryRoot }),
+			spawn(
+				{ store, env: { TMUX: 't' }, exec: fakeExec, now: () => 1 },
+				{ harness: 'claude', task: 't', worktreePath: primaryRoot },
+			),
 		).toThrow(/primary checkout/)
+		expect(sent).toHaveLength(0) // and no session is opened
 	})
 })
 
@@ -556,6 +559,25 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		expect(calls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
 		expect(calls.some((c) => c[0] === 'tab' && c[1] === 'create')).toBe(false)
 		expect(res.agent.cwd).toBe(resolve(worktreeRoot))
+	})
+
+	it('the new-worktree workspace default does not depend on whichever workspace is focused', () => {
+		// Same spawn, but the caller now sits in a live pane of its own — the deterministic clause
+		// says the placement must not vary with that. Without a fixture that VARIES the caller's
+		// pane, nothing forbids the default keying off it.
+		const calls: string[][] = []
+		const worktreeRoot = join(dirname(primaryRoot), 'focused-ws-unit')
+		spawn(
+			{
+				store,
+				env: { CYBER_MUX: 'herdr', HERDR_ENV: '1', HERDR_PANE_ID: 'w9:p9' },
+				exec: herdrExec(calls, worktreeRoot),
+				now: () => 1,
+			},
+			{ harness: 'claude', task: 't' },
+		)
+		expect(calls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+		expect(calls.some((c) => c[0] === 'tab' && c[1] === 'create')).toBe(false)
 	})
 
 	it('a new-worktree spawn with no --at lands a VISIBLE tmux window, never a detached session', () => {
@@ -851,7 +873,14 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		const { calls, ctx } = peerCtx({ captures: ['idle, nothing staged'] })
 		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
 		expect(res.message).toBe(DELIVERY_DOORBELL)
-		expect(calls.flat().join(' ')).toContain(DELIVERY_DOORBELL)
+		// The default must actually be a CHECK-MAIL doorbell. Comparing it to itself is a tautology:
+		// `DELIVERY_DOORBELL` could be reworded to 'ping', or inverted to "ignore your inbox", and
+		// every such assertion still passes. Bind the semantics independently, as spawnDoorbell is.
+		expect(res.message).toMatch(/\bcheck\b[\s\S]*\binbox\b/i)
+		// ...and it is delivered to THE PEER'S pane, not merely typed somewhere
+		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
+		expect(ring?.[3]).toBe(PANE)
+		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
 	})
 
 	it('nudge carries a caller-supplied message with --message', async () => {
@@ -861,6 +890,10 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		const typed = calls.flat().join(' ')
 		expect(typed).toContain('ship the release')
 		expect(typed).not.toContain(DELIVERY_DOORBELL) // the default is replaced, not appended
+		// ...delivered to the peer's pane, not merely typed somewhere
+		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
+		expect(ring?.[3]).toBe(PANE)
+		expect(ring?.at(-1)).toBe('ship the release')
 	})
 
 	it('nudge confirms the turn was taken and reports success without re-submitting', async () => {

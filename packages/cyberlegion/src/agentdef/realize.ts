@@ -46,9 +46,9 @@ export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): R
  * (`--agent` / `--agent-file`) whose harness, model and instructions compose the launch command.
  * An explicit `--harness` overrides the def's own.
  *
- * Extracted from the CLI action so the def→launch wiring is testable: composed inline it sat
- * between two well-tested halves (`resolveAgentDef`, `realizeLaunch`) with nothing exercising the
- * join, so replacing the whole resolution with a constant left the suite green.
+ * Extracted from the CLI action so the def→launch wiring is reachable from a test: composed inline
+ * it sat between two well-covered halves (`resolveAgentDef`, `realizeLaunch`) with nothing
+ * exercising the join between them.
  */
 export function resolveSpawnLaunch(input: {
 	agent?: string

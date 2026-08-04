@@ -219,10 +219,9 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
  *
  * The two acts live together here rather than at the CLI call site so the **brief path the doorbell
  * names is derived from the record `spawn` just wrote**, not handed in by a caller. That is the
- * point of the seam: a caller cannot ring with the wrong string, because it supplies no string. The
- * impl gate caught exactly that hole — with the path passed in from `cli.ts`, both "the doorbell
- * names the brief's path" and "it does not carry the brief's body" stayed green while the call site
- * passed an empty string, or the brief's whole body.
+ * point of the seam: a caller cannot ring with the wrong path because it supplies no path — an
+ * empty string, a stale path, or the brief's whole body are all unrepresentable here, rather than
+ * merely untested.
  *
  * The ring is best-effort on top of the guaranteed spawn effect (worktree + session + registry
  * record): `--no-wake` rings nothing, and a ring that never completes is reported as a warning on
@@ -315,8 +314,8 @@ function paneTargetOf(ctx: IdContext, ref: string): { agent: AgentRecord; target
  * workspace, and surfaces a backend failure instead of reporting a false success.
  *
  * Lives here rather than inline in the CLI for the same reason `spawnAndWake` does: composed at the
- * call site it took a hardcoded `realExec`, so no test could drive it and the frozen scenario stayed
- * mutable while green.
+ * call site it took a hardcoded `realExec`, so the operation could not be driven with an injected
+ * exec and its success path was unreachable from a test.
  */
 export function focusUnit(ctx: IdContext, ref: string): { agent: AgentRecord; pane: string } {
 	const { agent, target } = paneTargetOf(ctx, ref)
