@@ -3,15 +3,15 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   Spawn a new peer session — in a new git worktree it creates, or in an existing directory a caller
   supplies (--cwd) — and its session pane, then tear it back down cleanly — spawn and close are a
   deterministic inverse pair. Registry/discovery lives in unit/registry; backend selection and
-  placement live in mux; sending/reading mail lives in mail; hook-based mail/brief injection lives
+  placement live in mux; sending/reading mail lives in mail; hook-based mail injection lives
   in mail/surface.
 
-  # ── spawn registers as spawning before it starts ──
+  # ── spawn registers the peer before it starts ──
 
   Scenario: spawn pre-registers the peer before the session actually launches
     Given a caller spawning a new peer with --harness claude --task "reply to alice"
     When unit spawn runs
-    Then the peer is registered with status spawning and spawnedBy the caller's id
+    Then the peer is registered with status active and spawnedBy the caller's id
     And its brief file and pane pointer are written
 
   # ── The new worktree is always distinct from the primary checkout ──
@@ -171,18 +171,20 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
 
   # ── spawn delivers the peer's first turn (a fresh paned session boots idle) ──
   # For a paned agent, payload-delivery (the brief file) and turn-delivery (a taken turn) are two
-  # acts. The brief is injected into the peer's context by its own SessionStart hook, but the model
-  # takes no turn on its own — it boots to an idle prompt until something rings it. So spawn rings a
-  # best-effort first-turn doorbell over the same boot-race nudge submit-verify path, so the peer
-  # acts on its already-loaded brief with no human nudge. Best-effort like mail/doorbell's delivery
-  # ring: a ring that cannot complete is a warning, never a failed spawn.
+  # acts. The brief stays on disk and no hook injects it; the model also takes no turn on its own —
+  # it boots to an idle prompt until something rings it. So spawn rings a best-effort first-turn
+  # doorbell over the same boot-race nudge submit-verify path, and that ring carries the instruction
+  # to read the brief at its path and begin — pointing at the file, never re-typing its body.
+  # Best-effort like mail/doorbell's delivery ring: a ring that cannot complete is a warning, never
+  # a failed spawn.
 
   Scenario: spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief
     Given a caller running unit spawn --harness claude --task "do the thing"
     When unit spawn runs
     Then the peer's brief is written to its brief file, not typed into the pane
     And after the session opens, the peer's pane is rung with a first-turn doorbell
-    And the first-turn doorbell is a wake to act on the loaded brief, not the brief text re-typed
+    And the first-turn doorbell instructs the peer to read the brief at its file path and begin
+    And it names that path rather than carrying the brief's body
 
   Scenario: the first turn is delivered as a taken turn, robust to the harness boot race
     Given a caller running unit spawn whose freshly-launched harness is still booting so the first submit stages the doorbell unsent

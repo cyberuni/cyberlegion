@@ -16,13 +16,13 @@ moved to the new `mux/` node (a real architectural layer, not a command noun).
 existing directory a caller supplies (`--cwd`) — and its session pane, then tearing it back down
 cleanly — the deterministic inverse pair:
 
-- **spawn opens a new peer session and registers it as spawning before it starts** — `unit spawn
+- **spawn opens a new peer session and registers it before it starts** — `unit spawn
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
   primary checkout, opens a session backend (tmux or herdr, selected by environment — see `mux/`)
-  with its cwd set to that worktree, pre-registers the peer (`status: spawning`, `spawnedBy` the
+  with its cwd set to that worktree, pre-registers the peer (`status: active`, `spawnedBy` the
   caller's own id when it has one) and writes its pane pointer and brief file BEFORE the session
-  backend actually launches the harness — the peer's own first-turn hook is what flips it to `active`
-  (`mail/surface`).
+  backend actually launches the harness — there is no intermediate spawning status, and nothing
+  later flips it (the hook injects no brief and mutates no status — `mail/surface`).
   - **The new worktree is always distinct from the primary checkout** — spawn refuses (throws) a
     `--worktree-path` that resolves onto the primary checkout rather than opening a session there.
   - **Or spawn into an existing directory without a worktree (`--cwd`)** — `unit spawn --cwd <dir>`
@@ -62,12 +62,14 @@ cleanly — the deterministic inverse pair:
     own brief file in the hub, never appended to the typed launch command.
   - **Spawn delivers the peer's first turn — a fresh paned session boots idle otherwise** — for a
     paned agent, payload-delivery (the brief file, above) and turn-delivery (a taken turn) are two
-    separate acts: the brief is injected into the peer's context by its own SessionStart hook, but the
-    model takes no turn on its own — it sits at an idle prompt, brief unread, until something rings it.
+    separate acts: the brief stays on disk and no hook injects it, and the model takes no turn on its
+    own — it sits at an idle prompt, brief unread, until something rings it.
     A subagent needs no ring (the caller's Task call *is* the turn), but `unit spawn` always opens a
     real session, so it rings a **best-effort first-turn doorbell** over the same boot-race-aware
-    submit-verify path `nudge` uses (submit once, then flush the staged buffer up to a bounded cap), so
-    the peer acts on its already-loaded brief with no human nudge. This is **mechanism, not routing** —
+    submit-verify path `nudge` uses (submit once, then flush the staged buffer up to a bounded cap).
+    That ring **carries the instruction**: it tells the peer to read the brief **at its file path** and
+    begin, naming the path rather than carrying the brief's body — so the peer acts on its brief with
+    no human nudge and the brief is still never re-typed. This is **mechanism, not routing** —
     it completes the spawn, it does not select a backend — so it stays within the CLI's dumb-hands
     charter and fixes every caller at once (Operator, Pod, and the Legate's `channel` dispatch
     strategy). The ring is best-effort exactly like `mail/doorbell`'s delivery ring: a ring that never
@@ -153,7 +155,7 @@ cleanly — the deterministic inverse pair:
 
 **Non-goals** — the unit registry and self/peer discovery (`unit/registry`), backend selection and
 placement (`mux/`), mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
-await`/`watch` (`mail/wait`), hook-based mail/brief injection into a harness turn (`mail/surface`) —
+await`/`watch` (`mail/wait`), hook-based mail injection into a harness turn (`mail/surface`) —
 this node only owns the session lifecycle (spawn/close/focus/nudge/read/clear) and the worktree it
 creates (when it creates one — a `--cwd` spawn opens into a caller-supplied directory and owns no
 worktree). `clear` owns only injecting the harness's fresh-context command into the pane — it never
@@ -169,12 +171,12 @@ Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of thes
 
 | Behavior | What it covers |
 |---|---|
-| **spawn registers as spawning before it starts** | pre-registration, brief/pane pointer written before launch |
+| **spawn registers the peer before it starts** | pre-registration with status `active` and `spawnedBy`, brief/pane pointer written before launch |
 | **worktree distinct from primary** | refuses a `--worktree-path` resolving onto the primary checkout |
 | **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
 | **spawn resolves the default `--at` by mode** | a new-worktree spawn defaults to `workspace` (own visible space, deterministic); a `--cwd` spawn defaults to `tab` in the caller's current space; an explicit `--at` overrides either default |
 | **brief delivered by file** | never typed into the launch command |
-| **spawn delivers the peer's first turn** | rings a best-effort first-turn doorbell over the boot-race submit-verify path so the paned peer acts on its loaded brief; a ring that never completes warns, never fails the spawn; the doorbell wakes the peer, never re-types the brief |
+| **spawn delivers the peer's first turn** | the brief is written to its file, never typed into the pane; the pane is then rung with a best-effort first-turn doorbell instructing the peer to read the brief at its file path and begin, naming that path rather than carrying the brief's body; a ring that never completes warns, never fails the spawn |
 | **spawn first-turn is robust to the boot race** | re-submits the staged doorbell until the turn is taken, delivered exactly once (never re-typed per retry) |
 | **spawn --no-wake opts out** | spawns and writes the brief file but delivers no first-turn doorbell |
 | **unmapped harness errors** | before any worktree/session opens |

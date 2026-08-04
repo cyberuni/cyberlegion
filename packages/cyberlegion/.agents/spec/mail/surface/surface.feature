@@ -1,23 +1,13 @@
 @frozen
 Feature: mail surface — inject unread mail into a session across harnesses
-  mail hook emits the harness hook injection payload for a spawned peer's pending brief, its unread
-  mail, and the standing owner's unread mail when this session is the hub's main pane. The mail
+  mail hook emits the harness hook injection payload for a session's unread mail and the standing
+  owner's unread mail when this session is the hub's main pane. It carries no brief: a spawned
+  peer's brief reaches it in the wake instruction, not through this hook (unit/lifecycle). The mail
   primitives themselves live in mail/core; thread correlation and the bounded mail await/watch live
   in mail/wait; the doorbell nudge lives in unit/lifecycle; installing the hook into a project's
   harness config lives in init.
 
-  # ── mail hook emits brief + unread mail ──
-
-  Scenario: a spawned peer's first hook call injects its pending brief
-    Given a peer registered with status spawning and a brief file waiting
-    When it runs mail hook --event SessionStart
-    Then the payload includes the brief text under "Your brief"
-    And the peer's status becomes active
-
-  Scenario: a later hook call does not re-inject the brief
-    Given a peer whose status is already active (its brief was injected on a prior call)
-    When it runs mail hook --event SessionStart
-    Then the payload contains no brief section
+  # ── mail hook emits unread mail, never a brief ──
 
   Scenario: unread mail is included on every hook call
     Given a registered caller with two unread messages
@@ -29,6 +19,23 @@ Feature: mail surface — inject unread mail into a session across harnesses
     When it runs mail hook --event SessionStart
     Then stdout is parseable JSON shaped as hookSpecificOutput with hookEventName and additionalContext
     And it is not TOON-formatted
+
+  Scenario: a spawned peer's hook call injects no brief
+    Given a spawned peer whose brief file is on disk
+    And it has one unread message
+    When it runs mail hook --event SessionStart
+    Then the payload lists that unread message
+    And the payload contains no brief section
+    And the peer's brief file still exists with its contents unchanged
+
+  Scenario: a peer record carrying a legacy spawning status still gets no brief
+    Given a peer record written by an older hub, carrying status spawning
+    And its brief file is on disk
+    And it has one unread message
+    When it runs mail hook --event SessionStart
+    Then the payload lists that unread message
+    And the payload contains no brief section
+    And the peer's record still carries the status it was migrated with
 
   # ── The dedicated hook command is used, not a generic exec ──
 
@@ -46,7 +53,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
     And the command exits 0
 
   Scenario: a SessionStart hook auto-registers a live-pane session that has no identity yet
-    Given a session in a multiplexer pane with no identity registered yet, no unread mail, and no brief
+    Given a session in a multiplexer pane with no identity registered yet and no unread mail
     When it runs mail hook --event SessionStart
     Then the session is registered and its pane resolves to a new agent id
     And stdout is empty
@@ -58,10 +65,10 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Then stdout is empty
     And the command exits 0
 
-  # ── No unread mail and no pending brief injects nothing ──
+  # ── No unread mail injects nothing ──
 
-  Scenario: a registered, active caller with an empty inbox and no pending brief injects nothing
-    Given a registered active caller with no unread mail and no brief pending
+  Scenario: a registered, active caller with an empty inbox injects nothing
+    Given a registered active caller with no unread mail
     When it runs mail hook --event SessionStart
     Then stdout is empty
     And the command exits 0
