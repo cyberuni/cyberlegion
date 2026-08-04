@@ -373,11 +373,17 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		)
 		expect(result.rung).toBe(true)
 		expect(result.pane).toBe('%1')
-		// the doorbell instructs the peer to read the brief at its file path and begin...
-		expect(sendCalls).toEqual([SPAWN_DOORBELL])
-		expect(sendCalls[0]).toContain(BRIEF_PATH)
+		expect(sendCalls).toHaveLength(1)
+		const doorbell = sendCalls[0]
+		// The doorbell INSTRUCTS the peer to read the brief at its file path and begin. Asserted
+		// against an independent shape, never against `spawnDoorbell`'s own output: deriving the
+		// expected value from the subject makes the check a tautology, and the pre-CR content-free
+		// wake ("your brief is loaded in context — read it and begin work") passes such a check with
+		// the path merely appended, which is the exact text this contract exists to replace.
+		expect(doorbell).toMatch(/read\s+(your\s+)?brief\s+at\s+\S/i)
 		// ...naming that path rather than carrying the brief's body
-		expect(sendCalls[0]).not.toContain(BRIEF_BODY)
+		expect(doorbell).toContain(BRIEF_PATH)
+		expect(doorbell).not.toContain(BRIEF_BODY)
 	})
 
 	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {

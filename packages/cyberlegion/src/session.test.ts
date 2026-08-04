@@ -83,6 +83,27 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
 	})
 
+	it('--no-wake spawns and writes the brief file but delivers no first-turn doorbell', async () => {
+		const TASK = 'reply to alice about the migration'
+		const wakeExec: Exec = (cmd, args) => {
+			if (cmd === 'tmux' && args[0] === 'list-panes') return '%9'
+			if (cmd === 'tmux' && args[0] === 'has-session') return ''
+			return fakeExec(cmd, args)
+		}
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: wakeExec },
+			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
+			{ noWake: true, nudgeOpts: { attempts: 1, sleep: async () => {} } },
+		)
+		// nothing rung — and nothing typed at the pane naming the brief
+		expect(res.rung).toBe(false)
+		expect(sent.flat().join(' ')).not.toContain(res.agent.brief)
+		// ...but the spawn itself still landed in full: registered peer, pane, brief on disk
+		expect(loadAgent(store, res.agent.id)).toBeTruthy()
+		expect(res.pane).toBe('%9')
+		expect(store.readBrief(res.agent.id)).toBe(TASK)
+	})
+
 	it('takes the brief from a file too', () => {
 		const bf = join(store.root, '..', 'brief.txt')
 		writeFileSync(bf, 'from file')

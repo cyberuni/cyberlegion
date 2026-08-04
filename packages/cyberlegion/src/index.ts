@@ -48,7 +48,7 @@ export type { HookEvent } from './runtime/inject-inbox.ts'
 export { injectInbox } from './runtime/inject-inbox.ts'
 // ── Session lifecycle (channel) ────────────────────────────────────────────────────────────────
 export type { SpawnInput, SpawnResult } from './session.ts'
-export { spawn } from './session.ts'
+export { spawn, spawnAndWake } from './session.ts'
 export { FileStore } from './store/file-store.ts'
 // ── Domain + the Store seam ────────────────────────────────────────────────────────────────────
 export type { AgentRecord, Harness, InboxSnapshot, Message, Store } from './store/store.ts'

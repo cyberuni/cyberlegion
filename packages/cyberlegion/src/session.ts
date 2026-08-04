@@ -234,10 +234,14 @@ export async function spawnAndWake(
 	const res = spawn(ctx, input)
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
+	// `spawn` always records where it wrote the brief. The guard is not defensive padding: a doorbell
+	// with no path to name is not an instruction, so ring nothing rather than type the degenerate
+	// "Read your brief at , then begin work." — a silent half-wake is worse than an unrung peer.
+	const briefPath = res.agent.brief
 	const wake = await wakeSpawn(
 		() => selectSessionAdapter(env, exec),
 		exec,
-		{ target: { id: res.pane }, briefPath: res.agent.brief ?? '', noWake: options.noWake },
+		{ target: { id: res.pane }, briefPath: briefPath ?? '', noWake: options.noWake || !briefPath },
 		options.nudgeOpts,
 	)
 	return { ...res, rung: wake.rung, ...(wake.warning ? { warning: wake.warning } : {}) }
