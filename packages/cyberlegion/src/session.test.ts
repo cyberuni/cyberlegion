@@ -97,7 +97,12 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// with a path to a file that is not there (the exact failure ADR-0032 exists to prevent).
 		expect(res.agent.brief).toBeTruthy()
 		expect(typed).toContain(res.agent.brief)
-		expect(readFileSync(res.agent.brief as string, 'utf8')).toBe(TASK)
+		// Containment alone is too weak: a doorbell naming a DECORATED superstring of the real path
+		// ("<brief>.bak", or the path shell-quoted) contains it while pointing at a file that does
+		// not exist. Pull the path back out of the doorbell text and read it.
+		const named = /at\s+(.+?),\s*then begin/i.exec(typed)?.[1]
+		expect(named).toBe(res.agent.brief)
+		expect(readFileSync(named as string, 'utf8')).toBe(TASK)
 		// ...and the brief's body is never typed into the pane, only its path
 		expect(typed).not.toContain(TASK)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
@@ -161,6 +166,9 @@ describe('per-harness launch', () => {
 describe('spawn errors', () => {
 	it('errors on an unmapped harness without launching', () => {
 		expect(() => spawn(ctx(), { harness: 'grok', task: 't' })).toThrow(/launch map/)
+		// ...and it errors BEFORE anything is opened — no worktree created, no session launched
+		expect(worktreeAddCalls).toEqual([])
+		expect(sent).toEqual([])
 	})
 	it('errors when no brief source is supplied', () => {
 		expect(() => spawn(ctx(), { harness: 'claude' })).toThrow(/brief/)

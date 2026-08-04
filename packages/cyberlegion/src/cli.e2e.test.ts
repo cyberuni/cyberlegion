@@ -305,9 +305,9 @@ describe('spec:cyberlegion/unit', () => {
 		})
 	})
 
-	// spec: focus, nudge, read: error cases (unresolvable ref, no live pane) — resolveTarget (cli.ts)
+	// spec: focus, nudge, read: error cases (unresolvable ref, no live pane) — paneTargetOf (session.ts)
 	// guards both before any command touches the session adapter, so nothing is focused/delivered/
-	// scraped on either error. These tests never reach a real session adapter, since resolveTarget
+	// scraped on either error. These tests never reach a real session adapter, since paneTargetOf
 	// throws first — proving the guard runs before any adapter call.
 	describe('focus, nudge, read: error cases', () => {
 		it('focus on an unresolvable ref errors and focuses nothing', () => {
@@ -319,7 +319,7 @@ describe('spec:cyberlegion/unit', () => {
 
 		it('focus on a unit with no known session pane errors and focuses nothing', () => {
 			// Registering with no mux env in the child process (baseEnv strips TMUX/HERDR_*) yields a
-			// unit with pane: null — a registered id that resolveTarget still cannot address.
+			// unit with pane: null — a registered id that paneTargetOf still cannot address.
 			const rec = JSON.parse(
 				legion(['unit', 'register', '--harness', 'claude', '--handle', 'nopane', '--format', 'json']),
 			)

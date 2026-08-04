@@ -134,7 +134,11 @@ describe('empty / error cases', () => {
 	})
 
 	it('rejects an unsupported --event', () => {
+		// it names BOTH supported events — an error that only says "unsupported" leaves the caller
+		// guessing which values are legal
 		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/unsupported/)
+		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/SessionStart/)
+		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/PostToolUse/)
 	})
 })
 
