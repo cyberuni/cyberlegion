@@ -19,6 +19,9 @@ import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
 let sent: string[][]
+/** Every exec call, in order. `sent` sees only send-keys, so a clause forbidding some OTHER act
+ * ("tears nothing down", "focuses nothing") is unfalsifiable against it. */
+let allCalls: string[][]
 let worktreeAddCalls: string[][]
 // The real "primary checkout" — writable, since spawn actually mkdir's the worktree marker under
 // it; `git` itself is faked via `fakeExec` below, so no real git repo is required here.
@@ -28,11 +31,13 @@ beforeEach(() => {
 	store = new FileStore(join(mkdtempSync(join(tmpdir(), 'cl-')), 'hub'))
 	primaryRoot = mkdtempSync(join(tmpdir(), 'cl-primary-'))
 	sent = []
+	allCalls = []
 	worktreeAddCalls = []
 })
 
 // tmux `open` asks for `#{pane_id}\t#{window_id}` (tab-separated — `OpenedPane.tab` is required).
 const fakeExec: Exec = (cmd, args) => {
+	allCalls.push([cmd, ...args])
 	if (cmd === 'git') {
 		if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
 		if (args.includes('worktree')) {
@@ -103,8 +108,8 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// It rings THE PEER'S pane. Asserting on the concatenated argv sees what was typed but never
 		// where — `clear` binds its own pane this way and the spawn ring did not, so retargeting the
 		// ring to any other pane stayed green.
-		const ring = sent.find((a) => a.includes('-l') && a.some((x) => x.startsWith('Read your brief')))
-		expect(ring?.[2]).toBe(res.pane)
+		const ring = sent.find((a) => a.includes('-l') && a.some((x) => /read\b.*\bbrief\b/i.test(x)))
+		expect(ring ? ring[ring.indexOf('-t') + 1] : undefined).toBe(res.pane)
 		const named = /at\s+(\S+?)[.,;]?\s+(?:then|and)\s+begin/i.exec(typed)?.[1]
 		expect(named).toBe(res.agent.brief)
 		expect(readFileSync(named as string, 'utf8')).toBe(TASK)
@@ -165,6 +170,20 @@ describe('per-harness launch', () => {
 		// bare Enter.
 		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', `CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE ${launch}`])
 		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
+	})
+})
+
+// The def→launch join's LAST link: resolveSpawnLaunch is bound in agentdef/realize.test.ts, but
+// nothing carried its `command` through spawn to the pane, so dropping `input.command ??` — which
+// launches a bare `claude` and silently discards the def's model and instructions — stayed green.
+describe('a caller-supplied launch command reaches the pane', () => {
+	it('types the composed command, not the harness default', () => {
+		const composed = `claude --model 'sonnet' --append-system-prompt 'Look for correctness bugs first.'`
+		const res = spawn(ctx(), { harness: 'claude', command: composed, task: 't', at: 'pane:right' })
+		expect(res.launch).toBe(composed)
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		expect(typed).toContain(composed) // the def's model and instructions actually reach the pane
+		expect(typed).not.toBe('CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude') // not the bare default
 	})
 })
 
@@ -685,7 +704,13 @@ describe('clear injects the harness reset into a warm peer and tears nothing dow
 		// cyber-mux's `submit(text)` composes two tmux calls: a literal `-l` type, then a bare Enter.
 		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', '/clear'])
 		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
-		// nothing torn down — record, pane index binding, and worktree are exactly as registered
+		// nothing torn down — no teardown or worktree removal was even ISSUED. Asserting only that
+		// the record still looks right cannot see a kill-pane or a `git worktree remove` that the
+		// fake backend happily accepts.
+		expect(allCalls.some((c) => c[0] === 'tmux' && ['kill-pane', 'kill-session', 'kill-window'].includes(c[1]!))).toBe(
+			false,
+		)
+		expect(allCalls.some((c) => c[0] === 'git' && c.includes('worktree') && c.includes('remove'))).toBe(false)
 		const rec = loadAgent(store, 'w1')
 		expect(rec).toMatchObject({ id: 'w1', status: 'active', pane: { mux: 'tmux', id: '%9' } })
 		expect(rec?.worktree).toEqual({ root: '/somewhere', branch: 'cyberlegion/unit-w1' })
@@ -835,6 +860,8 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	}
 
 	const tmuxArgs = (calls: string[][], verb: string) => calls.filter((c) => c[0] === 'tmux' && c[1] === verb)
+	/** The pane an argv is aimed at — read by name, since -t sits at a different index per verb. */
+	const targetOf = (argv: string[] | undefined) => (argv ? argv[argv.indexOf('-t') + 1] : undefined)
 
 	it('focus moves input focus to a peer pane', () => {
 		const { calls, ctx } = peerCtx()
@@ -877,9 +904,12 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		// `DELIVERY_DOORBELL` could be reworded to 'ping', or inverted to "ignore your inbox", and
 		// every such assertion still passes. Bind the semantics independently, as spawnDoorbell is.
 		expect(res.message).toMatch(/\bcheck\b[\s\S]*\binbox\b/i)
+		// ...and it is not the NEGATION of one: "do not check your inbox" keeps both keywords in
+		// order, so the keyword bar alone does not settle the clause.
+		expect(res.message).not.toMatch(/\b(not|never|don'?t|ignore|skip|avoid)\b/i)
 		// ...and it is delivered to THE PEER'S pane, not merely typed somewhere
 		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
-		expect(ring?.[3]).toBe(PANE)
+		expect(targetOf(ring)).toBe(PANE)
 		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
 	})
 
@@ -892,7 +922,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(typed).not.toContain(DELIVERY_DOORBELL) // the default is replaced, not appended
 		// ...delivered to the peer's pane, not merely typed somewhere
 		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
-		expect(ring?.[3]).toBe(PANE)
+		expect(targetOf(ring)).toBe(PANE)
 		expect(ring?.at(-1)).toBe('ship the release')
 	})
 
@@ -926,11 +956,36 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		)
 	})
 
+	// The guard clause every one of these verbs carries: "errors and {focuses,delivers,scrapes}
+	// nothing". Covered elsewhere only where no multiplexer is reachable at all, which cannot
+	// distinguish "refused before acting" from "could not have acted" — so each verb is driven here
+	// against a live backend with a peer that has no recorded pane.
+	it.each([
+		['focus', (ctx: IdContext) => focusUnit(ctx, 'nopane')],
+		['read', (ctx: IdContext) => readUnit(ctx, 'nopane')],
+		['nudge', (ctx: IdContext) => nudgeUnit(ctx, 'nopane', { nudgeOpts: { sleep: async () => {} } })],
+	])('%s on a unit with no known session pane errors and touches no pane', async (_verb, run) => {
+		const { calls, ctx } = peerCtx()
+		saveAgent(store, {
+			id: 'nopane1',
+			handle: 'nopane',
+			harness: 'claude',
+			cwd: '/tmp',
+			pane: null,
+			status: 'active',
+			createdAt: 'x',
+			lastSeen: 'x',
+		})
+		await expect(async () => await run(ctx)).rejects.toThrow(/no known session pane/)
+		expect(calls).toEqual([]) // nothing was focused, delivered or scraped
+	})
+
 	it('read scrapes the peer trailing session output and honors --lines', () => {
 		const { calls, ctx } = peerCtx({ captures: ['line one\nline two\nline three'] })
 		const res = readUnit(ctx, 'peer', { lines: 20 })
 		expect(res.output).toBe('line one\nline two\nline three') // the captured output is what is returned
 		const capture = tmuxArgs(calls, 'capture-pane').at(-1) ?? []
+		expect(targetOf(capture)).toBe(PANE) // scraped from THAT peer's pane, not merely from some pane
 		expect(capture).toContain('-S') // the --lines wire actually reaches the adapter
 		expect(capture).toContain('-20')
 	})
