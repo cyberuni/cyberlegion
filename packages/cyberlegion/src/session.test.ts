@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -75,12 +75,18 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
 		)
 		const typed = sent.flat().join(' ')
-		// it is an INSTRUCTION to read, not a bare path — asserted on the text that actually reached
-		// the pane, since spawnAndWake could otherwise bypass spawnDoorbell and type the path alone.
-		expect(typed).toMatch(/read\s+(your\s+)?brief\s+at\s+\S/i)
-		// ...and the path it names is the one the peer's own record points at
+		// It is an INSTRUCTION to read AND to begin, not a bare path — asserted on the text that
+		// actually reached the pane, since spawnAndWake could otherwise bypass spawnDoorbell. The
+		// "then begin" half matters: a doorbell saying "read your brief at X, then wait" satisfies a
+		// read-only bar while contradicting the contract.
+		expect(typed).toMatch(/read\s+(your\s+)?brief\s+at\s+\S+.*\bthen\s+begin\b/i)
+		// ...and the path it names must be where the brief ACTUALLY IS. Asserting only that the text
+		// contains `res.agent.brief` is a self-set bar — that field is written by the very code under
+		// test, and the store keys briefs by agent id, so the two can diverge and the peer gets rung
+		// with a path to a file that is not there (the exact failure ADR-0032 exists to prevent).
 		expect(res.agent.brief).toBeTruthy()
 		expect(typed).toContain(res.agent.brief)
+		expect(readFileSync(res.agent.brief as string, 'utf8')).toBe(TASK)
 		// ...and the brief's body is never typed into the pane, only its path
 		expect(typed).not.toContain(TASK)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)

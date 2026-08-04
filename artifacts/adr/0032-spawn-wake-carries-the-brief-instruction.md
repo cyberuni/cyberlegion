@@ -117,10 +117,17 @@ single bounded line, which is what lets it survive the boot-race re-submit path 
 ### Risks
 
 - **Dropping `spawning` loses the only signal for "spawned, ring failed, never took its turn".**
-  `unit list` filters only `exited`, and the ring is best-effort, so a peer whose wake silently never
+  `unit who` filters only `exited`, and the ring is best-effort, so a peer whose wake silently never
   landed now reports `active` and is indistinguishable by eye. Accepted knowingly; if a fleet view
   later wants to surface stuck units, that signal needs rebuilding as a turn fact rather than a
   registry status.
+- **The named path is in the global hub, not the peer's own worktree.** Briefs live under
+  `~/.agents/cyberlegion/`, while the spawned peer's cwd is its worktree. So the instruction points
+  outside the tree the peer is working in, and pickup now depends on the peer being able to *read*
+  that path — a failure mode of the same shape as the hook dependency this ADR removes, moved from
+  "did a hook run?" to "is the hub readable from here?". Strictly better (the peer can see and report
+  the failure instead of improvising silently), but not zero. If briefs ever need to be worktree-local,
+  that is a change to where `spawn` writes them, not to what the wake says.
 - **A migrated record may still carry `spawning`.** `admin migrate` carries agent records from older
   hubs, so the retired value remains reachable on disk. **Reads therefore preserve an unknown status
   verbatim** — no read path validates, coerces, or normalizes a status, and none may start doing so.

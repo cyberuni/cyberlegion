@@ -379,7 +379,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		// expected value from the subject makes the check a tautology, and the pre-CR content-free
 		// wake ("your brief is loaded in context — read it and begin work") passes such a check with
 		// the path merely appended, which is the exact text this contract exists to replace.
-		expect(doorbell).toMatch(/read\s+(your\s+)?brief\s+at\s+\S/i)
+		expect(doorbell).toMatch(/read\s+(your\s+)?brief\s+at\s+\S+.*\bthen\s+begin\b/i)
 		// ...naming that path. That it never carries the brief's BODY cannot be asserted here —
 		// wakeSpawn is never handed the body — so that half is bound in session.test.ts, against a
 		// real spawn where the body exists to leak.
