@@ -13,7 +13,7 @@ Three steps, always in this order.
 ## 1. Resolve the agent def
 
 ```bash
-npx cyberlegion@<version> agent resolve <R> --format json
+npx cyberlegion@0.2.0 agent resolve <R> --format json
 ```
 
 Returns `model`, `effort`, `harness`, and `instructions` for role `R`. `cyberlegion` allocates no

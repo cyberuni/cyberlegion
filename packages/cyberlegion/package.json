@@ -1,6 +1,6 @@
 {
 	"name": "cyberlegion",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Harness-agnostic agent session spawning and messaging over the filesystem",
 	"keywords": [
 		"agent",

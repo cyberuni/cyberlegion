@@ -10,7 +10,7 @@ It **classifies** the request and either runs the matching `cyberlegion` CLI cal
 routing judgment to `dispatch-governance`. It is a **thin classifier**: it holds no production
 logic, loads no other governance, and writes no state of its own.
 
-> **Version pin.** Every invocation below reads `npx cyberlegion@<version> ...` — a placeholder.
+> **Version pin.** Every invocation below reads `npx cyberlegion@0.2.0 ...` — a placeholder.
 > The package is not yet published to npm (`legion-publish` is a later CR in the extraction); until
 > then, resolve the CLI from a workspace checkout (`packages/cyberlegion/bin/cyberlegion.mjs`) or
 > whatever pinned version the project has declared. Never invent a version number.
@@ -27,17 +27,17 @@ mailbox because a nudge already fired.
 
 | User intent | Handling |
 |---|---|
-| Send a message to a named peer, "the pane on the right", a claude/cursor peer | `npx cyberlegion@<version> mail send --to <handle>` (or `unit nudge <ref>` first if the peer needs waking, then `mail send`) |
-| Check inbox / read unread mail | `npx cyberlegion@<version> mail inbox` — `mail read <msg-id>` to peek, `mail ack <msg-id>` once handled |
-| Spawn a new peer session | `npx cyberlegion@<version> unit spawn --agent <name> ...` — cyberlegion owns worktree creation; pass `--cwd <dir>` only when the caller already has a directory to spawn into (e.g. reusing an existing worktree) |
-| Close / tear down a peer session | `npx cyberlegion@<version> unit close <id>` |
-| Wait for a threaded reply | `npx cyberlegion@<version> mail await --thread <id>` |
-| Watch mail as it streams in (observer, never acks) | `npx cyberlegion@<version> mail watch` |
-| List addressable peers | `npx cyberlegion@<version> unit who` |
-| Sweep dead peers | `npx cyberlegion@<version> unit prune` |
+| Send a message to a named peer, "the pane on the right", a claude/cursor peer | `npx cyberlegion@0.2.0 mail send --to <handle>` (or `unit nudge <ref>` first if the peer needs waking, then `mail send`) |
+| Check inbox / read unread mail | `npx cyberlegion@0.2.0 mail inbox` — `mail read <msg-id>` to peek, `mail ack <msg-id>` once handled |
+| Spawn a new peer session | `npx cyberlegion@0.2.0 unit spawn --agent <name> ...` — cyberlegion owns worktree creation; pass `--cwd <dir>` only when the caller already has a directory to spawn into (e.g. reusing an existing worktree) |
+| Close / tear down a peer session | `npx cyberlegion@0.2.0 unit close <id>` |
+| Wait for a threaded reply | `npx cyberlegion@0.2.0 mail await --thread <id>` |
+| Watch mail as it streams in (observer, never acks) | `npx cyberlegion@0.2.0 mail watch` |
+| List addressable peers | `npx cyberlegion@0.2.0 unit who` |
+| Sweep dead peers | `npx cyberlegion@0.2.0 unit prune` |
 | Onboard / set up cyberlegion (register the surfacing hook, bind the main owner pane, first-run setup) | **invoke the `init-cyberlegion` skill** — the interactive onboarding front door over `cyberlegion init` / `unit register --standing` / `attach` |
-| Diagnose the environment (harness, multiplexer, pane, hub root) | `npx cyberlegion@<version> mux doctor` |
-| Register the surfacing hook by hand (low-level, explicit harness) | `npx cyberlegion@<version> init --agent <harness>` — the `init-cyberlegion` skill wraps this; use directly only when scripting a known harness |
+| Diagnose the environment (harness, multiplexer, pane, hub root) | `npx cyberlegion@0.2.0 mux doctor` |
+| Register the surfacing hook by hand (low-level, explicit harness) | `npx cyberlegion@0.2.0 init --agent <harness>` — the `init-cyberlegion` skill wraps this; use directly only when scripting a known harness |
 | Dispatch work to fulfill a role with a brief and expect a verdict back (routing judgment needed — which strategy, which agent def, warm vs cold) | **hand off to `dispatch-governance`** — do not compose `unit spawn`/`mail await`/the Task tool yourself |
 | No user channel at all (unattended trigger, multi-unit fan-out) | **spawn the `headless-legate` agent** by name — it realizes this same gateway + `dispatch-governance` flow headless |
 

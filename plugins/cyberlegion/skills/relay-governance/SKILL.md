@@ -50,7 +50,7 @@ exiting. Resolve the owner recipient in this order:
 Then:
 
 ```bash
-npx cyberlegion@<version> mail send --to <owner> --subject "<what>" --body-file <report> [--thread <t>]
+npx cyberlegion@0.2.0 mail send --to <owner> --subject "<what>" --body-file <report> [--thread <t>]
 ```
 
 and **exit**. Do not park waiting for a live answer — a cron session has no one to answer live. The
