@@ -10,7 +10,7 @@ owner identity holds, where frameless agents (cron-started, no parent frame) pus
 wraps the `cyberlegion` CLI's owner-scoped mail commands so a human roaming across sessions manages
 the one owner mailbox from wherever they are.
 
-> **Version pin.** Invocations read `npx cyberlegion@<version> …` as a placeholder. Until the package
+> **Version pin.** Invocations read `npx cyberlegion@0.2.0 …` as a placeholder. Until the package
 > is published, resolve the CLI from the workspace checkout (`packages/cyberlegion/bin/cyberlegion.mjs`)
 > or the project's pinned version. Never invent a version number.
 
@@ -19,7 +19,7 @@ the one owner mailbox from wherever they are.
 The owner mailbox is a **standing** identity. Find it first:
 
 ```bash
-npx cyberlegion@<version> unit register --standing            # lists the standing owner record(s)
+npx cyberlegion@0.2.0 unit register --standing            # lists the standing owner record(s)
 ```
 
 Use `$CYBERLEGION_OWNER` if set, else the single standing handle listed. If **no** standing owner
@@ -29,8 +29,8 @@ deliberate act; do not auto-create it while just checking mail).
 ## List — what is waiting
 
 ```bash
-npx cyberlegion@<version> mail inbox --owner <handle>            # all owner mail, oldest-first
-npx cyberlegion@<version> mail inbox --owner <handle> --unread   # only what is new
+npx cyberlegion@0.2.0 mail inbox --owner <handle>            # all owner mail, oldest-first
+npx cyberlegion@0.2.0 mail inbox --owner <handle> --unread   # only what is new
 ```
 
 The aggregate line reports `<N> messages (<U> unread)`. This is a **pull** from any session — the
@@ -40,7 +40,7 @@ have seen it inline; listing is how you review deliberately.
 ## Read — peek without consuming
 
 ```bash
-npx cyberlegion@<version> mail read <msg-id> --owner <handle>
+npx cyberlegion@0.2.0 mail read <msg-id> --owner <handle>
 ```
 
 Prints the report body (sender, subject, id). **Read does not ack** — the message stays unread and
@@ -49,7 +49,7 @@ keeps surfacing until you explicitly clear it. Peeking is safe; it changes nothi
 ## Ack — the only thing that clears it
 
 ```bash
-npx cyberlegion@<version> mail ack <msg-id> --owner <handle>
+npx cyberlegion@0.2.0 mail ack <msg-id> --owner <handle>
 ```
 
 Ack is the sole read-state change and the sole signal that a report is handled — a surfaced message
@@ -64,7 +64,7 @@ A report may be a **question** a frameless agent could not ask live. Reply on it
 tick (or the agent's next run) picks up the answer:
 
 ```bash
-npx cyberlegion@<version> mail send --to <agent-or-thread-origin> --thread <t> --body "<answer>"
+npx cyberlegion@0.2.0 mail send --to <agent-or-thread-origin> --thread <t> --body "<answer>"
 ```
 
 The thread carries the state across the agent's stateless re-runs.

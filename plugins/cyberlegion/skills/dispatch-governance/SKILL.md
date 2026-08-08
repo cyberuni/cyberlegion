@@ -17,7 +17,7 @@ satisfies verdict schema `V`.
 ## 1. Resolve the agent definition
 
 ```bash
-npx cyberlegion@<version> agent resolve <R> --format json
+npx cyberlegion@0.2.0 agent resolve <R> --format json
 ```
 
 Read `model`, `effort`, `harness`, `warm`, `interactive` off the resolved def. `warm` marks a role
@@ -27,7 +27,7 @@ may need to grill the caller or converse over multiple rounds, not just return o
 ## 2. Probe the environment
 
 ```bash
-npx cyberlegion@<version> mux doctor --format json
+npx cyberlegion@0.2.0 mux doctor --format json
 ```
 
 Read whether a multiplexer was ancestry-discovered (tmux/herdr) — a **channel** strategy needs one
@@ -48,8 +48,8 @@ to open a pane in; its absence rules that strategy out regardless of what the ag
   mint a thread id, weave it (and an instruction to reply on it) into brief `B`, then:
 
   ```bash
-  npx cyberlegion@<version> unit spawn --agent <R> --brief-file <B> --at <placement>
-  npx cyberlegion@<version> mail await --thread <the-minted-thread-id> [--timeout <ms>] [--max-wait <s>]
+  npx cyberlegion@0.2.0 unit spawn --agent <R> --brief-file <B> --at <placement>
+  npx cyberlegion@0.2.0 mail await --thread <the-minted-thread-id> [--timeout <ms>] [--max-wait <s>]
   ```
 
   `unit spawn` launches the peer (its brief tells it what thread to reply on); `mail await` then

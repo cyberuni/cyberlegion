@@ -16,7 +16,7 @@ like? — the CLI holds all the *mechanism*.
 > map at `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json` — a flat `{ "<package>": "<version>" }` map the
 > `universal-plugin bundle` step emits at release time. Look up the `cyberlegion` key:
 >
-> - **A version is found** → use it for every `npx cyberlegion@<version> ...` call below, **and** pass
+> - **A version is found** → use it for every `npx cyberlegion@0.2.0 ...` call below, **and** pass
 >   it to the hook registration in step 2 as `init --pin <version>` so the installed surfacing hook is
 >   pinned to the same shipped version.
 > - **No `pins.json`, no `cyberlegion` key, or a malformed map** (an unbundled workspace checkout) →
@@ -31,7 +31,7 @@ like? — the CLI holds all the *mechanism*.
 ### 1. Probe the environment
 
 ```bash
-npx cyberlegion@<version> mux doctor
+npx cyberlegion@0.2.0 mux doctor
 ```
 
 Run this **before** touching the hook or any identity. It reports `harness`, `mux`, `pane`,
@@ -42,7 +42,7 @@ invent facts the probe did not report.
 ### 2. Register the surfacing hook
 
 ```bash
-npx cyberlegion@<version> init --pin <version>
+npx cyberlegion@0.2.0 init --pin <version>
 ```
 
 Pass `--pin <version>` with the version resolved above so the installed hook is pinned to the shipped
@@ -52,7 +52,7 @@ Auto-detect is the default — no `--agent` flag. Pass `--agent <name>` **only**
 not auto-detect the harness, or the user named one explicitly (it composes with `--pin`):
 
 ```bash
-npx cyberlegion@<version> init --pin <version> --agent <name>
+npx cyberlegion@0.2.0 init --pin <version> --agent <name>
 ```
 
 This step is **idempotent**: if the hook is already registered, `init` reports `already present` —
@@ -84,8 +84,8 @@ Only a root session with no `legate` owner bound is offered the bind. Ask plainl
 ### 5. On an explicit yes — mint and bind
 
 ```bash
-npx cyberlegion@<version> unit register --standing --handle legate
-npx cyberlegion@<version> attach
+npx cyberlegion@0.2.0 unit register --standing --handle legate
+npx cyberlegion@0.2.0 attach
 ```
 
 Run these **in this order** and only after the explicit yes: mint the durable, session-independent
