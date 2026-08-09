@@ -47,6 +47,21 @@ describe('deriveWorkspaceLabel', () => {
 		expect(deriveWorkspaceLabel({ brief: 'x'.repeat(40), id: 'abc123def' })).toBe(`2B-${'x'.repeat(27)}`)
 	})
 
+	it('truncates an over-wide first word rather than dropping it and falling back to the short id', () => {
+		// A real word, followed by another that would fit if the first were dropped — so "dropped the
+		// unfittable word" and "fell back to the short id" are both distinguishable outcomes here,
+		// which `'x'.repeat(40)` alone cannot tell apart.
+		const label = deriveWorkspaceLabel({ brief: 'supercalifragilisticexpialidocious vents', id: 'abc123def' })
+		expect(label).toBe('2B-supercalifragilisticexpiali')
+		expect(label.length).toBe(30)
+	})
+
+	it('draws the subject from the first line with content, skipping blank leading lines', () => {
+		// The leading action on the CONTENT line drives the code too — a reader that took line 0
+		// verbatim would see an empty brief and fall back to the short id with a 2B code.
+		expect(deriveWorkspaceLabel({ brief: '\n\nprune the orchard netting', id: 'abc123def' })).toBe('A2-orchard-netting')
+	})
+
 	it('takes the subject from --handle when given, but still reads the code off the brief', () => {
 		expect(deriveWorkspaceLabel({ brief: 'diagnose the boot race', handle: 'scribe', id: 'abc123def' })).toBe(
 			'9S-scribe',

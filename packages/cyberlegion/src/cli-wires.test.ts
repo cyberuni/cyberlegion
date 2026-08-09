@@ -61,6 +61,16 @@ describe('spec:cyberlegion/unit/lifecycle CLI option wires', () => {
 		expect(spawnAndWake.mock.calls[0]?.[2]).toMatchObject({ noWake: false })
 	})
 
+	it('a spawn that can name no harness never reaches spawn at all', async () => {
+		// The frozen refusal promises no worktree, no session and no unit. The translation throws
+		// before `spawnAndWake` is called, so the absence of that call IS the absence of all three —
+		// a refusal raised inside spawn instead would already have opened the hub's marker and could
+		// not honor the Then.
+		// the CLI reports the refusal by exiting non-zero, which vitest surfaces as a throw
+		await expect(cli(['unit', 'spawn', '--task', 'seal the north greenhouse vents'])).rejects.toThrow(/process\.exit/)
+		expect(spawnAndWake).not.toHaveBeenCalled()
+	})
+
 	it('--message reaches nudge, and its absence leaves the default to the domain', async () => {
 		await cli(['unit', 'nudge', 'p1', '--message', 'ship the release'])
 		expect(nudgeUnit.mock.calls[0]?.[2]).toMatchObject({ message: 'ship the release' })

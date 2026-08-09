@@ -66,8 +66,19 @@ describe('spec:cyberlegion/unit/lifecycle spawn command options', () => {
 		expect(spawnCommandInput({ harness: 'claude', task: 't' }).noWake).toBe(false)
 	})
 
-	it('errors when no harness can be resolved', () => {
-		expect(() => spawnCommandInput({ task: 't' })).toThrow(/--harness/)
+	it('errors naming BOTH routes when no harness can be resolved', () => {
+		// Naming only `--harness` sends a caller holding an agent def down the wrong road: the def IS
+		// the other way to resolve one, and the error is the only place that is said.
+		expect(() => spawnCommandInput({ task: 'seal the north greenhouse vents' })).toThrow(/--harness/)
+		expect(() => spawnCommandInput({ task: 'seal the north greenhouse vents' })).toThrow(/--agent-file/)
+	})
+
+	it('refuses an unresolvable harness ahead of a missing brief', () => {
+		// The ordering the section comment freezes: this translation runs BEFORE spawn's own guards,
+		// so the harness refusal wins over the brief refusal. Reversed, a caller with neither is told
+		// to pass --task and still cannot spawn once it does.
+		expect(() => spawnCommandInput({})).toThrow(/--harness/)
+		expect(() => spawnCommandInput({})).not.toThrow(/brief/)
 	})
 })
 

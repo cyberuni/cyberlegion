@@ -211,6 +211,60 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(res.warning).toBeTruthy()
 	})
 
+	it('a ring against a pane the backend reports as gone never fails the spawn', async () => {
+		// The shared fakeExec answers no liveness probe, so `nudge` rejects the pane up front as gone —
+		// a DIFFERENT failure from the retry-cap exhaustion above, and one that reaches the catch by a
+		// different route. Both must degrade to a warning; an implementation that only guarded the cap
+		// would throw here and lose a spawn that had already landed.
+		const TASK = 'seal the north greenhouse vents'
+		const res = await spawnAndWake(
+			ctx(),
+			{ harness: 'claude', task: TASK, at: 'pane:right' },
+			{
+				nudgeOpts: { attempts: 1, sleep: async () => {} },
+			},
+		)
+		expect(loadAgent(store, res.agent.id)).toBeTruthy() // the spawn landed in full
+		expect(res.agent.worktree?.root).toBeTruthy()
+		expect(store.readBrief(res.agent.id)).toBe(TASK)
+		expect(res.rung).toBe(false)
+		expect(res.warning).toMatch(/no longer exists/) // reported as the gone pane, not swallowed
+	})
+
+	it('a ring with no session backend left to resolve never fails the spawn', async () => {
+		// The backend goes away BETWEEN the open and the ring, so `selectSessionAdapter` — resolved
+		// lazily inside the ring — throws. That throw is outside `nudge` entirely, so a catch wrapped
+		// only around the nudge call would let it escape and fail a spawn that already landed.
+		let opened = false
+		const vanishingExec: Exec = (cmd, args) => {
+			// the ancestry probe is the only mux signal (no $TMUX hint), and it stops naming tmux once
+			// the pane has been opened
+			if (cmd === 'ps') return opened ? '1 bash' : '1 tmux'
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) return ''
+				return null
+			}
+			if (args[0] === 'split-window' || args[0] === 'new-window') {
+				opened = true
+				return '%9\t@1'
+			}
+			if (args[0] === 'send-keys') sent.push(args)
+			return null
+		}
+		const TASK = 'seal the north greenhouse vents'
+		const res = await spawnAndWake(
+			{ store, env: {}, exec: vanishingExec, now: () => 1 },
+			{ harness: 'claude', task: TASK, at: 'pane:right' },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
+		)
+		expect(loadAgent(store, res.agent.id)).toBeTruthy()
+		expect(res.agent.worktree?.root).toBeTruthy()
+		expect(store.readBrief(res.agent.id)).toBe(TASK)
+		expect(res.rung).toBe(false)
+		expect(res.warning).toMatch(/session backend/) // the unresolvable backend is what is reported
+	})
+
 	it('--no-wake spawns and writes the brief file but delivers no first-turn doorbell', async () => {
 		const TASK = 'reply to alice about the migration'
 		const wakeExec: Exec = (cmd, args) => {
@@ -223,13 +277,42 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
 			{ noWake: true, nudgeOpts: { attempts: 1, sleep: async () => {} } },
 		)
-		// nothing rung — and nothing typed at the pane naming the brief
+		// nothing rung — and nothing typed at ANY pane beyond the launch command itself. Asserting
+		// only that the brief path is absent leaves a doorbell worded some other way undetected.
 		expect(res.rung).toBe(false)
 		expect(sent.flat().join(' ')).not.toContain(res.agent.brief)
+		expect(sent).toEqual([
+			['send-keys', '-t', '%9', '-l', 'CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude'],
+			['send-keys', '-t', '%9', 'Enter'],
+		])
 		// ...but the spawn itself still landed in full: registered peer, pane, brief on disk
 		expect(loadAgent(store, res.agent.id)).toBeTruthy()
 		expect(res.pane).toBe('%9')
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
+	})
+
+	it('records no spawnedBy at all when the caller is itself no registered unit', () => {
+		// No `$CYBERLEGION_AGENT_ID` and no pane pointer — the caller cannot name itself. The field must
+		// be ABSENT, not an empty string and not a fabricated parent: `spawnedBy` is what the owner-mail
+		// gate reads (mail/surface), so an empty-string parent would silently demote every unit spawned
+		// by an unregistered human into a "spawned unit" that never surfaces owner mail.
+		const res = spawn({ store, env: { TMUX: 't' }, exec: fakeExec, now: () => 1 }, { harness: 'claude', task: 't' })
+		const rec = loadAgent(store, res.agent.id)
+		expect(rec?.status).toBe('active')
+		expect(Object.hasOwn(rec as object, 'spawnedBy')).toBe(false)
+	})
+
+	it('--handle names the unit on its own record', () => {
+		const res = spawn(ctx(), { harness: 'claude', task: 't', handle: 'vinekeeper', at: 'pane:right' })
+		expect(loadAgent(store, res.agent.id)?.handle).toBe('vinekeeper')
+	})
+
+	it("with no --handle, the handle and the worktree dir share the unit's 6-character short id", () => {
+		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+		const short = res.agent.id.slice(0, 6)
+		expect(loadAgent(store, res.agent.id)?.handle).toBe(short)
+		// the SAME slice names the directory, so what the caller is shown lines up with what is on disk
+		expect(res.agent.worktree?.root.endsWith(`legion-${short}`)).toBe(true)
 	})
 
 	it('takes the brief from a file too', () => {
@@ -250,6 +333,18 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 })
 
 describe('per-harness launch', () => {
+	it("a spawn with no --agent launches the harness's own default binary, unadorned", () => {
+		// No def resolved, so no `input.command` is composed in: the reported launch is the bare
+		// mapped binary, carrying neither of the two flags a def would add.
+		const res = spawn(ctx(), { harness: 'claude', task: 'seal the north greenhouse vents', at: 'pane:right' })
+		expect(res.launch).toBe('claude')
+		expect(res.launch).not.toContain('--model')
+		expect(res.launch).not.toContain('--append-system-prompt')
+		// ...and it is the unadorned binary that reaches the pane, not merely what the result reports
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		expect(typed).toBe('CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude')
+	})
+
 	it.each([
 		['claude', 'claude'],
 		['cursor', 'cursor-agent'],
@@ -283,12 +378,17 @@ describe('a caller-supplied launch command reaches the pane', () => {
 describe('spawn errors', () => {
 	it('errors on an unmapped harness without launching', () => {
 		expect(() => spawn(ctx(), { harness: 'grok', task: 't' })).toThrow(/launch map/)
-		// ...and it errors BEFORE anything is opened — no worktree created, no session launched
+		// ...and it errors BEFORE anything is opened — no worktree created, no session launched, and
+		// no half-registered record left behind for `who`/`prune` to trip over
 		expect(worktreeAddCalls).toEqual([])
 		expect(sent).toEqual([])
+		expect(store.listAgents()).toEqual([])
 	})
-	it('errors when no brief source is supplied', () => {
+	it('errors when no brief source is supplied, creating and registering nothing', () => {
 		expect(() => spawn(ctx(), { harness: 'claude' })).toThrow(/brief/)
+		expect(worktreeAddCalls).toEqual([])
+		expect(sent).toEqual([])
+		expect(store.listAgents()).toEqual([])
 	})
 	it('errors when neither tmux nor herdr is detected', () => {
 		const noBackend: IdContext = { store, env: {}, exec: fakeExec }
@@ -356,6 +456,36 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '-b', 'my-branch', custom])
 	})
 
+	it('opens the session in an explicit --worktree-path and records that root', () => {
+		// The accepted half of the primary-checkout refusal: a path OUTSIDE the primary is created,
+		// the session's cwd follows it, and the record carries it — so the refusal below is a real
+		// gate rather than a path that never worked.
+		const custom = join(dirname(primaryRoot), `outside-${basename(primaryRoot)}`)
+		const openCalls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) {
+					worktreeAddCalls.push(args)
+					return ''
+				}
+				return null
+			}
+			if (args[0] === 'split-window') {
+				openCalls.push(args)
+				return '%9\t@1'
+			}
+			return null
+		}
+		const res = spawn(
+			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
+			{ harness: 'claude', task: 't', worktreePath: custom, at: 'pane:right' },
+		)
+		expect(worktreeAddCalls[0]).toContain(custom) // created THERE
+		expect(openCalls[0]).toContain(resolve(custom)) // ...and the session's own cwd is that path
+		expect(loadAgent(store, res.agent.id)?.worktree?.root).toBe(resolve(custom))
+	})
+
 	it('defaults the branch to cyberlegion/unit-<id>', () => {
 		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.agent.worktree?.branch).toBe(`cyberlegion/unit-${res.agent.id}`)
@@ -379,6 +509,103 @@ describe('refusing the primary checkout', () => {
 			),
 		).toThrow(/primary checkout/)
 		expect(sent).toHaveLength(0) // and no session is opened
+		// ...no worktree was added at that path, and nothing was registered. The refusal's whole point
+		// is WHEN it fires: an assert placed after `git worktree add` still throws while leaving a
+		// stranded worktree and a record nothing rolls back.
+		expect(worktreeAddCalls).toEqual([])
+		expect(store.listAgents()).toEqual([])
+	})
+})
+
+describe('spawn picks its worktree-creation route from the backend AND the placement', () => {
+	/** A herdr backend with worktree-creation capability, recording git and herdr calls separately. */
+	function herdrRouteExec(gitCalls: string[][], herdrCalls: string[][], worktreeRoot: string): Exec {
+		return (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) {
+					gitCalls.push(args)
+					return ''
+				}
+				return null
+			}
+			herdrCalls.push(args)
+			if (args[0] === 'worktree' && args[1] === 'create') {
+				return JSON.stringify({
+					result: {
+						root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+						worktree: { branch: args[args.indexOf('--branch') + 1], path: worktreeRoot },
+						workspace: { workspace_id: 'w9' },
+					},
+				})
+			}
+			if (args[0] === 'tab' && args[1] === 'create') {
+				return JSON.stringify({ result: { root_pane: { pane_id: 'w3:pT', tab_id: 'w3:pT' } } })
+			}
+			return null
+		}
+	}
+
+	it('a workspace spawn on a backend with NO worktree creation takes the plain route', () => {
+		// tmux offers no atomic worktree-and-workspace call, so the same `workspace` placement that
+		// takes the atomic route on herdr must fall back to `git worktree add` plus a separate open.
+		// Without this case an implementation keyed only on the placement passes every herdr test.
+		const openCalls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('worktree')) {
+					worktreeAddCalls.push(args)
+					return ''
+				}
+				return null
+			}
+			if (args[0] === 'new-window') {
+				openCalls.push(args)
+				return '%42\t@2'
+			}
+			return null
+		}
+		const res = spawn(
+			{ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'workspace' },
+		)
+		expect(worktreeAddCalls[0]).toEqual(expect.arrayContaining(['-C', primaryRoot, 'worktree', 'add']))
+		// ...and the session is opened by a SEPARATE call whose cwd is that worktree
+		expect(openCalls).toHaveLength(1)
+		expect(openCalls[0]).toContain(res.agent.worktree?.root)
+	})
+
+	it('a tab placement takes the plain route even on a backend that CAN create worktrees', () => {
+		// The guard is compound — atomic route iff the backend offers creation AND the placement is
+		// `workspace`. This is the half the herdr-workspace case cannot see.
+		const gitCalls: string[][] = []
+		const herdrCalls: string[][] = []
+		spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrRouteExec(gitCalls, herdrCalls, ''), now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'tab' },
+		)
+		expect(gitCalls.some((c) => c.includes('worktree') && c.includes('add'))).toBe(true)
+		expect(herdrCalls[0]!.slice(0, 2)).toEqual(['tab', 'create']) // a separate open
+		expect(herdrCalls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
+	})
+
+	it('stamps the tracked cyberlegion marker on the worktree the ATOMIC route created too', () => {
+		// The plain route's marker is covered above. The atomic route writes the worktree through the
+		// backend, so it needs its own stamp — a spawned unit with no marker cannot self-detect the
+		// hub until its state is committed.
+		const gitCalls: string[][] = []
+		const herdrCalls: string[][] = []
+		// unique per test run: `dirname(primaryRoot)` is the shared tmp dir, so a fixed name here
+		// survives between runs and a marker left by an earlier run makes the assertion unfalsifiable
+		const worktreeRoot = join(dirname(primaryRoot), `atomic-marker-${basename(primaryRoot)}`)
+		const res = spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrRouteExec(gitCalls, herdrCalls, worktreeRoot), now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'workspace' },
+		)
+		expect(herdrCalls[0]!.slice(0, 2)).toEqual(['worktree', 'create']) // the atomic route ran
+		expect(gitCalls).toEqual([]) // ...and no separate git worktree add
+		expect(existsSync(join(res.agent.worktree!.root, '.agents', 'cyberlegion', 'config.json'))).toBe(true)
 	})
 })
 
@@ -397,6 +624,7 @@ describe('the primary-checkout refusal opens nothing, on either worktree path', 
 		).toThrow(/primary checkout/)
 		expect(calls.filter((c) => c[0] === 'worktree' && c[1] === 'create')).toEqual([])
 		expect(calls.filter((c) => c[0] === 'tab' || c[0] === 'workspace')).toEqual([])
+		expect(store.listAgents()).toEqual([]) // ...and no unit is registered on this route either
 	})
 })
 
@@ -446,11 +674,14 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: missing })).toThrow(/must already exist/)
 		expect(sent).toHaveLength(0)
 		expect(worktreeAddCalls).toHaveLength(0)
+		expect(store.listAgents()).toEqual([]) // and no half-registered record survives the refusal
 	})
 
 	it('refuses the primary checkout the same as a created worktree', () => {
 		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: primaryRoot })).toThrow(/primary checkout/)
 		expect(sent).toHaveLength(0)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
 	})
 
 	it('is mutually exclusive with --worktree-path', () => {
@@ -460,6 +691,7 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 		).toThrow(/cannot combine/)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(sent).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
 	})
 
 	it('is mutually exclusive with --branch', () => {
@@ -469,6 +701,7 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 		)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(sent).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
 	})
 })
 
@@ -812,9 +1045,13 @@ describe('resetCommandFor — the per-harness reset map', () => {
 
 describe('clear injects the harness reset into a warm peer and tears nothing down', () => {
 	it('sends "/clear" to a claude peer, leaving its record, pane, and worktree unchanged', () => {
-		registerUnit({ id: 'w1' })
+		// A REAL worktree on disk, so "no worktree is removed" is observed on the filesystem and not
+		// only as an un-issued git command.
+		const liveWorktree = mkdtempSync(join(tmpdir(), 'cl-warm-'))
+		registerUnit({ id: 'w1', worktree: { root: liveWorktree, branch: 'cyberlegion/unit-w1' } })
 		const res = clearUnit(ctx(), 'w1')
 		expect(res).toEqual({ agent: expect.objectContaining({ id: 'w1' }), pane: '%9', command: '/clear' })
+		expect(existsSync(liveWorktree)).toBe(true)
 		// cyber-mux's `submit(text)` composes two tmux calls: a literal `-l` type, then a bare Enter.
 		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', '/clear'])
 		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
@@ -830,7 +1067,7 @@ describe('clear injects the harness reset into a warm peer and tears nothing dow
 		expect(store.resolvePaneId('%9')).toBe('w1')
 		const rec = loadAgent(store, 'w1')
 		expect(rec).toMatchObject({ id: 'w1', status: 'active', pane: { mux: 'tmux', id: '%9' } })
-		expect(rec?.worktree).toEqual({ root: '/somewhere', branch: 'cyberlegion/unit-w1' })
+		expect(rec?.worktree).toEqual({ root: liveWorktree, branch: 'cyberlegion/unit-w1' })
 	})
 })
 
@@ -861,6 +1098,17 @@ describe('clear errors on an unmapped harness rather than guessing a command', (
 	it('throws naming the reset map and sends nothing to its pane', () => {
 		registerUnit({ id: 'grok1', harness: 'grok' as Harness })
 		expect(() => clearUnit(ctx(), 'grok1')).toThrow(/reset map/)
+		expect(sent).toHaveLength(0)
+	})
+})
+
+describe('clear on a record with an empty harness field fails loud before resolving a command', () => {
+	it('throws that the unit has no harness on record and sends nothing to any pane', () => {
+		// An empty string is not an unmapped harness: `resetCommandFor('')` would report "not in the
+		// reset map", naming nothing the operator can act on. And a falsy harness passed through to a
+		// lookup that defaulted would type SOME reset into a live pane.
+		registerUnit({ id: 'nohar1', harness: '' as Harness })
+		expect(() => clearUnit(ctx(), 'nohar1')).toThrow(/no harness on record/)
 		expect(sent).toHaveLength(0)
 	})
 })
@@ -1035,6 +1283,70 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
 	})
 
+	it('a peer whose record carries no pane locator is reached through the pane index', () => {
+		// The herdr route: the record holds no pane, so the only way to the live target is the index.
+		// A resolution that read only `agent.pane` throws "no known session pane" here.
+		const herdrCalls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd !== 'herdr') return null
+			herdrCalls.push(args)
+			if (args[0] === 'pane' && args[1] === 'get') {
+				return JSON.stringify({ result: { pane: { pane_id: 'herdr-pane-1', tab_id: 'w3:tT', workspace_id: 'w3' } } })
+			}
+			return null
+		}
+		saveAgent(store, {
+			id: 'idx1',
+			handle: 'indexed',
+			harness: 'claude',
+			cwd: '/tmp',
+			pane: null,
+			status: 'active',
+			createdAt: 'x',
+			lastSeen: 'x',
+		})
+		store.putPaneIndex('herdr-pane-1', 'idx1')
+		const res = focusUnit({ store, env: { HERDR_ENV: '1' }, exec }, 'indexed')
+		expect(res.pane).toBe('herdr-pane-1')
+		// ...and the pane the INDEX named is the one the adapter was pointed at
+		expect(herdrCalls[0]).toEqual(['pane', 'get', 'herdr-pane-1'])
+	})
+
+	it('an empty --message falls back to the default check-mail doorbell', async () => {
+		// Commander hands through `--message ""` as an empty string, not as an absent option. A
+		// nullish-coalescing default (`?? DELIVERY_DOORBELL`) keeps the empty string and rings a
+		// doorbell carrying no text at all — a no-op ring that reports success.
+		const { calls, ctx } = peerCtx({ captures: ['idle, nothing staged'] })
+		const res = await nudgeUnit(ctx, 'peer', { message: '', nudgeOpts: { sleep: async () => {} } })
+		expect(res.message).toBe(DELIVERY_DOORBELL)
+		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
+		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
+		expect(targetOf(ring)).toBe(PANE)
+	})
+
+	it('nudge on a pane the backend no longer knows fails naming the gone pane', async () => {
+		// A gone pane and a booting one are different failures with different fixes, so the retry cap
+		// must not absorb the first: `paneExists` is probed up front and rejected outright.
+		const { ctx } = peerCtx()
+		// the backend knows no such pane at all: neither the session probe nor the server-wide pane
+		// scan finds it
+		const goneCtx: IdContext = {
+			...ctx,
+			exec: (cmd, args) => {
+				if (cmd === 'tmux' && args[0] === 'has-session') return null
+				if (cmd === 'tmux' && args[0] === 'list-panes') return '%1'
+				return null
+			},
+		}
+		const err = await nudgeUnit(goneCtx, 'peer', { nudgeOpts: { attempts: 2, sleep: async () => {} } }).catch(
+			(e) => e as Error,
+		)
+		expect(err.message).toMatch(/no longer exists/)
+		// ...and NOT the retry-cap message: that one tells the caller to wait for a boot that will
+		// never happen, against a pane that is simply gone.
+		expect(err.message).not.toMatch(/never took the turn/)
+	})
+
 	it('nudge carries a caller-supplied message with --message', async () => {
 		const { calls, ctx } = peerCtx({ captures: ['idle, nothing staged'] })
 		const res = await nudgeUnit(ctx, 'peer', { message: 'ship the release', nudgeOpts: { sleep: async () => {} } })
@@ -1129,5 +1441,16 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(targetOf(capture)).toBe(PANE) // scraped from THAT peer's pane, not merely from some pane
 		expect(capture).toContain('-S') // the --lines wire actually reaches the adapter
 		expect(capture).toContain('-20')
+	})
+
+	it("read with no --lines asks the adapter for the backend's own default capture", () => {
+		// A default filled in here (say 100) would silently cap every unbounded read. The bound must
+		// be ABSENT from the capture call, not merely different from 20.
+		const { calls, ctx } = peerCtx({ captures: ['line one\nline two'] })
+		const res = readUnit(ctx, 'peer')
+		expect(res.output).toBe('line one\nline two')
+		const capture = tmuxArgs(calls, 'capture-pane').at(-1) ?? []
+		expect(targetOf(capture)).toBe(PANE)
+		expect(capture).not.toContain('-S')
 	})
 })
