@@ -123,6 +123,23 @@ function herdrExecFor(calls: string[][]): Exec {
 const expectedWorktreePath = (id: string) =>
 	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id.slice(0, 6)}`))
 
+/**
+ * The frozen conjunct every ring-failure scenario carries: "the peer is still registered AND its
+ * worktree and session are still created". The registry half alone is not that clause — a post-hoc
+ * rollback keyed on the ring's own warning (tear the pane down and drop the worktree, keep the
+ * record) satisfies it while destroying exactly what the caller was promised. So the worktree is
+ * observed ON DISK by its own stamped marker, the worktree-creating call is observed as issued, and
+ * the opened session is observed through the pane pointer that addresses it.
+ */
+function expectSpawnEffectIntact(res: { agent: AgentRecord; pane: string }, worktreeCalls: string[][]): void {
+	const root = res.agent.worktree?.root
+	expect(root).toBeTruthy()
+	expect(worktreeCalls.some((c) => c.includes('worktree') && c.includes('add'))).toBe(true)
+	expect(existsSync(join(root as string, '.agents', 'cyberlegion', 'config.json'))).toBe(true)
+	expect(loadAgent(store, res.agent.id)).toBeTruthy()
+	expect(store.resolvePaneId(res.pane)).toBe(res.agent.id)
+}
+
 describe('spawn opens a pane + pre-registers the peer', () => {
 	it('registers the peer (active, pane, spawnedBy) and writes its brief', () => {
 		const res = spawn(ctx(), { harness: 'claude', task: 'reply to alice', handle: 'bob', at: 'pane:right' })
@@ -202,7 +219,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
 		)
 		// the spawn LANDED — worktree, session and record are the guaranteed effect
-		expect(loadAgent(store, res.agent.id)).toBeTruthy()
+		expectSpawnEffectIntact(res, worktreeAddCalls)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
 		// ...and the un-taken turn is REPORTED rather than swallowed. Without this the whole chain
 		// from a failed ring to the operator is unfalsifiable: a peer that never took its first turn
@@ -224,8 +241,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 				nudgeOpts: { attempts: 1, sleep: async () => {} },
 			},
 		)
-		expect(loadAgent(store, res.agent.id)).toBeTruthy() // the spawn landed in full
-		expect(res.agent.worktree?.root).toBeTruthy()
+		expectSpawnEffectIntact(res, worktreeAddCalls) // the spawn landed in full
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
 		expect(res.rung).toBe(false)
 		expect(res.warning).toMatch(/no longer exists/) // reported as the gone pane, not swallowed
@@ -242,7 +258,10 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			if (cmd === 'ps') return opened ? '1 bash' : '1 tmux'
 			if (cmd === 'git') {
 				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
-				if (args.includes('worktree')) return ''
+				if (args.includes('worktree')) {
+					worktreeAddCalls.push(args)
+					return ''
+				}
 				return null
 			}
 			if (args[0] === 'split-window' || args[0] === 'new-window') {
@@ -258,8 +277,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ harness: 'claude', task: TASK, at: 'pane:right' },
 			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
 		)
-		expect(loadAgent(store, res.agent.id)).toBeTruthy()
-		expect(res.agent.worktree?.root).toBeTruthy()
+		expectSpawnEffectIntact(res, worktreeAddCalls)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
 		expect(res.rung).toBe(false)
 		expect(res.warning).toMatch(/session backend/) // the unresolvable backend is what is reported
@@ -486,9 +504,16 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 		expect(loadAgent(store, res.agent.id)?.worktree?.root).toBe(resolve(custom))
 	})
 
-	it('defaults the branch to cyberlegion/unit-<id>', () => {
+	it('defaults the branch to cyberlegion/unit-<id>, and creates the worktree ON it', () => {
 		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.agent.worktree?.branch).toBe(`cyberlegion/unit-${res.agent.id}`)
+		// ...and the default actually reaches `git worktree add -b`. The record's own branch field is
+		// written from the same local as the git call, but only on the plain route's success path: a
+		// default resolved after the add — or an add that omitted `-b` entirely and let git infer a
+		// branch — leaves the record naming a branch the worktree was never created on.
+		expect(worktreeAddCalls[0]).toEqual(
+			expect.arrayContaining(['worktree', 'add', '-b', `cyberlegion/unit-${res.agent.id}`]),
+		)
 	})
 
 	it('stamps the new worktree-unit with its own tracked marker so it self-detects', () => {

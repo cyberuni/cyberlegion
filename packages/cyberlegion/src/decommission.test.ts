@@ -174,6 +174,13 @@ describe('reap the record', () => {
 		const { exec } = makeExec()
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'b2' })
 
+		// The frozen Then is a conjunction — a's state is GONE and b's is unchanged. Without the
+		// first half, a close that skipped the whole reap whenever a sibling was registered (the
+		// most natural way to write "leave the other unit alone") satisfies every clause below.
+		expect(store.getAgent('b2')).toBeUndefined()
+		expect(store.resolvePaneId('%9')).toBeUndefined()
+		expect(store.readBrief('b2')).toBeUndefined()
+
 		expect(store.getAgent('other')).toBeDefined()
 		expect(store.resolvePaneId('%8')).toBe('other')
 		expect(store.readBrief('other')).toBe('brief')
@@ -288,12 +295,23 @@ describe('idempotent reap (already-gone is tolerated)', () => {
 		expect(store.readBrief('e1')).toBeUndefined()
 	})
 
-	it('completes the reap when the pane no longer exists', () => {
-		registerUnit({ id: 'e2' })
+	it('completes the reap when the herdr backend refuses the teardown', () => {
+		// This case used to hand `tmuxKillPane: () => null` and call it a backend failure. cyber-mux
+		// ignores `exec`'s return value on teardown, so nothing failed — the fixture drove an ordinary
+		// successful reap already covered above, and the tolerance it claimed to test was unbound on
+		// this route. A THROWING backend is the real failure, and herdr is the adapter the tmux case
+		// higher up never reaches.
+		registerUnit({ id: 'e2', pane: null })
+		writePaneFile('herdr-pane-9', 'e2')
 		writeData('e2')
-		const { exec } = makeExec({ tmuxKillPane: () => null }) // simulates the backend reporting failure
-		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'e2' })
+		const { exec: base } = makeExec()
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'herdr' && args[0] === 'pane' && args[1] === 'close') throw new Error('no such pane herdr-pane-9')
+			return base(cmd, args)
+		}
+		expect(() => decommission({ store, env: { HERDR_ENV: '1' }, exec }, { id: 'e2' })).not.toThrow()
 		expect(store.getAgent('e2')).toBeUndefined()
+		expect(store.resolvePaneId('herdr-pane-9')).toBeUndefined()
 		expect(store.readBrief('e2')).toBeUndefined()
 	})
 })

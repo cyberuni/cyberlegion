@@ -56,12 +56,31 @@ describe('agent registry', () => {
 })
 
 describe('pane index', () => {
-	it('putPaneIndex/resolvePaneId/findPaneByAgentId/removePaneIndex round-trip', () => {
+	it('putPaneIndex/resolvePaneId/removePaneIndex round-trip', () => {
 		store.putPaneIndex('%1', 'a1')
 		expect(store.resolvePaneId('%1')).toBe('a1')
-		expect(store.findPaneByAgentId('a1')).toBe('_1') // sanitized pane name, matches original semantics
 		store.removePaneIndex('%1')
 		expect(store.resolvePaneId('%1')).toBeUndefined()
+	})
+
+	// The reverse lookup is bound on a pane id that survives filename sanitization UNCHANGED — a
+	// herdr locator, which is already `[A-Za-z0-9_-]`. That is what the lookup is FOR: reaching a
+	// unit whose record carries no pane locator, which in practice is the herdr route.
+	//
+	// It deliberately does not pin what the lookup returns for a tmux id. `findPaneByAgentId` hands
+	// back the sanitized FILENAME there (`%3` → `_3`), which is not a pane id any backend accepts —
+	// a filed, deliberately-unfixed defect this CR does not bless. The old assertion here froze
+	// `'_1'` as the expected value, which meant the eventual fix (return the real pane id) would
+	// have failed this test; a lookup bound only on sanitization-invariant ids stays green through
+	// that fix and still catches a lookup that matches the wrong entry or none at all.
+	it('findPaneByAgentId reaches a unit through the index when its record carries no locator', () => {
+		store.putPaneIndex('herdr-pane-1', 'a1')
+		store.putPaneIndex('herdr-pane-2', 'a2') // a second entry, so matching the first found is visible
+		expect(store.findPaneByAgentId('a1')).toBe('herdr-pane-1')
+		expect(store.findPaneByAgentId('a2')).toBe('herdr-pane-2')
+		expect(store.findPaneByAgentId('nobody')).toBeUndefined()
+		store.removePaneIndex('herdr-pane-1')
+		expect(store.findPaneByAgentId('a1')).toBeUndefined()
 	})
 })
 

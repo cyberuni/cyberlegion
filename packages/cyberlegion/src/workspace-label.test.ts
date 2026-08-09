@@ -68,13 +68,19 @@ describe('deriveWorkspaceLabel', () => {
 		)
 	})
 
+	// Both fallback cases run on an id whose first six characters are NOT the literal every other
+	// fixture here uses. With `abc123def` everywhere, a fallback hardcoded to the string 'abc123'
+	// matched the fixture instead of computing anything, and the assertion could not tell a real
+	// slice from a constant.
+	const FALLBACK_ID = 'zq7w4m1x8'
+
 	it("falls back to the unit's 6-char short id when the brief yields no usable subject", () => {
-		expect(deriveWorkspaceLabel({ brief: '!!! ???', id: 'abc123def' })).toBe('2B-abc123')
+		expect(deriveWorkspaceLabel({ brief: '!!! ???', id: FALLBACK_ID })).toBe('2B-zq7w4m')
 	})
 
 	it('falls back to the short id when the action word is the entire brief', () => {
 		// The action is dropped into the code, so nothing is left to name the space with.
-		expect(deriveWorkspaceLabel({ brief: 'investigate', id: 'abc123def' })).toBe('9S-abc123')
+		expect(deriveWorkspaceLabel({ brief: 'investigate', id: FALLBACK_ID })).toBe('9S-zq7w4m')
 	})
 
 	it('reads the subject off the first non-empty line, not a leading blank one', () => {

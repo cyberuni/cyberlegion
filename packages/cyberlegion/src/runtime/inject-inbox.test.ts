@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, loadAgent, register, registerStanding, saveAgent } from '../identity.ts'
-import { ack, inbox, send } from '../message.ts'
+import { ack, inbox, type Message, send } from '../message.ts'
 import { FileStore } from '../store/file-store.ts'
 import { injectInbox } from './inject-inbox.ts'
 
 let store: FileStore
 let bob: AgentRecord
+/** alice's subject-less "ping" to bob — the one message every fixture here starts with. */
+let ping: Message
 beforeEach(() => {
 	store = new FileStore(join(mkdtempSync(join(tmpdir(), 'cl-')), 'hub'))
 	const alice = register(
@@ -16,8 +18,14 @@ beforeEach(() => {
 		{ handle: 'alice', harness: 'claude' },
 	)
 	bob = register({ store, env: { TMUX: 't', TMUX_PANE: '%2' }, exec: () => null }, { handle: 'bob', harness: 'cursor' })
-	send({ store, now: () => 1 }, { fromId: alice.id, to: 'bob', body: 'ping' })
+	ping = send({ store, now: () => 1 }, { fromId: alice.id, to: 'bob', body: 'ping' })
 })
+
+/** The one payload line carrying `id` — the unit the frozen Then talks about ("each message line
+ * names its sender, its body, and its message id"). */
+function lineOf(text: string, id: string): string {
+	return text.split('\n').find((l) => l.includes(id)) ?? ''
+}
 
 const bobCtx = () => ({ store, env: { CYBERLEGION_AGENT_ID: bob.id } })
 
@@ -50,18 +58,27 @@ describe('mail hook emits the SessionStart payload', () => {
 			{ store, env: { TMUX: 't', TMUX_PANE: '%7' }, exec: () => null },
 			{ handle: 'carol', harness: 'claude' },
 		)
-		send({ store, now: () => 2 }, { fromId: carol.id, to: 'bob', subject: 'deploy', body: 'ship it' })
+		const deploy = send({ store, now: () => 2 }, { fromId: carol.id, to: 'bob', subject: 'deploy', body: 'ship it' })
 
 		const ctxText = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
 		expect(ctxText).toContain('## Unread mail (2)') // the count, not just the heading
-		expect(ctxText).toContain('alice') // sender of the first
-		expect(ctxText).toContain('carol') // sender of the second
-		expect(ctxText).toContain('deploy') // subject
-		expect(ctxText).toContain('ping') // body of the first
-		expect(ctxText).toContain('ship it') // body of the second
 		for (const m of inbox({ store }, { meId: bob.id, unread: true })) {
 			expect(ctxText).toContain(m.id) // every id, so each message is ackable from the payload
 		}
+		// Asserted PER LINE, not payload-wide: the frozen Then binds each field to ITS OWN message's
+		// line, and a payload-wide `toContain` is satisfied by a renderer that hoisted carol's subject
+		// onto alice's line — the reader would then ack the wrong message, or act on the wrong brief.
+		const pingLine = lineOf(ctxText, ping.id)
+		expect(pingLine).toContain('alice')
+		expect(pingLine).toContain('ping')
+		const deployLine = lineOf(ctxText, deploy.id)
+		expect(deployLine).toContain('carol')
+		expect(deployLine).toContain('ship it')
+		expect(deployLine).toContain('deploy') // the subject sits on the subject-carrying message's line
+		// ...and only there. Without this, one line carrying BOTH subjects still satisfies every
+		// clause above.
+		expect(pingLine).not.toContain('deploy')
+		expect(deployLine).not.toContain('alice')
 	})
 
 	it('echoes PostToolUse as the hook event name on a PostToolUse call', () => {
@@ -81,6 +98,22 @@ describe('mail hook emits the SessionStart payload', () => {
 		expect(line).toMatch(/^- \*\*alice\*\*: ping /)
 		expect(line).not.toContain('—')
 		expect(line).not.toContain('undefined')
+		// ...under a heading that counts ONE. bob has exactly one unread message here, and n=1 is the
+		// count the rest of this file never reaches — every other case is 2 or 0, so a heading that
+		// only formats a count correctly above one survives them all.
+		expect(ctxText).toContain('## Unread mail (1)')
+	})
+
+	it('counts a single unread message as (1) in the heading', () => {
+		// The frozen arrangement: TWO messages addressed to the caller, one of them acked, so the
+		// heading must read (1) — an implementation that counted the inbox rather than its unread half
+		// says (2) here, and one that mis-renders the singular says something else again.
+		const acked = send({ store, now: () => 2 }, { fromId: bob.id, to: 'bob', body: 'already handled' })
+		ack({ store }, bob.id, acked.id)
+		const ctxText = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxText).toContain('## Unread mail (1)')
+		expect(ctxText).toContain('ping') // the still-unread one is listed...
+		expect(ctxText).not.toContain('already handled') // ...and the acked one is not
 	})
 
 	it("an acked message of the caller's own no longer surfaces", () => {
@@ -120,12 +153,16 @@ describe('mail hook emits the SessionStart payload', () => {
 		store.removeAgent(orphan.id) // record gone, inbox kept — and no main pane is bound
 		expect(loadAgent(store, orphan.id)).toBeUndefined()
 
+		// The session runs IN ITS PANE, as the frozen Given puts it. Driving this unpaned instead
+		// suppressed the setup nudge through an unrelated arm — the non-mux branch needs a standing
+		// owner to be missing, and `homa` exists — so "no Legion setup" held for every implementation,
+		// including one whose record gate had been dropped. In a pane with no main pane bound, a
+		// RECORDED root session gets both sections, so both absences are now discriminating.
+		const orphanEnv = { TMUX: 't', TMUX_PANE: '%40', CYBERLEGION_AGENT_ID: orphan.id }
 		const ctxText =
-			injectInbox({ store, env: { CYBERLEGION_AGENT_ID: orphan.id } }, 'SessionStart')?.hookSpecificOutput
-				.additionalContext ?? ''
+			injectInbox({ store, env: orphanEnv, exec: () => null }, 'SessionStart')?.hookSpecificOutput.additionalContext ??
+			''
 		expect(ctxText).toContain('orphaned message')
-		// With no main pane bound a RECORDED root session would surface owner mail here (the fallback
-		// below covers exactly that), so the absence is discriminating rather than incidental.
 		expect(ctxText).not.toContain('Owner mail')
 		expect(ctxText).not.toContain('Legion setup')
 	})
