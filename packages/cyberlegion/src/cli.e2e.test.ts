@@ -31,7 +31,22 @@ const MUX_ENV_KEYS = [
 function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const merged = { ...process.env, ...env }
 	for (const k of MUX_ENV_KEYS) if (!(k in env)) delete merged[k]
+	// An explicit `undefined` REMOVES the key rather than blanking it. `detectHarness` tests key
+	// PRESENCE for the cursor/codex families (`Object.keys(env).some(k => k.startsWith('CODEX'))`),
+	// so setting one to '' still detects a harness — only deletion clears the signal.
+	for (const [k, v] of Object.entries(env)) if (v === undefined) delete merged[k]
 	return merged
+}
+
+/** The caller's env with every harness signal `detectHarness` reads removed, so `register` cannot
+ * detect one. This suite may itself run under a harness, so the keys are read off the live env
+ * rather than hardcoded. */
+function withoutHarnessSignals(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const cleared: NodeJS.ProcessEnv = { ...env, CLAUDECODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined }
+	for (const k of Object.keys(process.env)) {
+		if (k.startsWith('CURSOR') || k.startsWith('CODEX')) cleared[k] = undefined
+	}
+	return cleared
 }
 
 /** Run the CLI against a given --space hub root. */
@@ -610,6 +625,40 @@ describe('mail group', () => {
 			expect(res.status).toBe(0)
 			expect(res.stdout).toContain('alice own message')
 			expect(res.stdout).not.toContain('Legion setup')
+		})
+
+		// The two auto-register arms are the degraded paths this block missed. Both frozen scenarios
+		// end in "And the command exits 0", and both clauses were unbound: a `process.exitCode = 1`
+		// on the successful auto-register path, or inside its best-effort catch, left the whole suite
+		// green while every hook call from a real live pane failed the harness turn. The in-process
+		// bindings assert `injectInbox(...)` returns null and observe no exit code at all.
+		it('a live-pane session with no identity auto-registers and still exits 0', () => {
+			// The frozen Given puts this pane in as the bound main pane, which is what silences the
+			// setup nudge and makes "stdout is empty" a determined outcome rather than an accident.
+			mkdirSync(space, { recursive: true })
+			writeFileSync(join(space, 'main-pane.id'), 'herdr-pane-e2e-1')
+			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], {
+				HERDR_ENV: '1',
+				HERDR_PANE_ID: 'herdr-pane-e2e-1',
+				CLAUDECODE: '1', // a detectable harness, so `register` succeeds rather than throwing
+			})
+			expect(res.status).toBe(0)
+			expect(res.stdout).toBe('') // nothing to surface: the fresh identity has no mail
+			const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+			expect(who).toHaveLength(1) // ...and the auto-register actually happened
+		})
+
+		it('auto-register that cannot detect a harness still exits 0', () => {
+			// Every harness signal is removed, so `register` throws inside the hook's own catch and
+			// the command bails before any section is built.
+			const res = legionOut(
+				['mail', 'hook', '--event', 'SessionStart'],
+				withoutHarnessSignals({ HERDR_ENV: '1', HERDR_PANE_ID: 'herdr-pane-e2e-2' }),
+			)
+			expect(res.status).toBe(0) // the turn survives the failed registration
+			expect(res.stdout).toBe('')
+			const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+			expect(who).toHaveLength(0) // the failed register left nothing behind
 		})
 	})
 
