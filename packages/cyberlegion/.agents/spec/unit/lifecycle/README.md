@@ -73,8 +73,10 @@ cleanly — the deterministic inverse pair:
     space** — the fleet-layer caller (e.g. `cyberfleet`'s Operator) is mux-agnostic: it expresses
     intent ("this ship gets its own isolated, VISIBLE space"), never a mux placement. A spawn that
     **creates a new worktree** is exactly that intent, so with no `--at` it defaults to `workspace`
-    (its own isolated, visible space, mapped per-mux in `mux/` — herdr nested workspace, tmux window)
-    — deterministic, independent of whichever workspace is currently focused. A `--cwd` spawn opted
+    (its own isolated, visible space, mapped per-mux in `mux/` — herdr nested workspace, tmux window).
+    Placement carries no workspace identity — `MuxPlacement` is a closed set of four literals — so
+    "independent of whichever workspace is focused" is unrepresentable at this seam rather than
+    unasserted, and belongs to `mux/`. A `--cwd` spawn opted
     into an existing space, so with no `--at` it defaults to a `tab` in the caller's current space. An
     explicit `--at` always overrides the mode default (either direction). This keeps a bare `unit
     spawn` doing the right thing on any mux without the caller naming a mux-specific placement.
@@ -540,7 +542,7 @@ column records. They are not gaps.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `SPI` new-worktree default | a new-worktree spawn with no --at, the caller focused elsewhere | `a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically` |
+| `SPI` new-worktree default | a new-worktree spawn with no --at | `a new-worktree spawn with no --at defaults to its own visible space (workspace)` |
 | `SPO` --cwd default | a --cwd spawn with no --at | `a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace` |
 | `SPI` explicit --at overrides | a new-worktree spawn with an explicit --at | `an explicit --at overrides the new-worktree default of workspace` |
 | `SPO` explicit --at overrides | a --cwd spawn with an explicit --at | `an explicit --at overrides the --cwd default of tab` |

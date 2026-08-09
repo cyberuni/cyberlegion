@@ -119,12 +119,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # space"), never a mux placement. A new-worktree spawn is that intent, so it defaults to `workspace`
   # (mapped per-mux in mux/); a --cwd spawn opted into an existing space, so it defaults to a tab there.
 
-  Scenario: a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically
+  Scenario: a new-worktree spawn with no --at defaults to its own visible space (workspace)
     Given a caller running unit spawn with no --at (creating a new worktree)
-    And that caller's own view currently focused on some other workspace
     When unit spawn runs
     Then the session opens at workspace — its own isolated, visible space
-    And the placement does not name that currently-focused workspace
 
   Scenario: a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace
     Given a caller running unit spawn --cwd <an existing directory outside the primary checkout> with no --at
