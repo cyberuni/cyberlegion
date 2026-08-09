@@ -155,6 +155,14 @@ with the upstream branch — and the fallback row makes one, leaving the caller'
 `(path class, edge)` pairs from the implementation with the suite unseen, then diffing them against
 the frozen scenarios; ten pairs had no scenario and were added, and the negatives whose `Given`
 established nothing else in the payload were narrowed so the absence they assert can actually fail.
+**Every** absence a `Then` asserts here is held to that bar, not only the refusals: the `Given` must
+construct a state in which some wrong implementation would produce the thing the `Then` denies. Two
+narrowings exist only for that reason and are load-bearing — the rejected-`--event` scenario carries a
+registered caller with unread mail (otherwise no implementation, right or wrong, could emit a
+payload), and the record-less caller sits **in a pane with no main pane bound** (outside a
+multiplexer a standing owner already silences the nudge, so the nudge absence could not fail; in a
+pane with none bound, an implementation that conflates "no record" with "not eligible" appends *both*
+the owner-mail section and the nudge, and both absences fail together).
 
 **Known gaps and co-owned rows**, recorded rather than papered over:
 
@@ -183,7 +191,7 @@ established nothing else in the payload were narrowed so the absence they assert
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `B -- no` reject | `--event PreToolUse` | `an unsupported --event value is rejected` |
+| `B -- no` reject | `--event PreToolUse`, a registered caller with one unread message | `an unsupported --event value is rejected` |
 | `B -- yes` + `Z1` echo | `--event SessionStart`, a caller with unread mail | `a SessionStart hook call echoes SessionStart as the hook event name` |
 | `B -- yes` + `Z1` echo | `--event PostToolUse`, a caller with unread mail | `a PostToolUse hook call echoes PostToolUse as the hook event name` |
 
@@ -204,7 +212,7 @@ established nothing else in the payload were narrowed so the absence they assert
 | `G1` subject segment omitted | the one unread message carries no subject | `a message with no subject renders without a subject segment` |
 | `G -- yes` unread-only filter | two messages addressed to the caller, one already acked | `an acked message of the caller's own no longer surfaces` |
 | `G1` read-only, never acks | one unread message, the hook called twice | `surfacing the caller's own mail never acks it` |
-| `H -- no` / `M -- no` no record | an agent id whose registry record was removed while its inbox was kept | `a caller whose id resolves without an agent record still gets its own mail` |
+| `H -- no` / `M -- no` no record | an agent id whose record was removed while its inbox was kept, in a pane with none bound, an owner with unread mail | `a caller whose id resolves without an agent record still gets its own mail` |
 
 ### Owner mail surfaces into the bound main pane, never into a spawned unit
 

@@ -134,9 +134,24 @@ cleanly — the deterministic inverse pair:
     site: two judge rounds running found this same gap at sites a per-site fix had missed. The hub's
     own marker directory (`ensureMarker`) is created *ahead of every guard*, so a blanket "nothing
     is created" would be false; the suite deliberately asserts the three artifacts rather than the
-    blanket. Separately, **backend selection runs first and pre-empts both refusals**: outside tmux
-    and herdr, `--harness grok` and a brief-less spawn alike report that a session backend is
-    required, never the launch-map or brief message. That refusal belongs to `mux/` (see
+    blanket.
+    **The uniformity is held deliberately, including where one column is inert on a particular
+    path — and that exception is recorded here rather than left silent.** On the two `--cwd`
+    non-exclusivity refusals (`SPF -- no`, the directory that does not exist, and `SPG -- yes`, the
+    primary checkout) `no worktree is created` cannot fail: the `--cwd` mode creates no worktree on
+    any path, so deleting the guard under test still leaves that column true. Both scenarios still
+    discriminate on their other two columns, and the column is **kept** because the family is the
+    checkable unit: a reader (or a later sweep) comparing the seven refusals must be able to read
+    the same three absences at each, and a column silently dropped at two sites is indistinguishable
+    from a column someone forgot. It is *not* inert at the third `--cwd` refusal (`SPD -- yes`,
+    mutual exclusion), where a dropped guard would honor `--worktree-path` and create one — which is
+    exactly why the column belongs to the family. Anything beyond this named pair should be assumed
+    live until shown otherwise.
+    Separately, **backend selection runs first and pre-empts every refusal below it**: outside tmux
+    and herdr, `--harness grok`, a brief-less spawn, all three `--cwd` refusals and the
+    `--worktree-path` primary-checkout refusal alike report that a session backend is required,
+    never their own message — six of the seven, all but the no-harness refusal (`SPH -- no`), which
+    the CLI resolves ahead of `SPX`. That refusal belongs to `mux/` (see
     Non-goals), and the discriminating errors above are reachable only where a backend exists.
   - **A brief source is read from exactly one of three places** — `--brief-file <path>` reads the
     file, `--task -` reads stdin, and `--task <text>` takes the text itself. All three land in the
@@ -165,7 +180,10 @@ cleanly — the deterministic inverse pair:
     the contract: a close that tore the pane down and only then threw would destroy exactly what the
     retry needs.
   - **An unresolvable id errors** — closing an id that resolves to no registered unit (by id, handle,
-    or worktree branch/CR ref) throws naming it; nothing is reaped.
+    or worktree branch/CR ref) throws naming it, and **no unit's** record or stored data is removed —
+    not merely the named id's (there is none), but no other registered unit's either, which is the
+    half that can actually fail: a resolver that fuzzy-matched an unresolvable id onto a live unit
+    would reap the wrong one.
   - **Reaps only the targeted unit's state** — another unit's record, pane pointer, and stored data are
     left untouched.
   - **close on a `--cwd` unit removes no worktree** — a unit spawned with `--cwd` has a recorded cwd
@@ -447,6 +465,18 @@ existed. That direction is the whole point: a map built the other way round is 1
 and can never report a hole. The edges below that carry **no** row are the ones that survived that
 diff, and the list is open — read it as "at least these".
 
+**Every absence a `Then` asserts must be loseable on its own scenario's `Given`** — the `Given` has to
+construct a state in which some wrong implementation would actually produce the thing the `Then`
+denies, and every noun the absence names has to be bound by that `Given` (an absence about a pane the
+fixture never opens is inert by construction; where nothing binds it, the suite uses the unbound form
+— *"nothing is sent to any pane"*, not *"to that peer's pane"*). Several `Given`s in the `close` and
+`clear` families exist only to bind such a noun — a live session pane on the two primary-checkout
+refusals and on the genuine-removal-failure abort (each asserts the pane was **not** torn down), a
+pane pointer and stored brief on the dirty refusal, a worktree on the `clear` scenario that asserts
+none is removed, and a second registered unit on the unresolvable-id refusal (nothing else could be
+wrongly reaped). Do not widen them back. The one deliberate exception is recorded in `## Use Cases`
+above, under family uniformity.
+
 ### Edges that carry no scenario
 
 - **`SPX -- no`, `SPX -- yes`** — backend selection is `mux/`'s (see Non-goals). All four of its
@@ -510,7 +540,7 @@ column records. They are not gaps.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `SPI` new-worktree default | a new-worktree spawn with no --at | `a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically` |
+| `SPI` new-worktree default | a new-worktree spawn with no --at, the caller focused elsewhere | `a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically` |
 | `SPO` --cwd default | a --cwd spawn with no --at | `a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace` |
 | `SPI` explicit --at overrides | a new-worktree spawn with an explicit --at | `an explicit --at overrides the new-worktree default of workspace` |
 | `SPO` explicit --at overrides | a --cwd spawn with an explicit --at | `an explicit --at overrides the --cwd default of tab` |
@@ -575,15 +605,15 @@ column records. They are not gaps.
 |---|---|---|
 | `CL10` full teardown + reap | a unit with a clean worktree and a live pane, no --force | `close removes the worktree, tears down the session, and reaps the registry record` |
 | `CL3 -- no` nothing to remove | a unit spawned with --cwd (owns no worktree) | `close on a unit spawned with --cwd removes no worktree` |
-| `CL2 -- yes` | a unit whose worktree is the primary checkout | `close refuses a unit whose worktree is the primary checkout` |
+| `CL2 -- yes` | a unit with a live pane whose worktree is the primary checkout | `close refuses a unit whose worktree is the primary checkout` |
 | `CL2 -- yes` under --force | the same, with --force | `--force does not override the primary-checkout refusal` |
-| `CL4 -- yes` | a unit with uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
+| `CL4 -- yes` | a unit with a live pane, a pane pointer and a stored brief, uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
 | `CL4 -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
 | `CL3 -- no` worktree already gone | a unit whose worktree is no longer on disk | `close completes the reap when the worktree no longer exists on disk` |
 | `CL9` swallowed teardown failure | a unit whose pane the backend can no longer find | `close completes the reap when the session pane no longer exists` |
 | `CL7 -- no` → `CL8` | a unit with no pane locator and a pane index holding another unit’s entry | `close reaps a unit no pane can be resolved for, tearing nothing down` |
-| `CL5 -- no` → `CL5X` | a worktree removal that genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
-| `CL1 -- no` | an id that resolves to no unit | `closing an unresolvable id errors` |
+| `CL5 -- no` → `CL5X` | a unit with a live pane whose worktree removal genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
+| `CL1 -- no` | an id that resolves to no unit, with one other unit registered | `closing an unresolvable id errors` |
 | `CL10` reaps only the target | two registered units, one closed | `close leaves another unit's state untouched` |
 
 ### focus, nudge and read drive a live pane
@@ -622,7 +652,7 @@ column records. They are not gaps.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `CR4` submit, not sendText | a warm claude peer with a live pane | `clear injects the harness's own in-session reset into a warm peer and tears nothing down` |
+| `CR4` submit, not sendText | a warm claude peer with a live pane and its own worktree | `clear injects the harness's own in-session reset into a warm peer and tears nothing down` |
 | `CR2Y` per-harness command | peers on each spawnable mapped harness | `clear resolves each harness's own fresh-context command from a per-harness map` |
 | `CR3 -- yes` false friend | a harness whose reset clears only the screen | `clear fails loud on a harness whose reset would not truly empty the context` |
 | `CR3 -- no` unmapped | a harness absent from the reset map | `clear errors on an unmapped harness rather than guessing a command` |

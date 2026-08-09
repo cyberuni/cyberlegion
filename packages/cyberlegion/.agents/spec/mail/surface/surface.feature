@@ -11,6 +11,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
 
   Scenario: an unsupported --event value is rejected
     Given a caller running mail hook --event PreToolUse
+    And a registered caller with one unread message
     When the hook runs
     Then it throws naming SessionStart and PostToolUse as the supported events
     And no payload is emitted
@@ -96,7 +97,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Given an agent id whose registry record was removed while its inbox was kept
     And one unread message sitting in that inbox
     And a session whose CYBERLEGION_AGENT_ID environment variable names that id
-    And that session is in no multiplexer pane
+    And that session is in a multiplexer pane with no main pane bound
     And a standing owner homa with one unread message
     When it runs mail hook --event SessionStart
     Then the payload lists the caller's own unread message

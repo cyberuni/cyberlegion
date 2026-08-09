@@ -121,9 +121,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
 
   Scenario: a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically
     Given a caller running unit spawn with no --at (creating a new worktree)
+    And that caller's own view currently focused on some other workspace
     When unit spawn runs
     Then the session opens at workspace — its own isolated, visible space
-    And the placement does not depend on whichever workspace is currently focused
+    And the placement does not name that currently-focused workspace
 
   Scenario: a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace
     Given a caller running unit spawn --cwd <an existing directory outside the primary checkout> with no --at
@@ -365,7 +366,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a caller running unit spawn --harness claude --task t --no-wake
     When unit spawn runs
     Then the peer is registered and its session opens with the brief written to its brief file
-    And no first-turn doorbell is delivered to the peer's pane
+    And no first-turn doorbell is delivered to any pane
 
   # ── close tears down the worktree + session and reaps the state (spawn's inverse) ──
 
@@ -389,7 +390,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # ── Refuses the primary checkout even with --force ──
 
   Scenario: close refuses a unit whose worktree is the primary checkout
-    Given a registered unit whose worktree root equals the primary checkout
+    Given a registered unit with a live session pane whose worktree root equals the primary checkout
     When a caller runs unit close <id>
     Then it throws refusing the primary checkout
     And the unit's record still exists
@@ -397,7 +398,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And its session pane is not torn down
 
   Scenario: --force does not override the primary-checkout refusal
-    Given a registered unit whose worktree root equals the primary checkout
+    Given a registered unit with a live session pane whose worktree root equals the primary checkout
     When a caller runs unit close <id> --force
     Then it still throws refusing the primary checkout
     And the unit's record still exists
@@ -407,7 +408,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # ── Refuses a dirty worktree unless --force ──
 
   Scenario: close refuses a unit with uncommitted changes in its worktree
-    Given a registered unit whose worktree has uncommitted changes
+    Given a registered unit with a live session pane, a pane pointer and a stored brief, whose worktree has uncommitted changes
     When a caller runs unit close <id>
     Then it throws about uncommitted changes
     And its worktree and its uncommitted changes are still on disk
@@ -448,7 +449,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # throws would satisfy an error-only assertion while destroying exactly what the retry needs.
 
   Scenario: a genuine worktree-removal failure aborts the close and leaves the record intact
-    Given a registered unit whose worktree removal genuinely fails
+    Given a registered unit with a live session pane whose worktree removal genuinely fails
     When a caller runs unit close <id>
     Then it throws that removal failed
     And the unit's record and stored data are left intact for a retry
@@ -458,9 +459,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
 
   Scenario: closing an unresolvable id errors
     Given no unit addressable under a given id
+    And one other registered unit with its own record, pane pointer and stored data
     When a caller runs unit close <id>
     Then it throws that no unit is addressable under that id
-    And no unit record or stored data is removed
+    And no unit's record or stored data is removed
 
   # ── Reaps only the targeted unit ──
 
@@ -620,7 +622,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # every clear scenario below separates "typed and entered" from "typed".
 
   Scenario: clear injects the harness's own in-session reset into a warm peer and tears nothing down
-    Given a registered peer with harness claude and a live session pane
+    Given a registered peer with harness claude, a live session pane, and its own worktree still on disk
     When a caller runs unit clear <ref>
     Then the session adapter types "/clear" into that peer's pane and then presses Enter
     And the reset command is not left staged unsent in the pane's input box
@@ -645,19 +647,19 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a registered peer with harness gemini and a live session pane
     When a caller runs unit clear <ref>
     Then it throws naming the harness and its missing reset mapping
-    And nothing is sent to that peer's pane
+    And nothing is sent to any pane
 
   Scenario: clear errors on an unmapped harness rather than guessing a command
     Given a registered peer with harness grok and a live session pane
     When a caller runs unit clear <ref>
     Then it throws naming the reset map
-    And nothing is sent to that peer's pane
+    And nothing is sent to any pane
 
   Scenario: clear on a record with an empty harness field fails loud before any command is resolved
     Given a registered peer with a live session pane whose record carries an empty harness field
     When a caller runs unit clear <ref>
     Then it throws that the unit has no harness on record
-    And nothing is sent to that peer's pane
+    And nothing is sent to any pane
 
   # ── clear needs a live target, like nudge and focus ──
 
@@ -665,10 +667,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given no unit addressable under a given ref
     When a caller runs unit clear <ref>
     Then it throws that no unit is addressable under that ref
-    And nothing is sent to that peer's pane
+    And nothing is sent to any pane
 
   Scenario: clear on a unit with no known session pane errors and sends nothing
     Given a registered unit with no known session pane
     When a caller runs unit clear <ref>
     Then it throws that the unit has no known session pane
-    And nothing is sent to that peer's pane
+    And nothing is sent to any pane
