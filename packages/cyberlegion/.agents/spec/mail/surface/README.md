@@ -199,7 +199,7 @@ the owner-mail section and the nudge, and both absences fail together).
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `D -- no` no pane to register from | no resolvable self id, in no mux pane | `a caller with no identity and in no multiplexer pane gets no output and no error` |
+| `D -- no` no pane to register from | no resolvable self id, a detectable harness, in no mux pane | `a caller with no identity and in no multiplexer pane gets no output and no error` |
 | `E -- no` then `E2 -- yes` | in an addressable pane bound as the main pane, no identity yet | `a live-pane session with no identity auto-registers and injects nothing` |
 | `E -- yes` auto-register raises | in a mux pane, no identity, no detectable harness | `auto-register in the hook is best-effort and never fails the turn` |
 | `E2 -- no` id still unresolvable | in a wezterm pane, whose panes the registry cannot address | `a live pane the hub cannot address registers no reachable identity and injects nothing` |

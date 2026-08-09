@@ -32,6 +32,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
 
   Scenario: a caller with no identity and in no multiplexer pane gets no output and no error
     Given a session with no resolvable self id
+    And its environment carries the claude harness signal
     And that session is in no multiplexer pane
     When it runs mail hook --event SessionStart
     Then the registry holds the same agent records it held before the call
