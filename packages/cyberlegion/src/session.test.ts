@@ -706,6 +706,9 @@ function registerUnit(rec: Partial<AgentRecord> & { id: string }): AgentRecord {
 		...rec,
 	}
 	saveAgent(store, full)
+	// bind the pane pointer too — a unit is addressable by its pane, and a reset that dropped that
+	// binding would strand it while leaving the record looking untouched
+	if (full.pane) store.putPaneIndex(full.pane.id, full.id)
 	return full
 }
 
@@ -745,6 +748,9 @@ describe('clear injects the harness reset into a warm peer and tears nothing dow
 			false,
 		)
 		expect(allCalls.some((c) => c[0] === 'git' && c.includes('worktree') && c.includes('remove'))).toBe(false)
+		// the pane POINTER survives too — the record can look untouched while the index that
+		// addresses it is dropped, which strands the unit exactly as a teardown would
+		expect(store.resolvePaneId('%9')).toBe('w1')
 		const rec = loadAgent(store, 'w1')
 		expect(rec).toMatchObject({ id: 'w1', status: 'active', pane: { mux: 'tmux', id: '%9' } })
 		expect(rec?.worktree).toEqual({ root: '/somewhere', branch: 'cyberlegion/unit-w1' })

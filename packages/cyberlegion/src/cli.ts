@@ -3,8 +3,8 @@ import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import { currentPane, probeMultiplexer } from 'cyber-mux'
 import { migrateStore } from './admin.ts'
-import { resolveSpawnLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
+import { readCommandOutput, spawnCommandInput } from './cli-input.ts'
 import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
 import { decommission } from './decommission.ts'
 import {
@@ -275,36 +275,16 @@ function defineSpawn(cmd: Command): Command {
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
-			let harness: string | undefined
-			let command: string | undefined
+			let spawnInput: ReturnType<typeof spawnCommandInput>
 			try {
-				;({ harness, command } = resolveSpawnLaunch({
-					agent: opts.agent,
-					agentFile: opts.agentFile,
-					harness: opts.harness,
-				}))
+				spawnInput = spawnCommandInput(opts)
 			} catch (err) {
 				fail(err instanceof Error ? err.message : String(err))
 			}
-			if (!harness) fail('unit spawn needs --harness, or --agent/--agent-file resolving one')
 			// Spawn AND deliver the first turn — `spawnAndWake` owns both acts so the brief path the
 			// doorbell names is derived from the record spawn just wrote, never assembled here.
 			// `--no-wake` opts out (Commander sets opts.wake === false).
-			const res = await spawnAndWake(
-				ctx,
-				{
-					harness,
-					command,
-					task: opts.task,
-					briefFile: opts.briefFile,
-					handle: opts.handle,
-					branch: opts.branch,
-					worktreePath: opts.worktreePath,
-					cwd: opts.cwd,
-					at: opts.at,
-				},
-				{ noWake: opts.wake === false },
-			)
+			const res = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake })
 			if (res.warning) {
 				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`)
 			}
@@ -374,11 +354,7 @@ withGlobals(unit.command('read'))
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		const { pane, output } = readUnit(ctx, ref, { lines: opts.lines })
-		if (formatOf(opts) === 'json') {
-			console.log(JSON.stringify({ ref, pane, output }, null, 2))
-		} else {
-			console.log(output)
-		}
+		console.log(readCommandOutput(formatOf(opts), { ref, pane, output }))
 	})
 
 withGlobals(unit.command('clear'))

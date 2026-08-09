@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { FileStore } from './store/file-store.ts'
 
 // Exercises the actual built CLI entrypoint (bin → dist/cli.mjs) end-to-end, over an isolated
 // --space hub root per test so runs never collide with a real global hub.
@@ -448,6 +449,29 @@ describe('mail group', () => {
 		const parsed = JSON.parse(out) // raw JSON, parseable — a TOON payload throws here
 		expect(parsed.hookSpecificOutput.hookEventName).toBe('SessionStart')
 		expect(parsed.hookSpecificOutput.additionalContext).toContain('ping')
+	})
+
+	it('mail hook preserves a legacy spawning status on the record it round-trips', () => {
+		// The frozen When is "it runs mail hook" — and the COMMAND does more than injectInbox: it
+		// touches the caller first, which loads, mutates and re-saves the record. That write is the
+		// one place a status could be normalized, and calling injectInbox directly never reaches it.
+		legion(['unit', 'register', '--standing', '--handle', 'homa'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'])
+		const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+		const aliceId = who.find((a: { handle: string }) => a.handle === 'alice').id
+		const bobId = who.find((a: { handle: string }) => a.handle === 'bob').id
+		legion(['mail', 'send', '--from', bobId, '--to', 'alice', '--body', 'ping', '--no-nudge'])
+
+		// plant the retired status an older hub would have written, then run the real command
+		const store = new FileStore(space)
+		const rec = store.getAgent(aliceId)
+		if (!rec) throw new Error('fixture: alice not registered')
+		store.putAgent({ ...rec, status: 'spawning' })
+
+		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
+		expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain('ping')
+		expect(new FileStore(space).getAgent(aliceId)?.status).toBe('spawning') // preserved verbatim
 	})
 
 	it('mail hook injects nothing for a registered caller with an empty inbox', () => {

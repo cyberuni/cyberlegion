@@ -87,6 +87,19 @@ describe('teardown worktree + session', () => {
 		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
 	})
 
+	it('completes the reap when the session pane no longer exists', () => {
+		// A pane already gone makes teardown throw. The reap must still complete — otherwise a unit
+		// whose pane died first can never be closed, and its record is stranded forever.
+		registerUnit({ id: 'gone1' })
+		const { exec: base } = makeExec()
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'tmux' && args[0] === 'kill-pane') throw new Error("can't find pane %9")
+			return base(cmd, args)
+		}
+		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'gone1' })).not.toThrow()
+		expect(store.getAgent('gone1')).toBeUndefined() // reaped regardless
+	})
+
 	it('tears down through the tmux adapter when $TMUX is set', () => {
 		registerUnit({ id: 'a2' })
 		const { exec, calls } = makeExec()
