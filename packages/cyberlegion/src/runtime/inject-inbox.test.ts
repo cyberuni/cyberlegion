@@ -104,15 +104,14 @@ describe('mail hook emits the SessionStart payload', () => {
 })
 
 describe('empty / error cases', () => {
-	it('injects nothing when there is no unread mail', () => {
-		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
-		// isolating this test to the brief/mail-only precondition it targets.
+	it('injects nothing for an empty inbox once onboarding is complete', () => {
+		// The scenario's own preconditions: the caller sits in the bound main pane (so the mux nudge is
+		// silenced) and the standing owner has nothing unread (so no owner section accumulates). With
+		// its own inbox empty too, nothing accumulates at all.
 		registerStanding({ store }, { handle: 'somebody' })
-		const solo = register(
-			{ store, env: { CYBERLEGION_AGENT_ID: 'lone', TMUX_PANE: '%9' }, exec: () => null },
-			{ handle: 'lone', harness: 'claude' },
-		)
-		expect(injectInbox({ store, env: { CYBERLEGION_AGENT_ID: solo.id } }, 'SessionStart')).toBeNull()
+		register({ store, env: { TMUX: 't', TMUX_PANE: '%9' }, exec: () => null }, { handle: 'lone', harness: 'claude' })
+		store.setMainPane('%9')
+		expect(injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%9' }, exec: () => null }, 'SessionStart')).toBeNull()
 	})
 
 	it('injects nothing (no error) for an unregistered caller in no multiplexer pane', () => {
@@ -120,9 +119,9 @@ describe('empty / error cases', () => {
 	})
 
 	it('auto-registers a live-pane session that has no identity yet, then injects nothing (empty inbox)', () => {
-		// A fresh herdr pane, no identity, no unread mail, but a detectable harness. Bind
-		// this pane as the hub main pane so the (mux) session-start setup nudge is silenced —
-		// isolating this test to the auto-register + empty-inbox precondition it targets.
+		// A fresh herdr pane, no identity, but a detectable harness. The scenario's own precondition
+		// binds this pane as the hub main pane; a fresh id also starts with an empty inbox, so nothing
+		// accumulates and the load-bearing observation is the registry write.
 		store.setMainPane('w5:p1')
 		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'w5:p1', CLAUDECODE: '1' }
 		const payload = injectInbox({ store, env, exec: () => null }, 'SessionStart')
@@ -208,13 +207,13 @@ describe('owner mail surfaces into a root session, never into a spawned unit', (
 			{ store, env: { TMUX: 't', TMUX_PANE: '%7' }, exec: () => null },
 			{ handle: 'root4', harness: 'claude' },
 		)
-		// This scenario's own precondition IS "no standing owner record exists" — which is exactly
-		// what would otherwise trip the (non-mux, since the call below carries no pane env) session-start
-		// setup nudge. Assert both halves explicitly: no owner section, and the nudge is the only content.
+		// The caller has unread mail of its OWN, so the absent owner section is a real assertion: a
+		// payload that emits nothing at all would satisfy "no Owner mail" vacuously.
+		send({ store, now: () => 12 }, { fromId: bob.id, to: root.id, body: 'my own message' })
 		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: root.id } }, 'SessionStart')
 		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
+		expect(ctxStr).toContain('my own message')
 		expect(ctxStr).not.toContain('Owner mail')
-		expect(ctxStr).toContain('Legion setup')
 	})
 })
 
