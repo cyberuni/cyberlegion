@@ -120,11 +120,29 @@ graph TD
 Grouped by use case; 1:1 with [`surface.feature`](./surface.feature). `any` in **Path** is a
 convergence claim — the outcome does not vary with the upstream branch.
 
-`G -- no` (an empty own-inbox skips the unread section) carries no row of its own: the two scenarios
-whose `Given` pins it assert the payload is empty (`L -- no`) or that auto-registration happened
-(`E -- yes`), and none asserts the unread section is absent from a payload that still emits. The
-sections are independent in the implementation, so no frozen scenario discriminates that edge — a
-known gap in the suite, not an unrowed decision.
+Three things this map makes visible that the prose alone did not. All are in the **frozen** suite,
+so none is closable here without narrowing a frozen scenario; they are recorded rather than papered
+over.
+
+**`G -- no` carries no row.** No frozen scenario asserts the unread section is absent from a payload
+that *still emits*. The two whose `Given` touches an empty inbox assert the payload is empty
+(`L -- no`) or that auto-registration happened (`E -- yes`). The three sections are independent in
+the implementation, so nothing discriminates that edge — a gap in the suite, closable additively.
+
+**Two frozen `Given`s under-determine their own `Then`.** *a SessionStart hook auto-registers a
+live-pane session that has no identity yet* and *a registered, active caller with an empty inbox
+injects nothing* both assert `stdout is empty`. Walk either class down this graph and it reaches
+`J1`: a root session in a pane with no main pane bound gets the setup nudge, so the payload emits and
+stdout is not empty. Neither `Given` says a main pane is bound, or that a standing owner exists. The
+implementation already works around it — three fixtures bolt that state on with a comment saying so
+(`inject-inbox.test.ts`, `cli.e2e.test.ts`). Adding the missing clause would **narrow** a frozen
+scenario and fire Clearance, so it is disclosed here instead. Whoever re-opens these should fix the
+`Given`, not the test.
+
+**One scenario sits on the entry node, not an edge.** *only the dedicated mail hook command produces
+the injection payload* asserts what the installed harness config invokes — which this node's own
+Non-goals hand to `init/`. Its row is anchored to `A` because there is no edge in this graph for it
+to name, which is the tell that it is co-owned rather than this node's decision.
 
 ### mail hook emits the injection payload for unread mail, never a brief
 

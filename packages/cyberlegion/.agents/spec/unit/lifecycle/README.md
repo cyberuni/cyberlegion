@@ -166,7 +166,9 @@ cleanly — the deterministic inverse pair:
   leaves stale context behind. Injection is best-effort like `nudge` (the harness owns the actual
   reset); `clear` asserts the command was sent, not that the context is provably empty.
 
-**Non-goals** — the unit registry and self/peer discovery (`unit/registry`), backend selection and
+**Non-goals** — resolving an agent definition from `--agent`/`--agent-file` and composing its launch
+string (`agent/` — `spawn` accepts a composed `command`, it never builds one), the unit registry and
+self/peer discovery (`unit/registry`), backend selection and
 placement (`mux/`), mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
 await`/`watch` (`mail/wait`), hook-based mail injection into a harness turn (`mail/surface`) —
 this node only owns the session lifecycle (spawn/close/focus/nudge/read/clear) and the worktree it
@@ -188,17 +190,25 @@ shape; `spawn` and `close` are the deterministic inverse pair.
 
 ### spawn — open a peer and deliver its first turn
 
+Launch resolution runs in the CLI (`cli-input`) **before** `spawn`'s own guards, so a bad
+`--agent` is refused ahead of a missing `--task`. Def resolution itself belongs to `agent/`; this
+graph draws only the seam.
+
 ```mermaid
 graph TD
-  A["unit spawn"] --> B{"harness in the launch map?"}
+  A["unit spawn"] --> CL{"--agent/--agent-file given?"}
+  CL -- yes --> CLR{"the def resolves?"}
+  CLR -- no --> CLR1["throw naming the def — `agent/` owns resolution"]
+  CLR -- yes --> CL1["compose the launch from the def: harness, model, instructions — an explicit --harness overrides the def's"]
+  CL -- no --> CL2["launch := the harness's own default command"]
+  CL1 --> CLH
+  CL2 --> CLH{"a harness resolved, from either source?"}
+  CLH -- no --> CLH1["throw: needs --harness, or --agent/--agent-file resolving one"]
+  CLH -- yes --> B{"harness in the launch map?"}
   B -- no --> B1["throw naming the map — nothing opened"]
   B -- yes --> C{"a brief source given?"}
   C -- no --> C1["throw: needs --task, --task -, or --brief-file"]
-  C -- yes --> CL{"--agent/--agent-file given?"}
-  CL -- yes --> CL1["compose the launch from the def: harness, model, instructions — an explicit --harness overrides the def's"]
-  CL -- no --> CL2["launch := the harness's own default command"]
-  CL1 --> D
-  CL2 --> D{"--cwd combined with --branch/--worktree-path?"}
+  C -- yes --> D{"--cwd combined with --branch/--worktree-path?"}
   D -- yes --> D1["throw: mutually exclusive"]
   D -- no --> E{"--cwd given?"}
   E -- yes --> F{"the dir exists?"}
@@ -271,10 +281,15 @@ graph TD
 Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature). `any` in **Path** is a
 convergence claim — the outcome does not vary with the upstream branch.
 
-Two edges carry no row, both deliberately: `CL -- no` (the launch is the harness's own default
-binary) and the happy-path pass-throughs. No frozen scenario discriminates the default binary from a
-def-composed one at spawn's own boundary — `--agent` is asserted through the composed command — so it
-is a known gap in the suite rather than an unrowed decision.
+**One edge carries no row: `CL -- no`** — the launch is the harness's own default binary. No frozen
+scenario discriminates that from a def-composed launch at spawn's own boundary (`--agent` is asserted
+through the composed command), so it is a gap in the suite, closable additively without Clearance,
+rather than an unrowed decision. It is the only one.
+
+Happy-path pass-throughs (`B -- yes`, `C -- yes`, `D -- no`, `F -- yes`, `J -- no`, `CB -- yes`,
+`CC -- no`, `CD -- yes`, `CG -- yes`, `PB -- yes`, `PC -- yes`, `O -- no`) carry no row of their own
+by design: each is a path prefix subsumed by a downstream row, which is what the `Path` column
+records. They are not gaps.
 
 ### spawn opens a peer and registers it
 
