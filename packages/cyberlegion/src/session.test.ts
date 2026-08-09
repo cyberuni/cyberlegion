@@ -42,7 +42,7 @@ function locatedPaths(text: string): string[] {
  */
 function isBriefInstruction(text: string, path: string): boolean {
 	return (
-		/\bread\b/i.test(text) &&
+		/\bread(?:ing|s)?\b/i.test(text) &&
 		/\bbrief\b/i.test(text) &&
 		/\bbegin\b/i.test(text) &&
 		!/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(text) &&
@@ -50,9 +50,11 @@ function isBriefInstruction(text: string, path: string): boolean {
 		// begin" satisfies every keyword above while leaving the peer idle with a brief it has read —
 		// the exact failure ADR-0032 removes. This forbids a class of deferral verbs, exactly as the
 		// sibling mail doorbell forbids a class of negation verbs; it pins no phrasing.
-		!/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause|later|yet|until|before|unless|once|when|after)\b/i.test(
-			text,
-		) &&
+		!/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause)\b/i.test(text) &&
+		// deferral OF THE BEGINNING specifically — "once you have read your brief, begin work" defers
+		// the reading and is conforming, while "begin once I tell you to" defers the work itself. A
+		// bare word list rejected both.
+		!/\bbegin\b[^.!?]*\b(?:once|when|after|until|unless|before)\b/i.test(text) &&
 		locatedPaths(text).includes(path)
 	)
 }
@@ -157,6 +159,33 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// ...and the brief's body is never typed into the pane, only its path
 		expect(typed).not.toContain(TASK)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
+	})
+
+	it('a first-turn ring that never completes is reported as a warning, not a failed spawn', async () => {
+		const TASK = 'reply to alice about the migration'
+		// a pane that keeps the doorbell staged forever — the ring exhausts its cap
+		let staged = ''
+		const stuckExec: Exec = (cmd, args) => {
+			if (cmd === 'tmux' && args[0] === 'list-panes') return '%9'
+			if (cmd === 'tmux' && args[0] === 'has-session') return ''
+			// the pane echoes back whatever was typed and never consumes it — a booting harness
+			if (cmd === 'tmux' && args[0] === 'capture-pane') return `> ${staged}`
+			if (cmd === 'tmux' && args[0] === 'send-keys' && args.includes('-l')) staged = args.at(-1) ?? ''
+			return fakeExec(cmd, args)
+		}
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: stuckExec },
+			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
+		)
+		// the spawn LANDED — worktree, session and record are the guaranteed effect
+		expect(loadAgent(store, res.agent.id)).toBeTruthy()
+		expect(store.readBrief(res.agent.id)).toBe(TASK)
+		// ...and the un-taken turn is REPORTED rather than swallowed. Without this the whole chain
+		// from a failed ring to the operator is unfalsifiable: a peer that never took its first turn
+		// looks identical to one that did.
+		expect(res.rung).toBe(false)
+		expect(res.warning).toBeTruthy()
 	})
 
 	it('--no-wake spawns and writes the brief file but delivers no first-turn doorbell', async () => {
@@ -938,7 +967,10 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		const { calls, ctx } = peerCtx({ locations: '%1 callersession @1' })
 		// it says the pane could not be RESOLVED — a bare toThrow() passes on any error at all,
 		// including one that has nothing to do with beaming
-		expect(() => focusUnit(ctx, 'peer')).toThrow(/pane|resolve/i)
+		// it must name the RESOLUTION failure. `/pane|resolve/i` also accepts the sibling scenario's
+		// "no known session pane", which is false here — a pane IS recorded; the backend lost it.
+		expect(() => focusUnit(ctx, 'peer')).toThrow(/resolve/i)
+		expect(() => focusUnit(ctx, 'peer')).not.toThrow(/no known session pane/)
 		// ...and nothing was switched: no workspace, no tab, no pane
 		expect(tmuxArgs(calls, 'switch-client')).toEqual([])
 		expect(tmuxArgs(calls, 'select-window')).toEqual([])

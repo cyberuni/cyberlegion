@@ -837,7 +837,19 @@ withGlobals(program).action((opts: GlobalOpts) => {
 	else if (unread > 0) nextStep('cyberlegion mail inbox --unread')
 })
 
-program.parseAsync(process.argv).catch((err: unknown) => {
-	console.error(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
-	process.exit(1)
-})
+/**
+ * Run the CLI. Exported rather than executed at module scope so the command bodies are reachable
+ * from a test: with a bare `program.parseAsync(process.argv)` here, importing this module ran the
+ * whole CLI, so every `.action()` body — and every option wire inside it — was unreachable, and a
+ * flag that stopped being forwarded changed real behavior with the suite green.
+ *
+ * `bin/cyberlegion.mjs` calls this; nothing else should.
+ */
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+	try {
+		await program.parseAsync(argv)
+	} catch (err: unknown) {
+		console.error(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+		process.exit(1)
+	}
+}

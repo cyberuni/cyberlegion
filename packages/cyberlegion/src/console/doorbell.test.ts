@@ -379,15 +379,14 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		// expected value from the subject makes the check a tautology, and the pre-CR content-free
 		// wake ("your brief is loaded in context — read it and begin work") passes such a check with
 		// the path merely appended, which is the exact text this contract exists to replace.
-		expect(/\bread\b/i.test(doorbell)).toBe(true)
+		expect(/\bread(?:ing|s)?\b/i.test(doorbell)).toBe(true)
 		expect(/\bbrief\b/i.test(doorbell)).toBe(true)
 		expect(/\bbegin\b/i.test(doorbell)).toBe(true)
 		expect(/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(doorbell)).toBe(false)
 		// nor defers it — "then stand by until told to begin" reads and then idles
 		expect(
-			/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause|later|yet|until|before|unless|once|when|after)\b/i.test(
-				doorbell,
-			),
+			/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause)\b/i.test(doorbell) ||
+				/\bbegin\b[^.!?]*\b(?:once|when|after|until|unless|before)\b/i.test(doorbell),
 		).toBe(false)
 		// ...and the path is named AS THE BRIEF'S LOCATION. Without this, the keywords alone are
 		// satisfied by the pre-CR content-free wake ("your brief is loaded in context — read it and
