@@ -61,7 +61,9 @@ describe('mail hook emits the SessionStart payload', () => {
 			{ store, env: { TMUX: 't', TMUX_PANE: '%9' }, exec: () => null },
 			{ handle: 'peer', harness: 'claude' },
 		)
-		saveAgent(store, { ...peer, spawnedBy: bob.id })
+		// a spawned peer's record points at its brief file — `spawn` always writes this field, and an
+		// injection branch would far more naturally key on it than on a status
+		saveAgent(store, { ...peer, spawnedBy: bob.id, brief: join(store.root, 'data', peer.id, 'brief.md') })
 		store.writeBrief(peer.id, BRIEF_BODY)
 		send({ store, now: () => 2 }, { fromId: bob.id, to: 'peer', body: 'ping peer' })
 
@@ -82,7 +84,12 @@ describe('mail hook emits the SessionStart payload', () => {
 			{ store, env: { TMUX: 't', TMUX_PANE: '%8' }, exec: () => null },
 			{ handle: 'legacy', harness: 'claude' },
 		)
-		saveAgent(store, { ...peer, status: 'spawning', spawnedBy: bob.id })
+		saveAgent(store, {
+			...peer,
+			status: 'spawning',
+			spawnedBy: bob.id,
+			brief: join(store.root, 'data', peer.id, 'brief.md'),
+		})
 		store.writeBrief(peer.id, BRIEF_BODY)
 		send({ store, now: () => 3 }, { fromId: bob.id, to: 'legacy', body: 'ping legacy' })
 
@@ -215,13 +222,24 @@ describe('owner mail gates on the bound main pane', () => {
 	it('the bound main pane surfaces the owner unread mail under a distinct heading', () => {
 		const homa = registerStanding({ store }, { handle: 'homa' })
 		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
-		register({ store, env: { TMUX: 't', TMUX_PANE: '%20' }, exec: () => null }, { handle: 'root', harness: 'claude' })
+		const root = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%20' }, exec: () => null },
+			{ handle: 'root', harness: 'claude' },
+		)
+		// the caller has unread mail of its OWN, so "distinct from the caller's own section" is a real
+		// assertion — against a caller with an empty inbox it holds vacuously, and a payload that
+		// folded both into one heading would pass
+		send({ store, now: () => 11 }, { fromId: bob.id, to: root.id, body: 'my own message' })
 		store.setMainPane('%20')
 		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%20' }, exec: () => null }, 'SessionStart')
 		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
 		expect(ctxStr).toContain('Owner mail — homa')
 		expect(ctxStr).toContain('status report')
-		expect(ctxStr).not.toMatch(/^## Unread mail/m)
+		// both sections present, under separate headings, each carrying its own message
+		expect(ctxStr).toMatch(/^## Unread mail/m)
+		expect(ctxStr).toContain('my own message')
+		expect(ctxStr.indexOf('my own message')).toBeLessThan(ctxStr.indexOf('Owner mail — homa'))
+		expect(ctxStr.slice(ctxStr.indexOf('Owner mail — homa'))).not.toContain('my own message')
 	})
 
 	it('a root session that is not the bound main pane does not surface owner mail', () => {

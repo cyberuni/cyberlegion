@@ -155,6 +155,7 @@ restored. Do not "simplify" it away.
 
 - [ADR-0027](0027-spawn-delivers-first-turn.md) — superseded: turn-delivery is retained, the
   payload/context split is not.
-- [ADR-0025](0025-session-adapter-verify-effect-or-fail-loud.md) — the `nudge` boot-race primitive
-  both ADRs reuse.
+- [ADR-0025 *session-adapter verify-effect-or-fail-loud*](0025-session-adapter-verify-effect-or-fail-loud.md)
+  — the `nudge` boot-race primitive both ADRs reuse. Named in full because the repo carries two
+  ADR-0025s; the other is the mission-graph compiler/scheduler model.
 - [ADR-0024](0024-cyberlegion-cli-node-alignment.md) — the dumb-hands CLI charter this stays inside.

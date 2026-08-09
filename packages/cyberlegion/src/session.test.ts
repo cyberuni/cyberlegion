@@ -46,6 +46,13 @@ function isBriefInstruction(text: string, path: string): boolean {
 		/\bbrief\b/i.test(text) &&
 		/\bbegin\b/i.test(text) &&
 		!/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(text) &&
+		// ...and it does not DEFER the beginning. "read your brief at X, then stand by until told to
+		// begin" satisfies every keyword above while leaving the peer idle with a brief it has read —
+		// the exact failure ADR-0032 removes. This forbids a class of deferral verbs, exactly as the
+		// sibling mail doorbell forbids a class of negation verbs; it pins no phrasing.
+		!/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause|later|yet|until|before|unless|once|when|after)\b/i.test(
+			text,
+		) &&
 		locatedPaths(text).includes(path)
 	)
 }
@@ -929,7 +936,9 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	it('focus surfaces an error instead of a false success when the recorded pane no longer resolves', () => {
 		// the backend no longer knows this pane — distinct from an unresolvable ref or no recorded pane
 		const { calls, ctx } = peerCtx({ locations: '%1 callersession @1' })
-		expect(() => focusUnit(ctx, 'peer')).toThrow()
+		// it says the pane could not be RESOLVED — a bare toThrow() passes on any error at all,
+		// including one that has nothing to do with beaming
+		expect(() => focusUnit(ctx, 'peer')).toThrow(/pane|resolve/i)
 		// ...and nothing was switched: no workspace, no tab, no pane
 		expect(tmuxArgs(calls, 'switch-client')).toEqual([])
 		expect(tmuxArgs(calls, 'select-window')).toEqual([])

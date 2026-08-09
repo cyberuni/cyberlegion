@@ -49,6 +49,16 @@ describe('spec:cyberlegion/unit/lifecycle spawn command options', () => {
 		})
 	})
 
+	it('carries --cwd through — the flag every --cwd scenario is invoked with', () => {
+		// Dropped, spawn takes the worktree branch instead and no --cwd scenario's Then holds at the
+		// boundary its Given names. --cwd is mutually exclusive with the worktree flags, so it has to
+		// be asserted on its own input rather than folded into the case above.
+		const { input } = spawnCommandInput({ harness: 'claude', task: 't', cwd: '/tmp/existing' })
+		expect(input.cwd).toBe('/tmp/existing')
+		expect(input.branch).toBeUndefined()
+		expect(input.worktreePath).toBeUndefined()
+	})
+
 	it('--no-wake suppresses the first-turn doorbell, and its absence rings', () => {
 		// Commander sets `wake: false` for --no-wake. Both polarities, so an inverted wire fails too.
 		expect(spawnCommandInput({ harness: 'claude', task: 't', wake: false }).noWake).toBe(true)

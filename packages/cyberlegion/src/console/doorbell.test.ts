@@ -383,6 +383,12 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		expect(/\bbrief\b/i.test(doorbell)).toBe(true)
 		expect(/\bbegin\b/i.test(doorbell)).toBe(true)
 		expect(/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(doorbell)).toBe(false)
+		// nor defers it — "then stand by until told to begin" reads and then idles
+		expect(
+			/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause|later|yet|until|before|unless|once|when|after)\b/i.test(
+				doorbell,
+			),
+		).toBe(false)
 		// ...and the path is named AS THE BRIEF'S LOCATION. Without this, the keywords alone are
 		// satisfied by the pre-CR content-free wake ("your brief is loaded in context — read it and
 		// begin work") with the path merely appended — the exact text this contract replaces.
@@ -393,6 +399,26 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		// real spawn where the body exists to leak.
 		expect(doorbell).toContain(BRIEF_PATH)
 	})
+
+	it('the first-turn ring carries a wider retry budget than a plain nudge, by default', async () => {
+		// Every other test here injects its own nudgeOpts, which REPLACE the default parameter — so
+		// the shipped budget was never exercised and could be narrowed to a single attempt green.
+		// Drive it with NO opts and count the re-submits it is willing to make.
+		let reads = 0
+		const adapter = {
+			...fakeAdapter([]).adapter,
+			paneExists: () => true,
+			submit: () => {},
+			read: () => {
+				reads++
+				return `> ${spawnDoorbell(BRIEF_PATH).slice(0, 45)}` // stays staged forever
+			},
+		} as unknown as MuxAdapter
+		const result = await wakeSpawn(() => adapter, exec, { target: { id: '%1' }, briefPath: BRIEF_PATH })
+		expect(result.rung).toBe(false) // exhausts and warns, never throws
+		// nudge's own default is 10 attempts; a cold harness boot is given materially more
+		expect(reads).toBeGreaterThan(11)
+	}, 20_000)
 
 	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {
 		const { adapter, sendCalls, submitCalls } = fakeAdapter([SPAWN_STAGED, SPAWN_SCROLLED_OUT])

@@ -38,7 +38,6 @@
 		"check:spec": "sdd-check-specs",
 		"dev": "tsx src/cli.ts",
 		"prepack": "pnpm build",
-		"pretest": "pnpm build",
 		"test": "vitest run src",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit"

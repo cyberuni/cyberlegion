@@ -474,6 +474,18 @@ describe('mail group', () => {
 		expect(new FileStore(space).getAgent(aliceId)?.status).toBe('spawning') // preserved verbatim
 	})
 
+	it('mail hook exits 0 for an unregistered caller with no identity and no pane', () => {
+		// The "exits 0" clause of the three unregistered-caller scenarios. Bound in-process they
+		// assert injectInbox returns null, which observes no exit code at all — the command could
+		// exit non-zero and fail the harness turn with the suite green. Only a real process shows it.
+		const res = spawnSync('node', [BIN, 'mail', 'hook', '--event', 'SessionStart', '--space', space], {
+			encoding: 'utf8',
+			env: baseEnv({}),
+		})
+		expect(res.status).toBe(0) // never fails the harness turn
+		expect(res.stdout.trim()).toBe('')
+	})
+
 	it('mail hook injects nothing for a registered caller with an empty inbox', () => {
 		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
 		// isolating this test to the empty-inbox precondition it targets. NOTE: this covers the
