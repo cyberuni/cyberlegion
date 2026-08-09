@@ -5,6 +5,8 @@ concept: [cyberlegion]
 
 # unit lifecycle — warm peer session lifecycle over a multiplexer
 
+## What
+
 Spawn, scrape, focus, nudge, **clear**, and close a warm interactive peer via tmux/herdr. Migrated
 CR-2 from `session/` (`cyberlegion-cli-realign`, ADR-0024): the lifecycle half of `unit` —
 registration and discovery live in the sibling `unit/registry` node; backend selection and placement
@@ -167,37 +169,197 @@ ringing an existing idle unit instead of spawning a fresh one) and a **`--visibl
 human force a paned session for a cold one-shot they want to watch — paned-vs-subagent is derived
 today from `warm × interactive × mux`). Both are noted, not built here.
 
-Every scenario in [`lifecycle.feature`](./lifecycle.feature) maps to one of these behaviors:
+## Control Flow
 
-| Behavior | What it covers |
-|---|---|
-| **spawn registers the peer before it starts** | pre-registration with status `active` and `spawnedBy`, brief/pane pointer written before launch |
-| **worktree distinct from primary** | refuses a `--worktree-path` resolving onto the primary checkout |
-| **spawn into an existing dir (`--cwd`)** | creates no worktree; registers the dir as cwd; requires the dir to exist; refuses the primary checkout; mutually exclusive with the worktree flags |
-| **spawn resolves the default `--at` by mode** | a new-worktree spawn defaults to `workspace` (own visible space, deterministic); a `--cwd` spawn defaults to `tab` in the caller's current space; an explicit `--at` overrides either default |
-| **brief delivered by file** | never typed into the launch command |
-| **spawn delivers the peer's first turn** | the brief is written to its file, never typed into the pane; the pane is then rung with a best-effort first-turn doorbell instructing the peer to read the brief at its file path and begin, naming that path rather than carrying the brief's body; a ring that never completes warns, never fails the spawn |
-| **spawn first-turn is robust to the boot race** | re-submits the staged doorbell until the turn is taken, delivered exactly once (never re-typed per retry) |
-| **spawn --no-wake opts out** | spawns and writes the brief file but delivers no first-turn doorbell |
-| **unmapped harness errors** | before any worktree/session opens |
-| **no brief source errors** | `--task`/`--task -`/`--brief-file` required |
-| **--agent/--agent-file realizes launch** | resolved def composes harness/model/instructions; explicit `--harness` overrides |
-| **close tears down + reaps (spawn's inverse)** | worktree + session + registry/pane/data reaped |
-| **close refuses primary checkout** | absolute — `--force` never overrides |
-| **close refuses dirty worktree** | unless `--force` |
-| **close tolerates already-gone worktree/pane** | reap still completes |
-| **close aborts on genuine teardown failure** | before any reap; record left intact for retry |
-| **close on unresolvable id errors** | nothing reaped |
-| **close reaps only the targeted unit** | other units' state untouched |
-| **close on a `--cwd` unit** | tears down the session and reaps; removes no worktree |
-| **focus** | move input focus to a peer's pane |
-| **focus beams across workspace and tab** | resolves the pane's own workspace + tab and drives ws → tab → pane (herdr) / switch-client → select-window → select-pane (tmux) so the attached view lands on the peer, not a no-op in the caller's workspace |
-| **focus surfaces an unresolvable pane** | a recorded pane that no longer resolves in the backend throws (no false `focused`); nothing switched |
-| **nudge** | doorbell that delivers a message as a turn; default points at the inbox, `--message` overrides |
-| **nudge is robust to the harness boot race** | submits then verifies the turn was taken; re-submits the staged buffer (bare submit, no duplication) up to a bounded cap; fails loud if the turn is never taken (no false success) |
-| **read** | scrape a peer's session screen |
-| **focus/nudge/read need a live target** | an unresolvable ref or a unit with no known session pane throws before any adapter call — nothing focused/delivered/scraped |
-| **clear injects harness reset, keeps pane warm** | sends the harness's own fresh-context command; tears nothing down; record/pane/worktree unchanged |
-| **clear resolves the per-harness reset map** | claude/codex/copilot → `/clear`, cursor → `/new-chat` |
-| **clear fails loud on a false-friend / unmapped harness** | gemini (`/clear` = screen-only) or any unmapped harness throws; nothing sent |
-| **clear needs a live target** | unresolvable ref or no known pane errors, sends nothing |
+Six verbs with genuinely distinct decision logic, so the graph is sectioned by sub-graph. The four
+pane verbs share one entry (`paneTargetOf`), which is why their guard scenarios are identical in
+shape; `spawn` and `close` are the deterministic inverse pair.
+
+### spawn — open a peer and deliver its first turn
+
+```mermaid
+graph TD
+  A["unit spawn"] --> B{"harness in the launch map?"}
+  B -- no --> B1["throw naming the map — nothing opened"]
+  B -- yes --> C{"a brief source given?"}
+  C -- no --> C1["throw: needs --task, --task -, or --brief-file"]
+  C -- yes --> D{"--cwd combined with --branch/--worktree-path?"}
+  D -- yes --> D1["throw: mutually exclusive"]
+  D -- no --> E{"--cwd given?"}
+  E -- yes --> F{"the dir exists?"}
+  F -- no --> F1["throw: must already exist"]
+  F -- yes --> G{"resolves onto the primary checkout?"}
+  G -- yes --> G1["throw: refuses the primary checkout"]
+  G -- no --> H["at := --at ?? tab (caller's current space)"]
+  E -- no --> I["at := --at ?? workspace (its own visible space)"]
+  I --> J{"resolves onto the primary checkout?"}
+  J -- yes --> G1
+  J -- no --> K["create the worktree"]
+  H --> L{"at = workspace?"}
+  K --> L
+  L -- yes --> L1["derive a label: code + subject from the brief"]
+  L -- no --> M["no label derived"]
+  L1 --> M["open the session backend at cwd"]
+  M --> N["register the peer: status active, spawnedBy, pane pointer; write the brief FILE"]
+  N --> O{"--no-wake?"}
+  O -- yes --> Z["return: spawned, not rung"]
+  O -- no --> P["ring the first-turn doorbell over nudge's submit-verify path"]
+  P --> Q{"turn taken within the cold-boot budget?"}
+  Q -- yes --> Z2["return: spawned and rung"]
+  Q -- no --> Q1["warn — the spawn still stands"]
+```
+
+### close — the inverse: tear down and reap
+
+```mermaid
+graph TD
+  CA["unit close ref"] --> CB{"ref resolves to a unit?"}
+  CB -- no --> CB1["throw, reap nothing"]
+  CB -- yes --> CC{"its worktree is the primary checkout?"}
+  CC -- yes --> CC1["throw — --force does not override this"]
+  CC -- no --> CD{"a worktree still on disk?"}
+  CD -- no --> CF["skip removal"]
+  CD -- yes --> CE{"dirty, and no --force?"}
+  CE -- yes --> CE1["throw about uncommitted changes; record intact"]
+  CE -- no --> CG{"removal succeeds?"}
+  CG -- no --> CG1["abort — record left intact for retry"]
+  CG -- yes --> CF
+  CF --> CH["tear down the pane (an already-gone pane is tolerated)"]
+  CH --> CI["reap THIS unit's record, brief and pane index only"]
+```
+
+### focus / nudge / read / clear — drive an existing pane
+
+```mermaid
+graph TD
+  PA["unit focus|nudge|read|clear ref"] --> PB{"ref resolves to a unit?"}
+  PB -- no --> PB1["throw, touch no pane"]
+  PB -- yes --> PC{"a pane is recorded (record, else pane index)?"}
+  PC -- no --> PC1["throw: no known session pane; touch no pane"]
+  PC -- yes --> PD{"which verb?"}
+  PD -- focus --> PE{"the backend still knows the pane?"}
+  PE -- no --> PE1["throw: could not resolve to beam to; switch nothing"]
+  PE -- yes --> PE2["switch workspace, then tab, then land focus"]
+  PD -- nudge --> PF["submit the message (default: check-mail), verify the turn was taken"]
+  PF --> PG{"taken within the retry cap?"}
+  PG -- yes --> PG1["report success, re-submits counted"]
+  PG -- no --> PG2["throw: never took the turn"]
+  PD -- read --> PH["capture the pane's trailing output"]
+  PD -- clear --> PI{"the harness has an honest reset command?"}
+  PI -- no --> PI1["throw (false friend, or unmapped) — nothing sent"]
+  PI -- yes --> PI2["submit the reset; tear nothing down"]
+```
+
+## Scenario map
+
+Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature).
+
+### spawn opens a peer and pre-registers it
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `N` register + write the brief file | a new peer with --harness and --task | `spawn pre-registers the peer before the session actually launches` |
+| `J -- yes` refuse the primary | a --worktree-path resolving onto the primary checkout | `spawn refuses a --worktree-path that resolves onto the primary checkout` |
+| `N` brief by file, not by command | any spawn carrying a brief | `the resolved brief is written to the peer's brief file, not into the launch command` |
+| `B -- no` | a harness absent from the launch map | `an unmapped --harness errors without opening a worktree or session` |
+| `C -- no` | no --task, --task -, or --brief-file | `spawn with no --task, --task -, or --brief-file errors` |
+
+### --agent/--agent-file realizes a resolved def's launch
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `A` def composes the launch | an agent def carrying a harness, model and instructions | `--agent resolves a def whose harness/model/instructions compose the launch` |
+| `A` explicit override wins | the same def, plus an explicit --harness | `an explicit --harness overrides the resolved def's own harness` |
+
+### Spawn resolves the default placement by mode
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `I` new-worktree default | a new-worktree spawn with no --at | `a new-worktree spawn with no --at defaults to its own visible space (workspace), deterministically` |
+| `H` --cwd default | a --cwd spawn with no --at | `a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace` |
+| `I` explicit --at overrides | a new-worktree spawn with an explicit --at | `an explicit --at overrides the new-worktree default of workspace` |
+| `H` explicit --at overrides | a --cwd spawn with an explicit --at | `an explicit --at overrides the --cwd default of tab` |
+
+### A workspace placement is labeled so a human can find it by eye
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `L1` derive code + subject | a workspace spawn whose brief has a leading action | `a workspace spawn labels the space with a code and a subject drawn from the brief` |
+| `L1` code selection order | briefs whose leading actions differ | `the brief's leading action selects the code, in a fixed order` |
+| `L1` action + article dropped | a brief opening with a recognized action and an article | `a matched leading action and article are dropped from the subject, never repeated in it` |
+| `L1` unrecognized word kept | a brief whose leading word matches no action | `a leading word that matches no action is kept — only a recognized action is dropped` |
+| `L1` cut at a word boundary | a brief longer than the subject cap | `a brief too long for the cap is cut at a word boundary, not mid-word` |
+| `L1` --handle supplies the subject | a workspace spawn with --handle | `--handle supplies the subject in place of the brief-derived one, and the code still comes from the brief` |
+| `L1` fall back to the short id | a brief with no usable subject | `a brief with no usable subject falls back to the unit's own short id` |
+| `L -- no` no label at all | a pane or tab placement | `no label is derived at all for a pane or tab placement` |
+
+### Spawn into an existing dir without a worktree (--cwd)
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `E -- yes` no worktree created | --cwd naming an existing directory | `--cwd spawns a session into an existing directory and creates no worktree` |
+| `F -- no` | --cwd naming a directory that does not exist | `--cwd requires the directory to already exist` |
+| `G -- yes` | --cwd naming the primary checkout | `--cwd refuses the primary checkout, the same as a created worktree` |
+| `D -- yes` | --cwd combined with --branch/--worktree-path | `--cwd is mutually exclusive with the worktree-creating flags` |
+
+### spawn delivers the peer's first turn
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `P` ring the instruction | a paned spawn that opened cleanly | `spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief` |
+| `Q -- yes` after a swallowed submit | a freshly-launched harness still booting | `the first turn is delivered as a taken turn, robust to the harness boot race` |
+| `Q -- no` warn, never fail | a pane that never takes the turn | `a first-turn ring that never completes never fails the spawn` |
+| `O -- yes` | a spawn passing --no-wake | `--no-wake spawns without delivering the first turn` |
+
+### close tears down and reaps (spawn's inverse)
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `CI` full teardown + reap | a unit with a worktree and a live pane | `close removes the worktree, tears down the session, and reaps the registry record` |
+| `CD -- no` nothing to remove | a unit spawned with --cwd (owns no worktree) | `close on a unit spawned with --cwd removes no worktree` |
+| `CC -- yes` | a unit whose worktree is the primary checkout | `close refuses a unit whose worktree is the primary checkout` |
+| `CC -- yes` under --force | the same, with --force | `--force does not override the primary-checkout refusal` |
+| `CE -- yes` | a unit with uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
+| `CE -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
+| `CD -- no` worktree already gone | a unit whose worktree is no longer on disk | `close completes the reap when the worktree no longer exists on disk` |
+| `CH` pane already gone | a unit whose pane no longer exists | `close completes the reap when the session pane no longer exists` |
+| `CG -- no` | a worktree removal that genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
+| `CB -- no` | an id that resolves to no unit | `closing an unresolvable id errors and reaps nothing` |
+| `CI` reaps only the target | two registered units, one closed | `close leaves another unit's state untouched` |
+
+### focus, nudge and read drive a live pane
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `PE2` land focus | a registered peer with a live pane | `focus moves input focus to a peer's session` |
+| `PE2` ordered beam | a peer whose pane sits in another workspace and tab | `focus beams the attached client across workspace and tab to a peer's pane` |
+| `PF` default message | a registered peer with a live pane | `nudge delivers a default check-mail doorbell message to a peer's session` |
+| `PF` caller-supplied message | the same, with --message | `nudge carries a caller-supplied message with --message` |
+| `PG -- yes` taken first time | a pane that takes the first submit | `nudge confirms the turn was taken and reports success without re-submitting` |
+| `PG -- yes` after re-submits | a harness still booting, first submit staged | `nudge re-submits when the harness boot swallows the first submit` |
+| `PF` flush, never re-type | the same staged-first-submit path | `a boot-race re-submit does not duplicate the message` |
+| `PG -- no` | a pane that keeps it staged past the cap | `nudge fails loud when the turn is never taken within the bounded retry cap` |
+| `PH` capture trailing output | a peer whose pane holds some output | `read scrapes a peer's session screen` |
+
+### focus, nudge, read: error cases
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `PB -- no` (focus) | a ref resolving to no unit | `focus on an unresolvable ref errors and focuses nothing` |
+| `PC -- no` (focus) | a unit with no recorded pane | `focus on a unit with no known session pane errors and focuses nothing` |
+| `PE -- no` | a recorded pane the backend no longer knows | `focus surfaces an error instead of a false success when the recorded pane no longer resolves in the backend` |
+| `PB -- no` (nudge) | a ref resolving to no unit | `nudge on an unresolvable ref errors and delivers nothing` |
+| `PC -- no` (nudge) | a unit with no recorded pane | `nudge on a unit with no known session pane errors and delivers nothing` |
+| `PB -- no` (read) | a ref resolving to no unit | `read on an unresolvable ref errors and scrapes nothing` |
+| `PC -- no` (read) | a unit with no recorded pane | `read on a unit with no known session pane errors and scrapes nothing` |
+
+### clear resets context while keeping the pane warm
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `PI2` submit the reset | a warm claude peer with a live pane | `clear injects the harness's own in-session reset into a warm peer and tears nothing down` |
+| `PI2` per-harness command | peers on each mapped harness | `clear resolves each harness's own fresh-context command from a per-harness map` |
+| `PI -- no` false friend | a harness whose reset clears only the screen | `clear fails loud on a harness whose reset would not truly empty the context` |
+| `PI -- no` unmapped | a harness absent from the reset map | `clear errors on an unmapped harness rather than guessing a command` |
+| `PB -- no` (clear) | a ref resolving to no unit | `clear on an unresolvable ref errors and sends nothing` |
+| `PC -- no` (clear) | a unit with no recorded pane | `clear on a unit with no known session pane errors and sends nothing` |

@@ -5,6 +5,8 @@ concept: [cyberlegion]
 
 # mail surface — inject unread mail into a session across harnesses
 
+## What
+
 `mail hook --event SessionStart|PostToolUse` emits the harness hook payload that injects a session's
 unread mail and (when this session is the hub's main pane) the standing owner's unread mail. It
 carries no brief: a spawned peer's brief reaches it in the wake instruction (`unit/lifecycle`), not
@@ -72,14 +74,105 @@ The per-harness hook installer (the old `admin install`) is **not** here — it 
 [`init/`](../../init/README.md), which now owns installation directly (CR-2 resolution #2: init's
 PostToolUse coverage was extended to include codex rather than duplicating the install scenarios).
 
-Every scenario in [`surface.feature`](./surface.feature) maps to one of these behaviors:
+## Control Flow
 
-| Behavior | What it covers |
-|---|---|
-| **hook emits unread mail, never a brief** | unread mail listed every call; raw-JSON `hookSpecificOutput` shape; a spawned peer's hook call injects no brief and leaves its brief file on disk unchanged; a record still carrying the retired `spawning` status gets no brief either and keeps that status |
-| **dedicated hook command** | the injection payload is produced only by `mail hook` |
-| **live-pane caller auto-registers; non-pane caller injects nothing** | no self id but in a live mux pane → best-effort auto-register (pane resolves to a fresh id) then surface; no self id and no pane (or harness undetectable) → nothing printed; either way exit 0, never fails the turn |
-| **no unread mail injects nothing** | empty payload → nothing printed |
-| **unsupported --event rejected** | only SessionStart/PostToolUse accepted |
-| **owner mail surfaces into the bound main pane** | spawned units never surface; among root sessions, a bound main pane (`attach`) gates surfacing to that one pane, and with none bound it falls back to any root session; bodies under an owner heading; never acks; acked no longer surfaces |
-| **session-start setup nudge** | an unbound root session gets a best-effort `## Legion setup` nudge toward `cyberlegion init` (mux: no main pane bound; non-mux: no standing owner); binding/minting silences it; spawned units never get it; best-effort, always exit 0 |
+Every use case enters one graph: `mail hook` resolves the caller, then appends up to three
+independent sections — the caller's own unread mail, a standing owner's unread mail, and the setup
+nudge — and emits only if something accumulated. **No branch reads the brief**: the payload carries
+no brief section whatever the record's status, which is what retires the split ADR-0027 chose
+(ADR-0032). The owner-mail and setup-nudge sub-graphs are best-effort: each sits in its own
+swallowing `try`, so a store failure inside either drops that section and never fails the turn.
+
+```mermaid
+graph TD
+  A["mail hook --event e"] --> B{"e in SessionStart | PostToolUse?"}
+  B -- no --> B1["throw, naming both supported events"]
+  B -- yes --> C{"self id resolves?"}
+  C -- no --> D{"in a live mux pane?"}
+  D -- no --> Z0["inject nothing, exit 0"]
+  D -- yes --> E{"auto-register succeeds?"}
+  E -- no --> Z0
+  E -- yes --> F
+  C -- yes --> F["load own record"]
+  F --> G{"unread mail?"}
+  G -- yes --> G1["append '## Unread mail (N)' — sender, subject, body, id"]
+  G -- no --> H
+  G1 --> H{"record has spawnedBy?"}
+  H -- yes, a spawned unit --> K["skip owner mail AND setup nudge"]
+  H -- no, a root session --> I{"a main pane is bound?"}
+  I -- yes, and this is it --> I1["append owner mail per standing owner with unread"]
+  I -- yes, but this is not it --> J
+  I -- no, none bound --> I1
+  I1 --> J{"onboarding incomplete?"}
+  K --> L
+  J -- "in a pane: no main pane bound" --> J1["append '## Legion setup' nudge"]
+  J -- "no pane: no standing owner" --> J1
+  J -- otherwise --> L
+  J1 --> L{"anything accumulated?"}
+  L -- no --> Z0
+  L -- yes --> Z1["emit hookSpecificOutput as raw JSON on stdout"]
+```
+
+## Scenario map
+
+Grouped by use case; 1:1 with [`surface.feature`](./surface.feature). `any` in **Path** is a
+convergence claim — the outcome does not vary with the upstream branch.
+
+### mail hook emits the injection payload for unread mail, never a brief
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `G -- yes` append unread section | a registered caller with two unread messages | `unread mail is included on every hook call` |
+| `L -- yes` emit as raw JSON | a registered caller with unread mail | `the payload uses the harness hookSpecificOutput shape as raw JSON` |
+| **barred**: no brief branch exists | a spawned peer whose brief file is on disk, with unread mail | `a spawned peer's hook call injects no brief` |
+| **barred**: no brief branch exists | the same, on a record carrying a legacy `spawning` status | `a peer record carrying a legacy spawning status still gets no brief` |
+
+### The dedicated hook command is used, not a generic exec
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `A` the entry point itself | a project with the surfacing hook installed | `only the dedicated mail hook command produces the injection payload` |
+
+### An unregistered caller injects nothing rather than erroring
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `D -- no` no pane to register from | no resolvable self id, in no mux pane | `a caller with no identity and in no multiplexer pane gets no output and no error` |
+| `E -- yes` auto-register succeeds | in a mux pane, no identity yet, empty inbox | `a SessionStart hook auto-registers a live-pane session that has no identity yet` |
+| `E -- no` auto-register fails | in a mux pane, no identity, no detectable harness | `auto-register in the hook is best-effort and never fails the turn` |
+
+### No unread mail injects nothing
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `L -- no` nothing accumulated | a registered active caller with no unread mail | `a registered, active caller with an empty inbox injects nothing` |
+
+### An unsupported --event is rejected
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `B -- no` | a caller running `mail hook --event PreToolUse` | `an unsupported --event value is rejected` |
+
+### Owner mail surfaces into the bound main pane
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `I -- yes, and this is it` | a standing owner with unread mail; this session is the bound main pane | `the bound main pane surfaces the owner's unread mail with bodies` |
+| `I -- yes, but this is not it` | a main pane bound to a different pane | `a root session that is not the bound main pane does not surface owner mail` |
+| `I -- no, none bound` (fallback) | no main pane bound, a root session | `with no main pane bound, any root session still surfaces owner mail` |
+| `H -- yes` spawned unit skips | the record has a `spawnedBy` | `a spawned unit does not surface the owner's mail` |
+| `I1` read-only, never acks | a standing owner with one unread, called twice | `surfacing the owner's mail never acks it` |
+| `I1` with nothing unread left | the owner's only message already acked | `an acked owner message no longer surfaces` |
+| `I1` with no owner to read | no standing owner record exists | `no standing owner means no owner-mail section` |
+| `I1` + `J1` both append | no main pane bound, an owner with unread, a root pane | `an unbound root pane surfaces owner mail and the setup nudge together` |
+
+### The session-start setup nudge for an unbound root session
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `J -- in a pane: no main pane bound` | a root session in a pane, none bound | `an unbound root pane gets a Legion setup nudge` |
+| `J -- otherwise` (bound) | a root session in a pane bound as the main pane | `binding a main pane silences the nudge` |
+| `H -- yes` skips the nudge too | a session with a `spawnedBy`, in a pane, none bound | `a spawned unit never gets the setup nudge` |
+| `J -- no pane: no standing owner` | a root session in no mux pane, no standing owner | `a non-multiplexer root session with no standing owner gets the setup nudge` |
+| `J -- otherwise` (owner exists) | a root session in no mux pane, a standing owner present | `a non-multiplexer root session that already has a standing owner gets no nudge` |
+| `I`/`J` best-effort swallow | a root session whose main-pane lookup raises | `computing the gate or nudge never fails the turn` |

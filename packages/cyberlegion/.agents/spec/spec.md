@@ -1,5 +1,5 @@
 ---
-status: approved
+status: draft
 project-path: packages/cyberlegion
 approval:
   spec:
