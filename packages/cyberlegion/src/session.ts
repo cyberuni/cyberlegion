@@ -162,6 +162,12 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
 		// the directory name lines up with what's already shown to the caller.
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
+		// Refuse the primary checkout BEFORE anything is created or opened. The post-hoc asserts below
+		// stay as a backstop against a backend returning a root other than the one asked for, but they
+		// fire too late to honor "no worktree is created / no session is opened": the atomic branch
+		// creates the worktree AND opens the session in one call, so a check after it has already
+		// stranded a pane. The frozen scenarios say nothing is opened, so nothing may be.
+		assertDistinctFromPrimary(resolve(worktreePath), primaryRoot)
 		if (at === 'workspace' && sessionAdapter.worktree) {
 			// The backend can create the worktree and open its new workspace in one atomic call —
 			// a real organizational improvement (herdr nests the worktree under its source workspace)

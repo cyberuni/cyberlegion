@@ -21,10 +21,16 @@ cleanly — the deterministic inverse pair:
 - **spawn opens a new peer session and registers it before it starts** — `unit spawn
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
   primary checkout, opens a session backend (tmux or herdr, selected by environment — see `mux/`)
-  with its cwd set to that worktree, pre-registers the peer (`status: active`, `spawnedBy` the
-  caller's own id when it has one) and writes its pane pointer and brief file BEFORE the session
-  backend actually launches the harness — there is no intermediate spawning status, and nothing
-  later flips it (the hook injects no brief and mutates no status — `mail/surface`).
+  with its cwd set to that worktree, then registers the peer (`status: active`, `spawnedBy` the
+  caller's own id when it has one) and writes its pane pointer and brief file. There is no
+  intermediate spawning status, and nothing later flips it (the hook injects no brief and mutates no
+  status — `mail/surface`).
+    - **Registration follows the launch, and no longer needs to precede it.** Under the retired
+      split (ADR-0027) the child's own `SessionStart` hook read the record and the brief, so both had
+      to exist before the harness booted. Nothing in the child reads either now — the peer learns of
+      its brief from the wake, which is rung after `spawn` returns — so the ordering carries no
+      contract. It does leave a window in which a crash strands a pane with no record; that is a
+      robustness question for `unit/registry`'s reaping, not a claim this node makes.
   - **The new worktree is always distinct from the primary checkout** — spawn refuses (throws) a
     `--worktree-path` that resolves onto the primary checkout rather than opening a session there.
   - **Or spawn into an existing directory without a worktree (`--cwd`)** — `unit spawn --cwd <dir>`
@@ -183,7 +189,11 @@ graph TD
   B -- no --> B1["throw naming the map — nothing opened"]
   B -- yes --> C{"a brief source given?"}
   C -- no --> C1["throw: needs --task, --task -, or --brief-file"]
-  C -- yes --> D{"--cwd combined with --branch/--worktree-path?"}
+  C -- yes --> CL{"--agent/--agent-file given?"}
+  CL -- yes --> CL1["compose the launch from the def: harness, model, instructions — an explicit --harness overrides the def's"]
+  CL -- no --> CL2["launch := the harness's own default command"]
+  CL1 --> D
+  CL2 --> D{"--cwd combined with --branch/--worktree-path?"}
   D -- yes --> D1["throw: mutually exclusive"]
   D -- no --> E{"--cwd given?"}
   E -- yes --> F{"the dir exists?"}
@@ -198,8 +208,9 @@ graph TD
   H --> L{"at = workspace?"}
   K --> L
   L -- yes --> L1["derive a label: code + subject from the brief"]
-  L -- no --> M["no label derived"]
+  L -- no --> L2["no label derived"]
   L1 --> M["open the session backend at cwd"]
+  L2 --> M
   M --> N["register the peer: status active, spawnedBy, pane pointer; write the brief FILE"]
   N --> O{"--no-wake?"}
   O -- yes --> Z["return: spawned, not rung"]
@@ -258,7 +269,7 @@ Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature).
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `N` register + write the brief file | a new peer with --harness and --task | `spawn pre-registers the peer before the session actually launches` |
+| `N` the record and pane pointer | any spawn that opened a session | `spawn pre-registers the peer before the session actually launches` |
 | `J -- yes` refuse the primary | a --worktree-path resolving onto the primary checkout | `spawn refuses a --worktree-path that resolves onto the primary checkout` |
 | `N` brief by file, not by command | any spawn carrying a brief | `the resolved brief is written to the peer's brief file, not into the launch command` |
 | `B -- no` | a harness absent from the launch map | `an unmapped --harness errors without opening a worktree or session` |
@@ -268,8 +279,8 @@ Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature).
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `A` def composes the launch | an agent def carrying a harness, model and instructions | `--agent resolves a def whose harness/model/instructions compose the launch` |
-| `A` explicit override wins | the same def, plus an explicit --harness | `an explicit --harness overrides the resolved def's own harness` |
+| `CL -- yes` → `CL1` | an agent def carrying a harness, model and instructions | `--agent resolves a def whose harness/model/instructions compose the launch` |
+| `CL1` override wins | the same def, plus an explicit --harness | `an explicit --harness overrides the resolved def's own harness` |
 
 ### Spawn resolves the default placement by mode
 
@@ -291,7 +302,7 @@ Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature).
 | `L1` cut at a word boundary | a brief longer than the subject cap | `a brief too long for the cap is cut at a word boundary, not mid-word` |
 | `L1` --handle supplies the subject | a workspace spawn with --handle | `--handle supplies the subject in place of the brief-derived one, and the code still comes from the brief` |
 | `L1` fall back to the short id | a brief with no usable subject | `a brief with no usable subject falls back to the unit's own short id` |
-| `L -- no` no label at all | a pane or tab placement | `no label is derived at all for a pane or tab placement` |
+| `L -- no` → `L2` no label at all | a pane or tab placement | `no label is derived at all for a pane or tab placement` |
 
 ### Spawn into an existing dir without a worktree (--cwd)
 

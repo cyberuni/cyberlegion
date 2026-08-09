@@ -97,6 +97,29 @@ function ctx(): IdContext {
 	return { store, env: { TMUX: 't', CYBERLEGION_AGENT_ID: 'spawner' }, exec: fakeExec, now: () => 1_700_000_000_000 }
 }
 
+/** A herdr backend (one that can create a worktree and open its workspace atomically). */
+function herdrExecFor(calls: string[][]): Exec {
+	return (cmd, args) => {
+		if (cmd === 'git') {
+			if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+			if (args.includes('worktree')) return ''
+			return null
+		}
+		calls.push(args)
+		if (args[0] === 'worktree' && args[1] === 'create') {
+			return JSON.stringify({
+				id: 'cli:worktree:create',
+				result: {
+					root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+					worktree: { branch: 'b', path: primaryRoot },
+					workspace: { workspace_id: 'w9' },
+				},
+			})
+		}
+		return null
+	}
+}
+
 const expectedWorktreePath = (id: string) =>
 	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id.slice(0, 6)}`))
 
@@ -356,6 +379,24 @@ describe('refusing the primary checkout', () => {
 			),
 		).toThrow(/primary checkout/)
 		expect(sent).toHaveLength(0) // and no session is opened
+	})
+})
+
+describe('the primary-checkout refusal opens nothing, on either worktree path', () => {
+	// The frozen Then is "no session is opened". The tmux path adds the worktree, THEN asserts, then
+	// opens — so it happens to honor it. The herdr path creates the worktree and opens its workspace
+	// in ONE atomic call, so a check placed after that call has already stranded a pane. Only a
+	// backend-with-worktree fixture can tell the two apart, and none existed.
+	it('refuses before the backend creates a worktree or opens a workspace', () => {
+		const calls: string[][] = []
+		expect(() =>
+			spawn(
+				{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExecFor(calls), now: () => 1 },
+				{ harness: 'claude', task: 't', worktreePath: primaryRoot },
+			),
+		).toThrow(/primary checkout/)
+		expect(calls.filter((c) => c[0] === 'worktree' && c[1] === 'create')).toEqual([])
+		expect(calls.filter((c) => c[0] === 'tab' || c[0] === 'workspace')).toEqual([])
 	})
 })
 

@@ -100,9 +100,11 @@ graph TD
   G1 --> H{"record has spawnedBy?"}
   H -- yes, a spawned unit --> K["skip owner mail AND setup nudge"]
   H -- no, a root session --> I{"a main pane is bound?"}
-  I -- yes, and this is it --> I1["append owner mail per standing owner with unread"]
+  I -- yes, and this is it --> I0{"any standing owner with unread mail?"}
   I -- yes, but this is not it --> J
-  I -- no, none bound --> I1
+  I -- no, none bound --> I0
+  I0 -- no owner, or none unread --> J
+  I0 -- yes --> I1["append owner mail: bodies, under a heading naming the owner; never acked"]
   I1 --> J{"onboarding incomplete?"}
   K --> L
   J -- "in a pane: no main pane bound" --> J1["append '## Legion setup' nudge"]
@@ -162,9 +164,9 @@ convergence claim — the outcome does not vary with the upstream branch.
 | `I -- no, none bound` (fallback) | no main pane bound, a root session | `with no main pane bound, any root session still surfaces owner mail` |
 | `H -- yes` spawned unit skips | the record has a `spawnedBy` | `a spawned unit does not surface the owner's mail` |
 | `I1` read-only, never acks | a standing owner with one unread, called twice | `surfacing the owner's mail never acks it` |
-| `I1` with nothing unread left | the owner's only message already acked | `an acked owner message no longer surfaces` |
-| `I1` with no owner to read | no standing owner record exists | `no standing owner means no owner-mail section` |
-| `I1` + `J1` both append | no main pane bound, an owner with unread, a root pane | `an unbound root pane surfaces owner mail and the setup nudge together` |
+| `I0 -- no owner, or none unread` | the owner's only message already acked | `an acked owner message no longer surfaces` |
+| `I0 -- no owner, or none unread` | no standing owner record exists | `no standing owner means no owner-mail section` |
+| `G -- no` + `I1` + `J1` | no main pane bound, an owner with unread, a root pane whose OWN inbox is empty | `an unbound root pane surfaces owner mail and the setup nudge together` |
 
 ### The session-start setup nudge for an unbound root session
 
