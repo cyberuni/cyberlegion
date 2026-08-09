@@ -120,6 +120,12 @@ graph TD
 Grouped by use case; 1:1 with [`surface.feature`](./surface.feature). `any` in **Path** is a
 convergence claim — the outcome does not vary with the upstream branch.
 
+`G -- no` (an empty own-inbox skips the unread section) carries no row of its own: the two scenarios
+whose `Given` pins it assert the payload is empty (`L -- no`) or that auto-registration happened
+(`E -- yes`), and none asserts the unread section is absent from a payload that still emits. The
+sections are independent in the implementation, so no frozen scenario discriminates that edge — a
+known gap in the suite, not an unrowed decision.
+
 ### mail hook emits the injection payload for unread mail, never a brief
 
 | Edge | Path (Given) | Scenario |
@@ -166,7 +172,7 @@ convergence claim — the outcome does not vary with the upstream branch.
 | `I1` read-only, never acks | a standing owner with one unread, called twice | `surfacing the owner's mail never acks it` |
 | `I0 -- no owner, or none unread` | the owner's only message already acked | `an acked owner message no longer surfaces` |
 | `I0 -- no owner, or none unread` | no standing owner record exists | `no standing owner means no owner-mail section` |
-| `G -- no` + `I1` + `J1` | no main pane bound, an owner with unread, a root pane whose OWN inbox is empty | `an unbound root pane surfaces owner mail and the setup nudge together` |
+| `I1` + `J1` both append | no main pane bound, an owner with unread, a root session in a pane | `an unbound root pane surfaces owner mail and the setup nudge together` |
 
 ### The session-start setup nudge for an unbound root session
 

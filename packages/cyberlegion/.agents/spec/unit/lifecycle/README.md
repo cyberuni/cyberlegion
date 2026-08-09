@@ -18,7 +18,7 @@ moved to the new `mux/` node (a real architectural layer, not a command noun).
 existing directory a caller supplies (`--cwd`) — and its session pane, then tearing it back down
 cleanly — the deterministic inverse pair:
 
-- **spawn opens a new peer session and registers it before it starts** — `unit spawn
+- **spawn opens a new peer session and registers the peer it opened** — `unit spawn
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
   primary checkout, opens a session backend (tmux or herdr, selected by environment — see `mux/`)
   with its cwd set to that worktree, then registers the peer (`status: active`, `spawnedBy` the
@@ -31,6 +31,11 @@ cleanly — the deterministic inverse pair:
       its brief from the wake, which is rung after `spawn` returns — so the ordering carries no
       contract. It does leave a window in which a crash strands a pane with no record; that is a
       robustness question for `unit/registry`'s reaping, not a claim this node makes.
+      The frozen scenario is still titled *"spawn pre-registers the peer before the session actually
+      launches"* and its section comment still reads *"registers the peer before it starts"* — titles
+      written under the old design. Neither `Then` asserts an ordering, so the suite is not falsified;
+      retitling would narrow a frozen scenario and fire Clearance, so the divergence is recorded here
+      rather than papered over.
   - **The new worktree is always distinct from the primary checkout** — spawn refuses (throws) a
     `--worktree-path` that resolves onto the primary checkout rather than opening a session there.
   - **Or spawn into an existing directory without a worktree (`--cwd`)** — `unit spawn --cwd <dir>`
@@ -263,13 +268,19 @@ graph TD
 
 ## Scenario map
 
-Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature).
+Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature). `any` in **Path** is a
+convergence claim — the outcome does not vary with the upstream branch.
 
-### spawn opens a peer and pre-registers it
+Two edges carry no row, both deliberately: `CL -- no` (the launch is the harness's own default
+binary) and the happy-path pass-throughs. No frozen scenario discriminates the default binary from a
+def-composed one at spawn's own boundary — `--agent` is asserted through the composed command — so it
+is a known gap in the suite rather than an unrowed decision.
+
+### spawn opens a peer and registers it
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `N` the record and pane pointer | any spawn that opened a session | `spawn pre-registers the peer before the session actually launches` |
+| `N` the record and pane pointer | a spawn by a caller that has its own id | `spawn pre-registers the peer before the session actually launches` |
 | `J -- yes` refuse the primary | a --worktree-path resolving onto the primary checkout | `spawn refuses a --worktree-path that resolves onto the primary checkout` |
 | `N` brief by file, not by command | any spawn carrying a brief | `the resolved brief is written to the peer's brief file, not into the launch command` |
 | `B -- no` | a harness absent from the launch map | `an unmapped --harness errors without opening a worktree or session` |
