@@ -136,8 +136,17 @@ injects nothing* both assert `stdout is empty`. Walk either class down this grap
 stdout is not empty. Neither `Given` says a main pane is bound, or that a standing owner exists. The
 implementation already works around it — three fixtures bolt that state on with a comment saying so
 (`inject-inbox.test.ts`, `cli.e2e.test.ts`). Adding the missing clause would **narrow** a frozen
-scenario and fire Clearance, so it is disclosed here instead. Whoever re-opens these should fix the
-`Given`, not the test.
+scenario and fire Clearance, so it is disclosed here instead.
+
+It is sharper than under-determination: each is a **pairwise contradiction** with a nudge scenario.
+`a registered, active caller with an empty inbox injects nothing` crosses
+`an unbound root pane gets a Legion setup nudge`; `a SessionStart hook auto-registers a live-pane
+session that has no identity yet` crosses `a non-multiplexer root session with no standing owner gets
+the setup nudge`. Each pair shares the `When` and admits a snapshot satisfying both `Given`s — a
+registered root session, empty inbox, in a pane, no main pane bound — on which they demand opposite
+verdicts. The `Given`s cross on orthogonal axes (inbox-emptiness vs. pane-binding), so neither is a
+specialization of the other and there is no intended winner. Whoever re-opens these should fix the
+`Given`, not the test, and the counterpart it must stop contradicting is named above.
 
 **One scenario sits on the entry node, not an edge.** *only the dedicated mail hook command produces
 the injection payload* asserts what the installed harness config invokes — which this node's own

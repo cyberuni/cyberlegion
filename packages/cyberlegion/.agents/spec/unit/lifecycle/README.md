@@ -166,9 +166,10 @@ cleanly — the deterministic inverse pair:
   leaves stale context behind. Injection is best-effort like `nudge` (the harness owns the actual
   reset); `clear` asserts the command was sent, not that the context is provably empty.
 
-**Non-goals** — resolving an agent definition from `--agent`/`--agent-file` and composing its launch
-string (`agent/` — `spawn` accepts a composed `command`, it never builds one), the unit registry and
-self/peer discovery (`unit/registry`), backend selection and
+**Non-goals** — resolving an agent definition and realizing its launch string from `--agent`/
+`--agent-file` (`agent/` owns the def format, lookup and `realizeLaunch`; this node owns only the
+seam where the realized command reaches `unit spawn`, which its own `--agent` scenarios freeze), the
+unit registry and self/peer discovery (`unit/registry`), backend selection and
 placement (`mux/`), mail send/inbox/read/ack (`mail/`), thread correlation and the bounded `mail
 await`/`watch` (`mail/wait`), hook-based mail injection into a harness turn (`mail/surface`) —
 this node only owns the session lifecycle (spawn/close/focus/nudge/read/clear) and the worktree it
@@ -281,15 +282,21 @@ graph TD
 Grouped by use case; 1:1 with [`lifecycle.feature`](./lifecycle.feature). `any` in **Path** is a
 convergence claim — the outcome does not vary with the upstream branch.
 
-**One edge carries no row: `CL -- no`** — the launch is the harness's own default binary. No frozen
-scenario discriminates that from a def-composed launch at spawn's own boundary (`--agent` is asserted
-through the composed command), so it is a gap in the suite, closable additively without Clearance,
-rather than an unrowed decision. It is the only one.
+These edges carry no row. The list is open — read it as "at least these", and add to it rather than
+re-asserting completeness:
 
-Happy-path pass-throughs (`B -- yes`, `C -- yes`, `D -- no`, `F -- yes`, `J -- no`, `CB -- yes`,
-`CC -- no`, `CD -- yes`, `CG -- yes`, `PB -- yes`, `PC -- yes`, `O -- no`) carry no row of their own
-by design: each is a path prefix subsumed by a downstream row, which is what the `Path` column
-records. They are not gaps.
+- **`CL -- no`** — the launch is the harness's own default binary. No frozen scenario discriminates
+  that from a def-composed launch at spawn's own boundary (`--agent` is asserted through the composed
+  command). A gap in the suite, closable additively without Clearance.
+- **`CLH -- no`** — `unit spawn` with neither `--harness` nor an `--agent`/`--agent-file` that
+  resolves one. The throw is real (`cli-input.ts`) and nothing in the corpus covers it. A second gap,
+  also closable additively.
+- **`CLR -- no`** — a named def that does not resolve. Covered, but **not here**: `agent/` freezes the
+  unresolvable-name and missing-file errors. Co-owned, like the entry-node row in `mail/surface` —
+  recorded so it is not mistaken for a hole.
+
+Happy-path pass-throughs carry no row of their own by design: each is a path prefix subsumed by a
+downstream row, which is what the `Path` column records. They are not gaps.
 
 ### spawn opens a peer and registers it
 
