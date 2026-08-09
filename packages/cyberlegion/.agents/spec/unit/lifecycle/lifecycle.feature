@@ -17,6 +17,8 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And no --agent or --agent-file on that command line
     When unit spawn runs
     Then it throws naming both --harness and --agent/--agent-file as the two ways to resolve one
+    And no worktree is created
+    And no session is opened
     And no unit is registered
 
   Scenario: a spawn with no --agent launches the harness's own default command, unadorned
@@ -294,6 +296,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a caller running unit spawn --cwd pointed at a path that does not exist
     When unit spawn runs
     Then it throws that the --cwd directory must already exist
+    And no worktree is created
     And no session is opened
     And no unit is registered
 
@@ -301,6 +304,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a caller running unit spawn --cwd set to the primary checkout's own root
     When unit spawn runs
     Then it throws refusing to run a unit in the primary checkout
+    And no worktree is created
     And no session is opened
     And no unit is registered
 
@@ -308,6 +312,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a caller running unit spawn --cwd <dir> together with --worktree-path or --branch
     When unit spawn runs
     Then it throws that --cwd cannot combine with worktree-creating flags
+    And no worktree is created
     And no session is opened
     And no unit is registered
 
@@ -455,6 +460,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given no unit addressable under a given id
     When a caller runs unit close <id>
     Then it throws that no unit is addressable under that id
+    And no unit record or stored data is removed
 
   # ── Reaps only the targeted unit ──
 
@@ -659,8 +665,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given no unit addressable under a given ref
     When a caller runs unit clear <ref>
     Then it throws that no unit is addressable under that ref
+    And nothing is sent to that peer's pane
 
   Scenario: clear on a unit with no known session pane errors and sends nothing
     Given a registered unit with no known session pane
     When a caller runs unit clear <ref>
     Then it throws that the unit has no known session pane
+    And nothing is sent to that peer's pane

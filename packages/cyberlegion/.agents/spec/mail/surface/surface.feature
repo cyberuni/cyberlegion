@@ -13,6 +13,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Given a caller running mail hook --event PreToolUse
     When the hook runs
     Then it throws naming SessionStart and PostToolUse as the supported events
+    And no payload is emitted
 
   Scenario: a SessionStart hook call echoes SessionStart as the hook event name
     Given a registered caller with one unread message
@@ -36,7 +37,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
     And stdout is empty
     And the command exits 0
 
-  Scenario: a live-pane session with no identity is registered before its mail is surfaced
+  Scenario: a live-pane session with no identity auto-registers and injects nothing
     Given a session in a tmux pane with no identity registered yet
     And its environment carries the claude harness signal
     And that pane is bound as the hub's main pane

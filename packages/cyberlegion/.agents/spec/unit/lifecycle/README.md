@@ -129,7 +129,9 @@ cleanly — the deterministic inverse pair:
     throws asking for a brief; no worktree is created, no session is opened, and no unit is
     registered.
   - **What "before anything launches" does and does not cover.** Every refusal above guarantees the
-    same three absences — **no worktree, no session, no registry record** — and no more. The hub's
+    same three absences — **no worktree, no session, no registry record** — and no more. The suite
+    holds that at every one of the seven refusal edges, checked as a family rather than site by
+    site: two judge rounds running found this same gap at sites a per-site fix had missed. The hub's
     own marker directory (`ensureMarker`) is created *ahead of every guard*, so a blanket "nothing
     is created" would be false; the suite deliberately asserts the three artifacts rather than the
     blanket. Separately, **backend selection runs first and pre-empts both refusals**: outside tmux
@@ -149,14 +151,14 @@ cleanly — the deterministic inverse pair:
   - **Refuses the primary checkout even with --force** — a unit whose worktree root equals the
     primary checkout is refused; `--force` never overrides this refusal.
   - **Refuses a dirty worktree unless --force** — uncommitted changes in the worktree abort the
-    close and leave **all three** pieces of state behind — record, pane pointer, and stored brief —
-    which is what makes the close retryable; `--force` discards the changes and proceeds. A **clean**
+    close and leave the worktree and its uncommitted changes on disk, together with the record, the
+    pane pointer, and the stored brief — which is what makes the close retryable; `--force` discards the changes and proceeds. A **clean**
     worktree needs no `--force`.
   - **Completes the reap when the worktree or pane is already gone** — a worktree already absent from
     disk, or a pane the session backend can no longer find, is tolerated; the reap (record, pane
     index, stored data) still completes. When **no pane can be resolved at all** (the record carries
-    no locator and the pane index holds no entry), nothing is torn down, no pane-index entry is
-    removed, the reap still completes, and the result names no pane.
+    no locator and the pane index holds no entry for it), nothing is torn down, another unit’s
+    pane-index entry is left unchanged, the reap still completes, and the result names no pane.
   - **A genuine teardown failure aborts before any reap** — when worktree removal itself fails (not
     "already gone" but a real error), the command aborts, **before the pane teardown**, and leaves
     the record intact so the close is retryable, never leaving a half-reaped unit. The ordering is
@@ -579,7 +581,7 @@ column records. They are not gaps.
 | `CL4 -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
 | `CL3 -- no` worktree already gone | a unit whose worktree is no longer on disk | `close completes the reap when the worktree no longer exists on disk` |
 | `CL9` swallowed teardown failure | a unit whose pane the backend can no longer find | `close completes the reap when the session pane no longer exists` |
-| `CL7 -- no` → `CL8` | a unit with no pane locator and an empty pane index | `close reaps a unit no pane can be resolved for, tearing nothing down` |
+| `CL7 -- no` → `CL8` | a unit with no pane locator and a pane index holding another unit’s entry | `close reaps a unit no pane can be resolved for, tearing nothing down` |
 | `CL5 -- no` → `CL5X` | a worktree removal that genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
 | `CL1 -- no` | an id that resolves to no unit | `closing an unresolvable id errors` |
 | `CL10` reaps only the target | two registered units, one closed | `close leaves another unit's state untouched` |

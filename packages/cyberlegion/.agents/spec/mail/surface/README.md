@@ -192,7 +192,7 @@ established nothing else in the payload were narrowed so the absence they assert
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `D -- no` no pane to register from | no resolvable self id, in no mux pane | `a caller with no identity and in no multiplexer pane gets no output and no error` |
-| `E -- no` then `E2 -- yes` | in an addressable pane bound as the main pane, no identity yet | `a live-pane session with no identity is registered before its mail is surfaced` |
+| `E -- no` then `E2 -- yes` | in an addressable pane bound as the main pane, no identity yet | `a live-pane session with no identity auto-registers and injects nothing` |
 | `E -- yes` auto-register raises | in a mux pane, no identity, no detectable harness | `auto-register in the hook is best-effort and never fails the turn` |
 | `E2 -- no` id still unresolvable | in a wezterm pane, whose panes the registry cannot address | `a live pane the hub cannot address registers no reachable identity and injects nothing` |
 
@@ -204,7 +204,7 @@ established nothing else in the payload were narrowed so the absence they assert
 | `G1` subject segment omitted | the one unread message carries no subject | `a message with no subject renders without a subject segment` |
 | `G -- yes` unread-only filter | two messages addressed to the caller, one already acked | `an acked message of the caller's own no longer surfaces` |
 | `G1` read-only, never acks | one unread message, the hook called twice | `surfacing the caller's own mail never acks it` |
-| `H -- no` / `M -- no` no record | self id from the environment variable, never registered | `a caller whose id resolves without an agent record still gets its own mail` |
+| `H -- no` / `M -- no` no record | an agent id whose registry record was removed while its inbox was kept | `a caller whose id resolves without an agent record still gets its own mail` |
 
 ### Owner mail surfaces into the bound main pane, never into a spawned unit
 
