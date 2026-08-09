@@ -144,9 +144,12 @@ graph TD
 ## Scenario map
 
 Grouped by use case. Every scenario in [`surface.feature`](./surface.feature) has exactly one row;
-an edge carrying several rows is permutation coverage, each row a path class with a different
-outcome. `any` in **Path** would be a convergence claim — the outcome does not vary with the
-upstream branch — and no row currently makes one.
+an edge carrying several rows is permutation coverage. Such rows are justified by **discrimination**,
+not by differing outcomes — two rows may reach the same outcome by different routes and still both
+earn their place, because each kills a subject the other admits. The two `I -- no` rows are exactly
+that: both end in no owner-mail section, but the second kills a subject that routes a paneless caller
+into the no-main-pane fallback. `any` in **Path** is a convergence claim — the outcome does not vary
+with the upstream branch — and the fallback row makes one, leaving the caller's pane-ness unspecified.
 
 **The map is derived from the graph, not from the suite.** It was rebuilt by deriving the required
 `(path class, edge)` pairs from the implementation with the suite unseen, then diffing them against

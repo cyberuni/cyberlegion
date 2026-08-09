@@ -295,18 +295,21 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When unit spawn runs
     Then it throws that the --cwd directory must already exist
     And no session is opened
+    And no unit is registered
 
   Scenario: --cwd refuses the primary checkout, the same as a created worktree
     Given a caller running unit spawn --cwd set to the primary checkout's own root
     When unit spawn runs
     Then it throws refusing to run a unit in the primary checkout
     And no session is opened
+    And no unit is registered
 
   Scenario: --cwd is mutually exclusive with the worktree-creating flags
     Given a caller running unit spawn --cwd <dir> together with --worktree-path or --branch
     When unit spawn runs
     Then it throws that --cwd cannot combine with worktree-creating flags
     And no session is opened
+    And no unit is registered
 
   # ── spawn delivers the peer's first turn (a fresh paned session boots idle) ──
   # For a paned agent, payload-delivery (the brief file) and turn-delivery (a taken turn) are two
@@ -385,11 +388,16 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit close <id>
     Then it throws refusing the primary checkout
     And the unit's record still exists
+    And no worktree removal is attempted
+    And its session pane is not torn down
 
   Scenario: --force does not override the primary-checkout refusal
     Given a registered unit whose worktree root equals the primary checkout
     When a caller runs unit close <id> --force
     Then it still throws refusing the primary checkout
+    And the unit's record still exists
+    And no worktree removal is attempted
+    And its session pane is not torn down
 
   # ── Refuses a dirty worktree unless --force ──
 
@@ -397,6 +405,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a registered unit whose worktree has uncommitted changes
     When a caller runs unit close <id>
     Then it throws about uncommitted changes
+    And its worktree and its uncommitted changes are still on disk
     And the unit's record still exists
     And its pane pointer and stored brief still exist, so the close is retryable
 
@@ -421,10 +430,10 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
 
   Scenario: close reaps a unit no pane can be resolved for, tearing nothing down
     Given a registered unit whose record carries no pane locator
-    And an empty pane index
+    And a pane index holding an entry for a different unit
     When a caller runs unit close <id>
     Then no session pane teardown is attempted
-    And no pane index entry is removed
+    And that other unit's pane index entry is unchanged
     And the unit's record and stored data are gone
     And the result names no pane
 
