@@ -6,7 +6,7 @@
 
 import type { Harness } from '../identity.ts'
 import { LAUNCH_MAP } from '../session.ts'
-import type { AgentDef } from './resolve.ts'
+import { type AgentDef, resolveAgentDef } from './resolve.ts'
 
 const DEFAULT_HARNESS: Harness = 'claude'
 
@@ -39,4 +39,31 @@ export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): R
 	if (model) parts.push('--model', shellQuote(model))
 	if (def.instructions) parts.push('--append-system-prompt', shellQuote(def.instructions))
 	return { harness, command: parts.join(' ') }
+}
+
+/**
+ * Resolve what `unit spawn` should launch, from either an explicit `--harness` or an agent def
+ * (`--agent` / `--agent-file`) whose harness, model and instructions compose the launch command.
+ * An explicit `--harness` overrides the def's own.
+ *
+ * Extracted from the CLI action so the def→launch wiring is reachable from a test: composed inline
+ * it sat between two well-covered halves (`resolveAgentDef`, `realizeLaunch`) with nothing
+ * exercising the join between them.
+ */
+export function resolveSpawnLaunch(input: {
+	agent?: string
+	agentFile?: string
+	harness?: string
+	cwd?: string
+	searchRoots?: string[]
+}): { harness?: string; command?: string } {
+	if (!input.agent && !input.agentFile) return { harness: input.harness }
+	const def = resolveAgentDef({
+		name: input.agent,
+		file: input.agentFile,
+		...(input.cwd ? { cwd: input.cwd } : {}),
+		...(input.searchRoots ? { searchRoots: input.searchRoots } : {}),
+	})
+	const realized = realizeLaunch(def, { harness: input.harness as Harness | undefined })
+	return { harness: realized.harness, command: realized.command }
 }

@@ -6,12 +6,18 @@ import type { Store } from '../store/store.ts'
 export const DELIVERY_DOORBELL = 'You have unread mail — check your inbox.'
 
 /**
- * The first-turn doorbell `unit spawn` delivers to a freshly-opened paned peer. The peer's brief is
- * already injected into its context by its own SessionStart hook (never re-typed here — the ring
- * only makes the peer take a turn); this text points it at that loaded brief so it starts on its own
- * without a human nudge.
+ * The first-turn doorbell `unit spawn` delivers to a freshly-opened paned peer — the instruction
+ * itself, not a notification that context is already populated. It names the brief's **file path**
+ * and tells the peer to read it and begin, so pickup does not depend on a SessionStart hook firing
+ * in the child (superseding ADR-0027, which split payload-delivery from turn-delivery).
+ *
+ * The path is named, never the brief's body: the brief is still written to its file and still never
+ * typed into the pane, so a long brief costs one line here however large it is, and a re-submit on
+ * the boot race re-types this instruction rather than the payload.
  */
-export const SPAWN_DOORBELL = 'Your brief is loaded in context — read it and begin work.'
+export function spawnDoorbell(briefPath: string): string {
+	return `Read your brief at ${briefPath}, then begin work.`
+}
 
 /**
  * A freshly-launched harness cold-boots slower than an already-running peer, so the spawn first-turn
@@ -119,16 +125,19 @@ export async function wakeRecipient(
 export interface WakeSpawnInput {
 	/** The freshly-opened peer's session pane. */
 	target: MuxTarget
+	/** Where the peer's brief was written — named in the doorbell so the peer can go read it. The
+	 * path, never the brief's body. */
+	briefPath: string
 	/** Suppress the first-turn doorbell entirely (`unit spawn --no-wake`). */
 	noWake?: boolean
 }
 
 /**
- * Best-effort deliver a freshly-spawned paned peer's first turn so it acts on its already-loaded
- * brief with no human nudge. A paned agent boots to an idle prompt — its brief is injected into
- * context by its own SessionStart hook, but the model takes no turn on its own, unlike a subagent
- * (where the caller's Task call IS the turn). So `unit spawn` rings the `SPAWN_DOORBELL` over the
- * boot-race-aware `nudge` submit-verify path (a taken turn, never re-typing the brief), the same
+ * Best-effort deliver a freshly-spawned paned peer's first turn so it acts on its brief with no
+ * human nudge. A paned agent boots to an idle prompt — the brief sits unread on disk and the model
+ * takes no turn on its own, unlike a subagent (where the caller's Task call IS the turn). So `unit
+ * spawn` rings the instruction (`spawnDoorbell`, naming the brief's file path) over the
+ * boot-race-aware `nudge` submit-verify path (a taken turn, never typing the brief itself), the same
  * best-effort ring `wakeRecipient` gives `mail send`: the spawn (worktree, session, registry record)
  * is the guaranteed effect and the ring is opportunistic on top, so `--no-wake` rings nothing and a
  * ring that never completes within the retry budget is swallowed into a warning. This never throws —
@@ -146,7 +155,7 @@ export async function wakeSpawn(
 ): Promise<WakeResult> {
 	if (input.noWake) return { rung: false }
 	try {
-		await nudge(getAdapter(), exec, input.target, SPAWN_DOORBELL, nudgeOpts)
+		await nudge(getAdapter(), exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts)
 		return { rung: true, pane: input.target.id }
 	} catch (err) {
 		return { rung: false, pane: input.target.id, warning: err instanceof Error ? err.message : String(err) }

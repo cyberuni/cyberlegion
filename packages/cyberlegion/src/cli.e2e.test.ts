@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { FileStore } from './store/file-store.ts'
 
 // Exercises the actual built CLI entrypoint (bin → dist/cli.mjs) end-to-end, over an isolated
 // --space hub root per test so runs never collide with a real global hub.
@@ -30,7 +31,22 @@ const MUX_ENV_KEYS = [
 function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 	const merged = { ...process.env, ...env }
 	for (const k of MUX_ENV_KEYS) if (!(k in env)) delete merged[k]
+	// An explicit `undefined` REMOVES the key rather than blanking it. `detectHarness` tests key
+	// PRESENCE for the cursor/codex families (`Object.keys(env).some(k => k.startsWith('CODEX'))`),
+	// so setting one to '' still detects a harness — only deletion clears the signal.
+	for (const [k, v] of Object.entries(env)) if (v === undefined) delete merged[k]
 	return merged
+}
+
+/** The caller's env with every harness signal `detectHarness` reads removed, so `register` cannot
+ * detect one. This suite may itself run under a harness, so the keys are read off the live env
+ * rather than hardcoded. */
+function withoutHarnessSignals(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+	const cleared: NodeJS.ProcessEnv = { ...env, CLAUDECODE: undefined, CLAUDE_CODE_ENTRYPOINT: undefined }
+	for (const k of Object.keys(process.env)) {
+		if (k.startsWith('CURSOR') || k.startsWith('CODEX')) cleared[k] = undefined
+	}
+	return cleared
 }
 
 /** Run the CLI against a given --space hub root. */
@@ -47,13 +63,23 @@ function legion(args: string[], env: NodeJS.ProcessEnv = {}): string {
 	return legionAt(space, args, env)
 }
 
-/** Like `legion` but also returns stderr (for warning/next-step assertions). */
-function legionOut(args: string[], env: NodeJS.ProcessEnv = {}): { stdout: string; stderr: string } {
+/** Like `legion` but also returns stderr and the exit status (for warning/next-step/exit assertions).
+ * `execFileSync` throws on a non-zero exit, so it can witness "exits 0" only by not throwing —
+ * which says nothing when the command is EXPECTED to produce output either way. `status` is the
+ * only direct observation of the clause the hook scenarios freeze. */
+function legionOut(
+	args: string[],
+	env: NodeJS.ProcessEnv = {},
+): {
+	stdout: string
+	stderr: string
+	status: number | null
+} {
 	const res = spawnSync('node', [BIN, ...args, '--space', space], {
 		encoding: 'utf8',
 		env: baseEnv(env),
 	})
-	return { stdout: res.stdout, stderr: res.stderr }
+	return { stdout: res.stdout, stderr: res.stderr, status: res.status }
 }
 
 describe('spec:cyberlegion/unit', () => {
@@ -305,9 +331,9 @@ describe('spec:cyberlegion/unit', () => {
 		})
 	})
 
-	// spec: focus, nudge, read: error cases (unresolvable ref, no live pane) — resolveTarget (cli.ts)
+	// spec: focus, nudge, read: error cases (unresolvable ref, no live pane) — paneTargetOf (session.ts)
 	// guards both before any command touches the session adapter, so nothing is focused/delivered/
-	// scraped on either error. These tests never reach a real session adapter, since resolveTarget
+	// scraped on either error. These tests never reach a real session adapter, since paneTargetOf
 	// throws first — proving the guard runs before any adapter call.
 	describe('focus, nudge, read: error cases', () => {
 		it('focus on an unresolvable ref errors and focuses nothing', () => {
@@ -319,7 +345,7 @@ describe('spec:cyberlegion/unit', () => {
 
 		it('focus on a unit with no known session pane errors and focuses nothing', () => {
 			// Registering with no mux env in the child process (baseEnv strips TMUX/HERDR_*) yields a
-			// unit with pane: null — a registered id that resolveTarget still cannot address.
+			// unit with pane: null — a registered id that paneTargetOf still cannot address.
 			const rec = JSON.parse(
 				legion(['unit', 'register', '--harness', 'claude', '--handle', 'nopane', '--format', 'json']),
 			)
@@ -373,6 +399,59 @@ describe('spec:cyberlegion/unit', () => {
 			expect(stderr).toContain('ghost')
 		})
 	})
+})
+
+// `--task -` reads the brief from the CALLER'S OWN STDIN. In-process that reader is always
+// injected (`resolveBrief(input, () => 'stdin brief')`), which proves only that a supplied reader is
+// called — the default `() => readFileSync(0, 'utf8')` was reachable from no test at all, so
+// replacing it with a constant left the suite green while every piped brief was silently discarded.
+// A real child process is the only place process stdin exists, so this drives the built CLI through
+// a whole spawn: a real git repo, a real worktree, a stub multiplexer, and text on stdin.
+describe('spec:cyberlegion/unit/lifecycle — --task - reads the brief from stdin', () => {
+	const PIPED = 'seal the north greenhouse vents'
+
+	/** A throwaway git repo (spawn resolves its primary checkout with real git) plus a `tmux` stub on
+	 * PATH answering the two calls an open makes. The repo sits INSIDE a container dir so the
+	 * worktree spawn checks out beside it lands there too. */
+	function spawnFixture(): { repo: string; binDir: string } {
+		const container = mkdtempSync(join(tmpdir(), 'cl-stdin-'))
+		const repo = join(container, 'repo')
+		mkdirSync(repo, { recursive: true })
+		const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
+		git('init', '-q', '.')
+		git('config', 'user.email', 'unit@cyberlegion.test')
+		git('config', 'user.name', 'cyberlegion test')
+		git('commit', '-q', '--allow-empty', '-m', 'init')
+		const binDir = join(container, 'bin')
+		mkdirSync(binDir, { recursive: true })
+		// tmux's `open` asks for `#{pane_id}\t#{window_id}`; everything else is a no-op success.
+		writeFileSync(
+			join(binDir, 'tmux'),
+			'#!/bin/sh\ncase "$1" in\n  new-window|split-window) printf \'%%9\\t@1\\n\' ;;\n  *) : ;;\nesac\nexit 0\n',
+			{ mode: 0o755 },
+		)
+		return { repo, binDir }
+	}
+
+	it("pipes stdin into the peer's brief file", () => {
+		const { repo, binDir } = spawnFixture()
+		const out = execFileSync(
+			'node',
+			[BIN, 'unit', 'spawn', '--harness', 'claude', '--task', '-', '--no-wake', '--format', 'json', '--space', space],
+			{
+				encoding: 'utf8',
+				cwd: repo,
+				input: PIPED, // the brief arrives ONLY on stdin — no --task text, no --brief-file
+				env: { ...baseEnv({ CYBER_MUX: 'tmux' }), PATH: `${binDir}:${process.env.PATH ?? ''}` },
+			},
+		)
+		const res = JSON.parse(out)
+		// The brief the peer will be pointed at holds exactly what was piped in — read back off disk
+		// through the store, so a reader that returned a constant, an empty string, or the flag's own
+		// '-' is visible as the file's contents rather than only as a return value.
+		expect(new FileStore(space).readBrief(res.agent.id)).toBe(PIPED)
+		expect(readFileSync(res.agent.brief, 'utf8')).toBe(PIPED)
+	}, 20_000)
 })
 
 describe('mail group', () => {
@@ -432,15 +511,168 @@ describe('mail group', () => {
 		expect(out).toContain('0 messages (0 unread)')
 	})
 
-	it('mail hook emits raw JSON (not TOON) on stdout', () => {
+	it('mail hook emits the hookSpecificOutput shape as raw JSON on stdout, not TOON', () => {
+		// A payload-BEARING caller: the shape can only be asserted when there is something to inject.
+		// The sibling test below covers the empty case, and asserting stdout is empty says nothing
+		// about serialization — which is how this scenario read as covered while unbound.
+		legion(['unit', 'register', '--standing', '--handle', 'homa'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'])
+		const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+		const aliceId = who.find((a: { handle: string }) => a.handle === 'alice').id
+		const bobId = who.find((a: { handle: string }) => a.handle === 'bob').id
+		legion(['mail', 'send', '--from', bobId, '--to', 'alice', '--body', 'ping', '--no-nudge'])
+
+		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
+		const parsed = JSON.parse(out) // raw JSON, parseable — a TOON payload throws here
+		expect(parsed.hookSpecificOutput.hookEventName).toBe('SessionStart')
+		expect(parsed.hookSpecificOutput.additionalContext).toContain('ping')
+	})
+
+	it('mail hook preserves a legacy spawning status on the record it round-trips', () => {
+		// The frozen When is "it runs mail hook" — and the COMMAND does more than injectInbox: it
+		// touches the caller first, which loads, mutates and re-saves the record. That write is the
+		// one place a status could be normalized, and calling injectInbox directly never reaches it.
+		legion(['unit', 'register', '--standing', '--handle', 'homa'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'])
+		const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+		const aliceId = who.find((a: { handle: string }) => a.handle === 'alice').id
+		const bobId = who.find((a: { handle: string }) => a.handle === 'bob').id
+		legion(['mail', 'send', '--from', bobId, '--to', 'alice', '--body', 'ping', '--no-nudge'])
+
+		// plant the retired status an older hub would have written, then run the real command
+		const store = new FileStore(space)
+		const rec = store.getAgent(aliceId)
+		if (!rec) throw new Error('fixture: alice not registered')
+		store.putAgent({ ...rec, status: 'spawning' })
+
+		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
+		expect(JSON.parse(out).hookSpecificOutput.additionalContext).toContain('ping')
+		expect(new FileStore(space).getAgent(aliceId)?.status).toBe('spawning') // preserved verbatim
+	})
+
+	it('mail hook exits 0 for an unregistered caller with no identity and no pane', () => {
+		// The "exits 0" clause of the three unregistered-caller scenarios. Bound in-process they
+		// assert injectInbox returns null, which observes no exit code at all — the command could
+		// exit non-zero and fail the harness turn with the suite green. Only a real process shows it.
+		const res = spawnSync('node', [BIN, 'mail', 'hook', '--event', 'SessionStart', '--space', space], {
+			encoding: 'utf8',
+			env: baseEnv({}),
+		})
+		expect(res.status).toBe(0) // never fails the harness turn
+		expect(res.stdout.trim()).toBe('')
+	})
+
+	// ── The "exits 0" clause the in-process bindings cannot see ──────────────────────────────────
+	//
+	// Every hook scenario below ends with "the command exits 0" — the whole point of the hook's
+	// defensive catches is that a hub-read failure never fails the harness turn. `injectInbox`
+	// returns a payload in-process and observes NO exit code at all, so a `process.exitCode` set
+	// inside any of those catches (or on the way out of the command) fails every real harness turn
+	// with the suite green. Only a real process shows it.
+	describe('mail hook exits 0 on every degraded path', () => {
+		/** A registered caller in no multiplexer pane, holding one unread message. Returns its id. */
+		function callerWithMail(handle: string, id: string): string {
+			legion(['unit', 'register', '--harness', 'claude', '--handle', handle], { CYBERLEGION_AGENT_ID: id })
+			legion(['unit', 'register', '--harness', 'claude', '--handle', `${handle}-sender`])
+			const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+			const senderId = who.find((a: { handle: string }) => a.handle === `${handle}-sender`).id
+			legion(['mail', 'send', '--from', senderId, '--to', handle, '--body', `${handle} own message`, '--no-nudge'])
+			return senderId
+		}
+
+		it('a PostToolUse call emits parseable JSON echoing PostToolUse, and exits 0', () => {
+			// No process-level test ever ran --event PostToolUse: the in-process binding proves the
+			// payload object echoes the event, never that the COMMAND serializes and prints it. A
+			// `console.log` reached only on the SessionStart branch is invisible to that binding.
+			callerWithMail('alice', 'alice1')
+			const res = legionOut(['mail', 'hook', '--event', 'PostToolUse'], { CYBERLEGION_AGENT_ID: 'alice1' })
+			expect(res.status).toBe(0)
+			const parsed = JSON.parse(res.stdout) // raw JSON on stdout — a TOON payload throws here
+			expect(parsed.hookSpecificOutput.hookEventName).toBe('PostToolUse')
+			expect(parsed.hookSpecificOutput.additionalContext).toContain('alice own message')
+		})
+
+		it('no standing owner means no owner-mail section, and the command exits 0', () => {
+			callerWithMail('alice', 'alice1') // a registry of non-standing records only
+			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: 'alice1' })
+			expect(res.status).toBe(0)
+			expect(res.stdout).toContain('alice own message')
+			expect(res.stdout).not.toContain('Owner mail')
+		})
+
+		it('a failing main-pane lookup drops the owner-mail section, keeps own mail, and exits 0', () => {
+			callerWithMail('alice', 'alice1')
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'owner report', '--no-nudge'])
+			// The main-pane pointer is a FILE; a directory in its place makes the read throw for real,
+			// inside the running command, rather than through an injected fake the CLI never sees.
+			mkdirSync(join(space, 'main-pane.id'), { recursive: true })
+			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: 'alice1' })
+			expect(res.status).toBe(0) // the harness turn is never failed
+			expect(res.stdout).toContain('alice own message') // ...and the caller's own mail survives
+			expect(res.stdout).not.toContain('Owner mail')
+			expect(res.stdout).not.toContain('owner report')
+		})
+
+		it('a failing registry read drops the setup nudge, keeps own mail, and exits 0', () => {
+			callerWithMail('alice', 'alice1')
+			// No standing owner and no pane, so this caller WOULD be nudged — the failure is what
+			// removes it. A junk record file makes the registry listing throw inside the command.
+			writeFileSync(join(space, 'agents', 'broken.json'), '{ not json')
+			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: 'alice1' })
+			expect(res.status).toBe(0)
+			expect(res.stdout).toContain('alice own message')
+			expect(res.stdout).not.toContain('Legion setup')
+		})
+
+		// The two auto-register arms are the degraded paths this block missed. Both frozen scenarios
+		// end in "And the command exits 0", and both clauses were unbound: a `process.exitCode = 1`
+		// on the successful auto-register path, or inside its best-effort catch, left the whole suite
+		// green while every hook call from a real live pane failed the harness turn. The in-process
+		// bindings assert `injectInbox(...)` returns null and observe no exit code at all.
+		it('a live-pane session with no identity auto-registers and still exits 0', () => {
+			// The frozen Given puts this pane in as the bound main pane, which is what silences the
+			// setup nudge and makes "stdout is empty" a determined outcome rather than an accident.
+			mkdirSync(space, { recursive: true })
+			writeFileSync(join(space, 'main-pane.id'), 'herdr-pane-e2e-1')
+			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], {
+				HERDR_ENV: '1',
+				HERDR_PANE_ID: 'herdr-pane-e2e-1',
+				CLAUDECODE: '1', // a detectable harness, so `register` succeeds rather than throwing
+			})
+			expect(res.status).toBe(0)
+			expect(res.stdout).toBe('') // nothing to surface: the fresh identity has no mail
+			const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+			expect(who).toHaveLength(1) // ...and the auto-register actually happened
+		})
+
+		it('auto-register that cannot detect a harness still exits 0', () => {
+			// Every harness signal is removed, so `register` throws inside the hook's own catch and
+			// the command bails before any section is built.
+			const res = legionOut(
+				['mail', 'hook', '--event', 'SessionStart'],
+				withoutHarnessSignals({ HERDR_ENV: '1', HERDR_PANE_ID: 'herdr-pane-e2e-2' }),
+			)
+			expect(res.status).toBe(0) // the turn survives the failed registration
+			expect(res.stdout).toBe('')
+			const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+			expect(who).toHaveLength(0) // the failed register left nothing behind
+		})
+	})
+
+	it('mail hook injects nothing for a registered caller with an empty inbox', () => {
 		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
-		// isolating this test to the no-brief/no-unread-mail precondition it targets.
+		// isolating this test to the empty-inbox precondition it targets. NOTE: this covers the
+		// "injects nothing" scenario only. The raw-JSON/not-TOON payload SHAPE is a different
+		// scenario and is not asserted here — the old title claimed it and the body never checked it.
 		legion(['unit', 'register', '--standing', '--handle', 'homa'])
 		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
 		const who = JSON.parse(legion(['unit', 'who', '--format', 'json']))
 		const aliceId = who.find((a: { handle: string }) => a.handle === 'alice').id
 		const out = legion(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: aliceId })
-		expect(out.trim()).toBe('') // no brief, no unread mail — nothing injected, still exit 0
+		expect(out.trim()).toBe('') // empty inbox — nothing injected, still exit 0
 	})
 })
 

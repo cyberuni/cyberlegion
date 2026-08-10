@@ -7,7 +7,7 @@ import type { Exec } from '../identity.ts'
 import { claimPresence, registerStanding, saveAgent } from '../identity.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
-import { DELIVERY_DOORBELL, SPAWN_DOORBELL, wakeRecipient, wakeSpawn } from './doorbell.ts'
+import { DELIVERY_DOORBELL, spawnDoorbell, wakeRecipient, wakeSpawn } from './doorbell.ts'
 
 // spec: mail/doorbell/doorbell.feature — one test per frozen scenario, unit-level with a fake
 // MuxAdapter (mirrors cyber-mux's own nudge.test.ts fakeAdapter: reads queue + submit spy, text vs
@@ -355,22 +355,78 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 // spec: unit/lifecycle/lifecycle.feature — spawn delivers the peer's first turn. wakeSpawn is the
 // best-effort first-turn ring the `unit spawn` command runs against the freshly-opened pane, the
 // spawn-side counterpart to wakeRecipient. Same fake-adapter harness; fast via injected nudge opts.
+// The brief lives at a path; the doorbell names that path and never carries the brief's body.
+const BRIEF_PATH = '/hub/agents/ab12cd/brief.md'
+const SPAWN_DOORBELL = spawnDoorbell(BRIEF_PATH)
 const SPAWN_STAGED = `> ${SPAWN_DOORBELL.slice(0, 45)}`
 const SPAWN_SCROLLED_OUT = [SPAWN_DOORBELL, 'boot line 1', 'boot line 2', 'boot line 3', 'boot line 4', '> '].join('\n')
 
 describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 	it('spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief', async () => {
 		const { adapter, sendCalls } = fakeAdapter([SPAWN_SCROLLED_OUT])
-		const result = await wakeSpawn(() => adapter, exec, { target: { id: '%1' } }, { sleep: async () => {} })
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH },
+			{ sleep: async () => {} },
+		)
 		expect(result.rung).toBe(true)
 		expect(result.pane).toBe('%1')
-		// the doorbell wakes the peer to act on its loaded brief; the brief itself is never re-typed here
-		expect(sendCalls).toEqual([SPAWN_DOORBELL])
+		expect(sendCalls).toHaveLength(1)
+		const doorbell = sendCalls[0]
+		// The doorbell INSTRUCTS the peer to read the brief at its file path and begin. Asserted
+		// against an independent shape, never against `spawnDoorbell`'s own output: deriving the
+		// expected value from the subject makes the check a tautology, and the pre-CR content-free
+		// wake ("your brief is loaded in context — read it and begin work") passes such a check with
+		// the path merely appended, which is the exact text this contract exists to replace.
+		expect(/\bread(?:ing|s)?\b/i.test(doorbell)).toBe(true)
+		expect(/\bbrief\b/i.test(doorbell)).toBe(true)
+		expect(/\bbegin\b/i.test(doorbell)).toBe(true)
+		expect(/\b(?:do not|don'?t|never|not)\s+begin\b/i.test(doorbell)).toBe(false)
+		// nor defers it — "then stand by until told to begin" reads and then idles
+		expect(
+			/\b(?:stand\s*by|standby|hold\s+off|hold\s+on|wait|await|pause)\b/i.test(doorbell) ||
+				/\bbegin\b[^.!?]*\b(?:once|when|after|until|unless|before)\b/i.test(doorbell),
+		).toBe(false)
+		// ...and the path is named AS THE BRIEF'S LOCATION. Without this, the keywords alone are
+		// satisfied by the pre-CR content-free wake ("your brief is loaded in context — read it and
+		// begin work") with the path merely appended — the exact text this contract replaces.
+		const located = [...doorbell.matchAll(/\b(?:at|in|from|under)\s+(\S+?)[.,;:!?]?(?=\s|$)/gi)].map((m) => m[1])
+		expect(located).toContain(BRIEF_PATH)
+		// ...naming that path. That it never carries the brief's BODY cannot be asserted here —
+		// wakeSpawn is never handed the body — so that half is bound in session.test.ts, against a
+		// real spawn where the body exists to leak.
+		expect(doorbell).toContain(BRIEF_PATH)
 	})
+
+	it('the first-turn ring carries a wider retry budget than a plain nudge, by default', async () => {
+		// Every other test here injects its own nudgeOpts, which REPLACE the default parameter — so
+		// the shipped budget was never exercised and could be narrowed to a single attempt green.
+		// Drive it with NO opts and count the re-submits it is willing to make.
+		let reads = 0
+		const adapter = {
+			...fakeAdapter([]).adapter,
+			paneExists: () => true,
+			submit: () => {},
+			read: () => {
+				reads++
+				return `> ${spawnDoorbell(BRIEF_PATH).slice(0, 45)}` // stays staged forever
+			},
+		} as unknown as MuxAdapter
+		const result = await wakeSpawn(() => adapter, exec, { target: { id: '%1' }, briefPath: BRIEF_PATH })
+		expect(result.rung).toBe(false) // exhausts and warns, never throws
+		// nudge's own default is 10 attempts; a cold harness boot is given materially more
+		expect(reads).toBeGreaterThan(11)
+	}, 20_000)
 
 	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {
 		const { adapter, sendCalls, submitCalls } = fakeAdapter([SPAWN_STAGED, SPAWN_SCROLLED_OUT])
-		const result = await wakeSpawn(() => adapter, exec, { target: { id: '%1' } }, { sleep: async () => {} })
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH },
+			{ sleep: async () => {} },
+		)
 		expect(result.rung).toBe(true)
 		expect(submitCalls.length).toBeGreaterThan(0) // flushed the staged buffer
 		expect(sendCalls).toEqual([SPAWN_DOORBELL]) // delivered exactly once — nudge never re-types
@@ -381,7 +437,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		const result = await wakeSpawn(
 			() => adapter,
 			exec,
-			{ target: { id: '%1' } },
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH },
 			{ attempts: 2, sleep: async () => {} },
 		)
 		expect(result.rung).toBe(false)
@@ -395,7 +451,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 				throw new Error('no mux backend')
 			},
 			exec,
-			{ target: { id: '%1' } },
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH },
 			{ sleep: async () => {} },
 		)
 		expect(result.rung).toBe(false)
@@ -407,7 +463,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		const result = await wakeSpawn(
 			() => adapter,
 			exec,
-			{ target: { id: '%1' }, noWake: true },
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH, noWake: true },
 			{ sleep: async () => {} },
 		)
 		expect(result.rung).toBe(false)

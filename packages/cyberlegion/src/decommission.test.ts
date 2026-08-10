@@ -81,7 +81,23 @@ describe('teardown worktree + session', () => {
 		const { exec, calls } = makeExec()
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'a1' })
 		expect(calls.worktreeRemove[0]).toEqual(expect.arrayContaining(['-C', primaryRoot, 'worktree', 'remove']))
+		// ...and it removes THIS unit's worktree. `arrayContaining` ignores the path argument, so a
+		// remove aimed at the parent directory — which holds every sibling unit's worktree — passes it.
+		expect(calls.worktreeRemove[0]).toContain(worktreeRoot)
 		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
+	})
+
+	it('completes the reap when the session pane no longer exists', () => {
+		// A pane already gone makes teardown throw. The reap must still complete — otherwise a unit
+		// whose pane died first can never be closed, and its record is stranded forever.
+		registerUnit({ id: 'gone1' })
+		const { exec: base } = makeExec()
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'tmux' && args[0] === 'kill-pane') throw new Error("can't find pane %9")
+			return base(cmd, args)
+		}
+		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'gone1' })).not.toThrow()
+		expect(store.getAgent('gone1')).toBeUndefined() // reaped regardless
 	})
 
 	it('tears down through the tmux adapter when $TMUX is set', () => {
@@ -112,12 +128,16 @@ describe('teardown worktree + session', () => {
 
 describe('close on a --cwd unit removes no worktree', () => {
 	it('tears down the session pane and reaps the record without touching a worktree', () => {
-		registerUnit({ id: 'cwd1', worktree: null })
+		// The caller SUPPLIED this directory; close never created it, so close must never remove it.
+		const suppliedDir = join(worktreeRoot, '..', 'caller-supplied')
+		mkdirSync(suppliedDir, { recursive: true })
+		registerUnit({ id: 'cwd1', worktree: null, cwd: suppliedDir })
 		writePaneFile('%9', 'cwd1')
 		writeData('cwd1')
 		const { exec, calls } = makeExec()
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'cwd1' })
 		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(existsSync(suppliedDir)).toBe(true)
 		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
 		expect(store.getAgent('cwd1')).toBeUndefined()
 		expect(store.resolvePaneId('%9')).toBeUndefined()
@@ -154,9 +174,38 @@ describe('reap the record', () => {
 		const { exec } = makeExec()
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'b2' })
 
+		// The frozen Then is a conjunction — a's state is GONE and b's is unchanged. Without the
+		// first half, a close that skipped the whole reap whenever a sibling was registered (the
+		// most natural way to write "leave the other unit alone") satisfies every clause below.
+		expect(store.getAgent('b2')).toBeUndefined()
+		expect(store.resolvePaneId('%9')).toBeUndefined()
+		expect(store.readBrief('b2')).toBeUndefined()
+
 		expect(store.getAgent('other')).toBeDefined()
 		expect(store.resolvePaneId('%8')).toBe('other')
 		expect(store.readBrief('other')).toBe('brief')
+	})
+})
+
+describe('a unit no pane can be resolved for', () => {
+	it('reaps it, tearing nothing down and touching no other unit pane pointer', () => {
+		// No pane on the record and no index entry of its own. The index is NOT empty — it holds
+		// another unit's live pane — so a reverse lookup that matched the first entry it found, or a
+		// reap that cleared the whole index, is visible here rather than passing against an empty dir.
+		registerUnit({ id: 'nopane1', pane: null })
+		writeData('nopane1')
+		registerUnit({ id: 'neighbor', pane: { mux: 'tmux', id: '%8' } })
+		writePaneFile('%8', 'neighbor')
+
+		const { exec, calls } = makeExec()
+		const res = decommission({ store, env: { TMUX: 't' }, exec }, { id: 'nopane1' })
+
+		expect(calls.tmuxKill).toHaveLength(0) // no pane resolved ⇒ no teardown attempted
+		expect(calls.herdrClose).toHaveLength(0)
+		expect(res.pane).toBeUndefined() // ...and the result names no pane
+		expect(store.resolvePaneId('%8')).toBe('neighbor') // the neighbor's pointer is untouched
+		expect(store.getAgent('nopane1')).toBeUndefined() // ...while the reap still completed
+		expect(store.readBrief('nopane1')).toBeUndefined()
 	})
 })
 
@@ -167,24 +216,39 @@ describe('refusing the primary checkout', () => {
 		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'c1' })).toThrow(/primary checkout/)
 		expect(store.getAgent('c1')).toBeDefined()
 		expect(calls.worktreeRemove).toHaveLength(0)
+		// ...and its LIVE session pane is left running. The refusal protects the checkout; killing the
+		// pane on the way out would still destroy the session the operator is sitting in.
+		expect(calls.tmuxKill).toHaveLength(0)
 	})
 
 	it('--force does not override the refusal', () => {
 		registerUnit({ id: 'c2', worktree: { root: primaryRoot } })
-		const { exec } = makeExec()
+		const { exec, calls } = makeExec()
 		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'c2', force: true })).toThrow(
 			/primary checkout/,
 		)
 		expect(store.getAgent('c2')).toBeDefined()
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(calls.tmuxKill).toHaveLength(0)
 	})
 })
 
 describe('dirty-worktree refusal', () => {
-	it('refuses a unit with uncommitted changes, reaping nothing', () => {
+	it('refuses a unit with uncommitted changes, leaving the close retryable', () => {
 		registerUnit({ id: 'd1' })
-		const { exec } = makeExec({ dirty: true })
+		writePaneFile('%9', 'd1')
+		writeData('d1')
+		const { exec, calls } = makeExec({ dirty: true })
 		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'd1' })).toThrow(/uncommitted/)
 		expect(store.getAgent('d1')).toBeDefined()
+		// the uncommitted work itself is still on disk — the refusal exists to protect it
+		expect(existsSync(worktreeRoot)).toBe(true)
+		expect(calls.worktreeRemove).toHaveLength(0)
+		// ...and every piece the retry needs survives: a half-reap that dropped the pane pointer or
+		// the brief would leave `unit close <id>` unable to finish the job on a second run
+		expect(store.resolvePaneId('%9')).toBe('d1')
+		expect(store.readBrief('d1')).toBe('brief')
+		expect(calls.tmuxKill).toHaveLength(0)
 	})
 
 	it('with --force tears down a dirty worktree and reaps the record', () => {
@@ -192,6 +256,7 @@ describe('dirty-worktree refusal', () => {
 		const { exec, calls } = makeExec({ dirty: true })
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'd2', force: true })
 		expect(calls.worktreeRemove).toHaveLength(1)
+		expect(calls.worktreeRemove[0]).toContain(worktreeRoot) // this unit's worktree, not a parent
 		expect(store.getAgent('d2')).toBeUndefined()
 	})
 })
@@ -201,6 +266,21 @@ describe('unknown id', () => {
 		const { exec } = makeExec()
 		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'ghost' })).toThrow(/no unit registered/)
 		expect(existsSync(store.root)).toBe(false)
+	})
+
+	it("leaves another registered unit's record, pane pointer and data untouched", () => {
+		// An empty hub cannot tell "reaped nothing" apart from "had nothing to reap". One bystander
+		// unit makes the absence of collateral damage observable.
+		registerUnit({ id: 'bystander' })
+		writePaneFile('%9', 'bystander')
+		writeData('bystander')
+		const { exec, calls } = makeExec()
+		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'ghost' })).toThrow(/no unit registered/)
+		expect(store.getAgent('bystander')).toBeDefined()
+		expect(store.resolvePaneId('%9')).toBe('bystander')
+		expect(store.readBrief('bystander')).toBe('brief')
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(calls.tmuxKill).toHaveLength(0)
 	})
 })
 
@@ -215,12 +295,23 @@ describe('idempotent reap (already-gone is tolerated)', () => {
 		expect(store.readBrief('e1')).toBeUndefined()
 	})
 
-	it('completes the reap when the pane no longer exists', () => {
-		registerUnit({ id: 'e2' })
+	it('completes the reap when the herdr backend refuses the teardown', () => {
+		// This case used to hand `tmuxKillPane: () => null` and call it a backend failure. cyber-mux
+		// ignores `exec`'s return value on teardown, so nothing failed — the fixture drove an ordinary
+		// successful reap already covered above, and the tolerance it claimed to test was unbound on
+		// this route. A THROWING backend is the real failure, and herdr is the adapter the tmux case
+		// higher up never reaches.
+		registerUnit({ id: 'e2', pane: null })
+		writePaneFile('herdr-pane-9', 'e2')
 		writeData('e2')
-		const { exec } = makeExec({ tmuxKillPane: () => null }) // simulates the backend reporting failure
-		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'e2' })
+		const { exec: base } = makeExec()
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'herdr' && args[0] === 'pane' && args[1] === 'close') throw new Error('no such pane herdr-pane-9')
+			return base(cmd, args)
+		}
+		expect(() => decommission({ store, env: { HERDR_ENV: '1' }, exec }, { id: 'e2' })).not.toThrow()
 		expect(store.getAgent('e2')).toBeUndefined()
+		expect(store.resolvePaneId('herdr-pane-9')).toBeUndefined()
 		expect(store.readBrief('e2')).toBeUndefined()
 	})
 })
@@ -229,9 +320,12 @@ describe('teardown precedes reap — a genuine failure is not tolerated', () => 
 	it('aborts without reaping when worktree removal genuinely fails', () => {
 		registerUnit({ id: 'f1' })
 		writeData('f1')
-		const { exec } = makeExec({ worktreeRemove: () => null }) // exec reports a real failure
+		const { exec, calls } = makeExec({ worktreeRemove: () => null }) // exec reports a real failure
 		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'f1' })).toThrow(/aborted|removal failed/)
 		expect(store.getAgent('f1')).toBeDefined()
 		expect(store.readBrief('f1')).toBe('brief')
+		// The contract is the ORDERING, not the throw: an implementation that tore the pane down and
+		// only then threw satisfies every assertion above while destroying what the retry needs.
+		expect(calls.tmuxKill).toHaveLength(0)
 	})
 })

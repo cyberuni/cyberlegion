@@ -17,7 +17,10 @@ export interface Message {
 }
 
 export type Harness = 'claude' | 'cursor' | 'codex'
-type AgentStatus = 'spawning' | 'active' | 'idle' | 'stale' | 'exited' | 'paused'
+/** The statuses this version writes. `spawning` is retired: spawn registers a peer `active`
+ * outright, since nothing flips it any more (the SessionStart hook injects no brief and mutates no
+ * status — see `mail/surface`). */
+type AgentStatus = 'active' | 'idle' | 'stale' | 'exited' | 'paused'
 
 export interface AgentRecord {
 	id: string
@@ -30,7 +33,19 @@ export interface AgentRecord {
 	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
 	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null
 	pid?: number
-	status: AgentStatus
+	/** A record migrated from an older hub (`admin migrate`) may carry a status this version no
+	 * longer writes — the retired `spawning` is the known case. **Reads preserve it verbatim**: no
+	 * read path validates, coerces, or normalizes a status, and none may start doing so
+	 * (`mail/surface` freezes that a legacy `spawning` record keeps the status it was migrated with).
+	 * A write that merely round-trips a record preserves it too.
+	 *
+	 * The exceptions are deliberate lifecycle writes, not normalizations: `register` asserts a session
+	 * is live *now* and so writes `active`, while `prune`/`reconcile` write `exited` over whatever a
+	 * record carried (`identity.ts`). A legacy record therefore does move off `spawning` — by an
+	 * explicit lifecycle act, never by being read.
+	 *
+	 * The open member keeps the guarantee typed rather than accidental. */
+	status: AgentStatus | (string & {})
 	createdAt: string
 	lastSeen: string
 	brief?: string

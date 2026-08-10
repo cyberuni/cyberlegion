@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0032](0032-spawn-wake-carries-the-brief-instruction.md).
+
+Turn-delivery — the decision below to ring a best-effort first-turn doorbell over `nudge`'s
+submit-verify path — is **retained**. What ADR-0032 overturns is the payload/context split: the brief
+is no longer injected into the peer's context by its own SessionStart hook, so the doorbell text
+described here (`"Your brief is loaded in context"`) is gone and the wake now names the brief's file
+path instead. Read the two together; this one is still the record of why spawn rings at all.
 
 ## Context
 

@@ -1,5 +1,5 @@
 import { currentPane } from 'cyber-mux'
-import { type IdContext, listAgents, loadAgent, register, resolveSelfId, saveAgent } from '../identity.ts'
+import { type IdContext, listAgents, loadAgent, register, resolveSelfId } from '../identity.ts'
 import { inbox } from '../message.ts'
 import { normalizeMuxEnv } from '../mux-env.ts'
 
@@ -11,9 +11,13 @@ export interface InjectPayload {
 }
 
 /**
- * Resolve the calling agent, gather its pending brief + unread mail, and return the
- * SessionStart-style injection payload — or null when there is nothing to inject (an
- * unregistered caller or an empty inbox never fails the harness hook).
+ * Resolve the calling agent, gather its unread mail (and a standing owner's, when this session is
+ * the hub's main pane), and return the SessionStart-style injection payload — or null when there is
+ * nothing to inject (an unregistered caller or an empty inbox never fails the harness hook).
+ *
+ * This never injects a brief. Brief delivery is the spawn wake's job: the first-turn doorbell
+ * carries the instruction and names the brief's file path, so pickup does not depend on this hook
+ * firing in the child (`unit/lifecycle`, superseding ADR-0027).
  */
 export function injectInbox(ctx: IdContext, event: string): InjectPayload | null {
 	if (!EVENTS.includes(event as HookEvent)) {
@@ -37,14 +41,10 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 
 	const parts: string[] = []
 	const rec = loadAgent(ctx.store, meId)
-	if (rec?.status === 'spawning') {
-		const brief = ctx.store.readBrief(meId)
-		if (brief) {
-			parts.push(`## Your brief\n\n${brief.trim()}`)
-		}
-		rec.status = 'active'
-		saveAgent(ctx.store, rec)
-	}
+	// No brief is injected here, whatever status the record carries. A spawned peer's brief reaches
+	// it in the spawn wake instruction, which names the brief's file path (`unit/lifecycle`) — so the
+	// brief stays on disk, unread by this hook, and a record migrated from an older hub keeps the
+	// retired `spawning` status it was migrated with rather than being flipped to `active`.
 
 	const unread = inbox({ store: ctx.store }, { meId, unread: true })
 	if (unread.length > 0) {

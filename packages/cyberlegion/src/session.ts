@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { callerPane, type MuxPlacement, type MuxTarget } from 'cyber-mux'
+import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
+import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
 import {
 	type AgentRecord,
 	type Harness,
@@ -97,8 +98,10 @@ export interface SpawnResult {
 /**
  * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
  * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
- * its cwd set to that worktree, pre-register the peer, and drop its brief as a file the peer's own
- * SessionStart hook reads — never typed into its prompt.
+ * its cwd set to that worktree, pre-register the peer, and drop its brief as a file — never typed
+ * into its prompt. Nothing loads that file for the peer: it is the spawn wake that tells the peer to
+ * go read it, naming its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a
+ * peer sitting idle with its brief unread, which is why callers want `spawnAndWake`.
  *
  * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/legion-<id6>`),
  * never nested inside it, even though the registry/mailbox itself lives in the global hub — the hub
@@ -159,6 +162,12 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
 		// the directory name lines up with what's already shown to the caller.
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
+		// Refuse the primary checkout BEFORE anything is created or opened. The post-hoc asserts below
+		// stay as a backstop against a backend returning a root other than the one asked for, but they
+		// fire too late to honor "no worktree is created / no session is opened": the atomic branch
+		// creates the worktree AND opens the session in one call, so a check after it has already
+		// stranded a pane. The frozen scenarios say nothing is opened, so nothing may be.
+		assertDistinctFromPrimary(resolve(worktreePath), primaryRoot)
 		if (at === 'workspace' && sessionAdapter.worktree) {
 			// The backend can create the worktree and open its new workspace in one atomic call —
 			// a real organizational improvement (herdr nests the worktree under its source workspace)
@@ -198,7 +207,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		worktree,
 		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
 		pane: muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null,
-		status: 'spawning',
+		status: 'active',
 		createdAt: ts,
 		lastSeen: ts,
 		brief: paths.briefFile(ctx.store.root, id),
@@ -209,6 +218,40 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.writeBrief(id, brief)
 
 	return { agent: rec, pane: target.id, launch }
+}
+
+/**
+ * `unit spawn` end to end: open the peer, then deliver its first turn.
+ *
+ * The two acts live together here rather than at the CLI call site so the **brief path the doorbell
+ * names is derived from the record `spawn` just wrote**, not handed in by a caller. That is the
+ * point of the seam: a caller cannot ring with the wrong path because it supplies no path — an
+ * empty string, a stale path, or the brief's whole body are all unrepresentable here, rather than
+ * merely untested.
+ *
+ * The ring is best-effort on top of the guaranteed spawn effect (worktree + session + registry
+ * record): `--no-wake` rings nothing, and a ring that never completes is reported as a warning on
+ * the result rather than thrown, so it can never fail a spawn that already landed.
+ */
+export async function spawnAndWake(
+	ctx: IdContext,
+	input: SpawnInput,
+	options: { noWake?: boolean; nudgeOpts?: NudgeOptions } = {},
+): Promise<SpawnResult & { rung: boolean; warning?: string }> {
+	const res = spawn(ctx, input)
+	const env = ctx.env ?? process.env
+	const exec = ctx.exec ?? realExec
+	// `spawn` always records where it wrote the brief. The guard is not defensive padding: a doorbell
+	// with no path to name is not an instruction, so ring nothing rather than type the degenerate
+	// "Read your brief at , then begin work." — a silent half-wake is worse than an unrung peer.
+	const briefPath = res.agent.brief
+	const wake = await wakeSpawn(
+		() => selectSessionAdapter(env, exec),
+		exec,
+		{ target: { id: res.pane }, briefPath: briefPath ?? '', noWake: options.noWake || !briefPath },
+		options.nudgeOpts,
+	)
+	return { ...res, rung: wake.rung, ...(wake.warning ? { warning: wake.warning } : {}) }
 }
 
 /**
@@ -252,6 +295,70 @@ export interface ClearResult {
 }
 
 /**
+ * Resolve a unit's live session pane from a ref, or throw naming the ref. The one place
+ * focus/nudge/read agree on what "addressable" means — a record's own pane, else a pane pointer
+ * keyed by its id (a herdr peer stores its pane only in that index).
+ */
+function paneTargetOf(ctx: IdContext, ref: string): { agent: AgentRecord; target: MuxTarget } {
+	const agent = resolveAgent(ctx.store, ref)
+	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
+	if (!pane) throw new Error(`unit "${ref}" has no known session pane`)
+	return { agent, target: { id: pane } }
+}
+
+/**
+ * Move input focus to a peer's session. The adapter beams the attached view all the way there —
+ * across workspace and tab — rather than no-opping when the peer sits outside the caller's current
+ * workspace, and surfaces a backend failure instead of reporting a false success.
+ *
+ * Lives here rather than inline in the CLI for the same reason `spawnAndWake` does: composed at the
+ * call site it took a hardcoded `realExec`, so the operation could not be driven with an injected
+ * exec and its success path was unreachable from a test.
+ */
+export function focusUnit(ctx: IdContext, ref: string): { agent: AgentRecord; pane: string } {
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const exec = ctx.exec ?? realExec
+	selectSessionAdapter(ctx.env ?? process.env, exec).focus(exec, target)
+	return { agent, pane: target.id }
+}
+
+/**
+ * Ring a peer's session as a **taken turn**, not fire-and-forget: `nudge` submits, reads the pane
+ * back to confirm the text is no longer staged, and flushes the staged buffer (never re-typing) up
+ * to a bounded cap — then throws if the peer never took the turn. A doorbell must carry text; an
+ * empty ring is a no-op, so the default points the peer at its inbox.
+ */
+export async function nudgeUnit(
+	ctx: IdContext,
+	ref: string,
+	options: { message?: string; nudgeOpts?: NudgeOptions } = {},
+): Promise<{ agent: AgentRecord; pane: string; message: string; resubmits: number }> {
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const exec = ctx.exec ?? realExec
+	const message = options.message || DELIVERY_DOORBELL
+	const result = await nudge(
+		selectSessionAdapter(ctx.env ?? process.env, exec),
+		exec,
+		target,
+		message,
+		options.nudgeOpts,
+	)
+	return { agent, pane: target.id, message, resubmits: result.resubmits }
+}
+
+/** Scrape the trailing output of a peer's session screen. */
+export function readUnit(
+	ctx: IdContext,
+	ref: string,
+	options: { lines?: number } = {},
+): { agent: AgentRecord; pane: string; output: string } {
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const exec = ctx.exec ?? realExec
+	const output = selectSessionAdapter(ctx.env ?? process.env, exec).read(exec, target, { lines: options.lines })
+	return { agent, pane: target.id, output }
+}
+
+/**
  * Reset a warm peer's context to cold WITHOUT tearing anything down — injects the peer's own
  * harness fresh-context command (`resetCommandFor`) into its pane through the session adapter.
  * Warmth is the unit (pane/process stays warm — no cold-start), coldness is the context. The
@@ -260,9 +367,8 @@ export interface ClearResult {
  * nor the worktree — `close` (`decommission`) owns teardown.
  */
 export function clearUnit(ctx: IdContext, ref: string): ClearResult {
-	const agent = resolveAgent(ctx.store, ref)
-	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
-	if (!pane) throw new Error(`unit "${ref}" has no known session pane`)
+	const { agent, target } = paneTargetOf(ctx, ref)
+	const pane = target.id
 	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`)
 	// Resolve (and validate) the reset command before sending anything — a false-friend or
 	// unmapped harness must fail loud with nothing injected into the pane.

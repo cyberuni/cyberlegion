@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
-import { currentPane, nudge, probeMultiplexer } from 'cyber-mux'
+import { currentPane, probeMultiplexer } from 'cyber-mux'
 import { migrateStore } from './admin.ts'
-import { realizeLaunch } from './agentdef/realize.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
-import { DELIVERY_DOORBELL, wakeRecipient, wakeSpawn } from './console/doorbell.ts'
+import { readCommandOutput, spawnCommandInput } from './cli-input.ts'
+import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
@@ -34,7 +34,7 @@ import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
-import { clearUnit, spawn } from './session.ts'
+import { clearUnit, focusUnit, nudgeUnit, readUnit, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -66,13 +66,6 @@ function requireSelf(ctx: IdContext): string {
 	if (!id) fail('no identity in this session — run `cyberlegion unit register` first')
 	bumpLastSeen(ctx, id)
 	return id
-}
-
-function resolveTarget(ctx: IdContext, ref: string): { id: string } {
-	const agent = resolveAgent(ctx.store, ref)
-	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
-	if (!pane) fail(`unit "${ref}" has no known session pane`)
-	return { id: pane }
 }
 
 function withGlobals(cmd: Command): Command {
@@ -282,41 +275,18 @@ function defineSpawn(cmd: Command): Command {
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
-			let harness = opts.harness as string | undefined
-			let command: string | undefined
-			if (opts.agent || opts.agentFile) {
-				let def: AgentDef
-				try {
-					def = resolveAgentDef({ name: opts.agent, file: opts.agentFile })
-				} catch (err) {
-					fail(err instanceof Error ? err.message : String(err))
-				}
-				const realized = realizeLaunch(def, { harness: opts.harness as Harness | undefined })
-				harness = realized.harness
-				command = realized.command
+			let spawnInput: ReturnType<typeof spawnCommandInput>
+			try {
+				spawnInput = spawnCommandInput(opts)
+			} catch (err) {
+				fail(err instanceof Error ? err.message : String(err))
 			}
-			if (!harness) fail('unit spawn needs --harness, or --agent/--agent-file resolving one')
-			const res = spawn(ctx, {
-				harness,
-				command,
-				task: opts.task,
-				briefFile: opts.briefFile,
-				handle: opts.handle,
-				branch: opts.branch,
-				worktreePath: opts.worktreePath,
-				cwd: opts.cwd,
-				at: opts.at,
-			})
-			// The worktree/session/registry record is the guaranteed effect of spawn; deliver the peer's
-			// first turn best-effort on top so a fresh paned pod acts on its loaded brief with no human
-			// nudge — never fails the spawn. The adapter is resolved lazily inside wakeSpawn (only when a
-			// pane is actually rung). `--no-wake` opts out (Commander sets opts.wake === false).
-			const wake = await wakeSpawn(() => selectSessionAdapter(ctx.env ?? process.env), realExec, {
-				target: { id: res.pane },
-				noWake: opts.wake === false,
-			})
-			if (wake.warning) {
-				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${wake.warning}`)
+			// Spawn AND deliver the first turn — `spawnAndWake` owns both acts so the brief path the
+			// doorbell names is derived from the record spawn just wrote, never assembled here.
+			// `--no-wake` opts out (Commander sets opts.wake === false).
+			const res = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake })
+			if (res.warning) {
+				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`)
 			}
 			emit(formatOf(opts), {
 				toon: toonObject({
@@ -325,9 +295,9 @@ function defineSpawn(cmd: Command): Command {
 					harness: res.agent.harness,
 					worktree: res.agent.worktree?.root,
 					pane: res.pane,
-					rung: wake.rung,
+					rung: res.rung,
 				}),
-				json: { ...res, rung: wake.rung },
+				json: { agent: res.agent, pane: res.pane, launch: res.launch, rung: res.rung },
 			})
 			nextStep(`cyberlegion unit read ${res.agent.id}`)
 		})
@@ -355,9 +325,8 @@ withGlobals(unit.command('focus'))
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const target = resolveTarget(ctx, ref)
-		selectSessionAdapter(ctx.env ?? process.env).focus(realExec, target)
-		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane: target.id }), json: { ref, pane: target.id } })
+		const { pane } = focusUnit(ctx, ref)
+		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane }), json: { ref, pane } })
 	})
 
 // The doorbell must carry a message: a live agent session only takes a turn when it receives
@@ -370,12 +339,10 @@ withGlobals(unit.command('nudge'))
 	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const target = resolveTarget(ctx, ref)
-		const message = opts.message || DELIVERY_DOORBELL
-		const result = await nudge(selectSessionAdapter(ctx.env ?? process.env), realExec, target, message)
+		const { pane, message, resubmits } = await nudgeUnit(ctx, ref, { message: opts.message })
 		emit(formatOf(opts), {
-			toon: toonObject({ nudged: ref, pane: target.id }),
-			json: { ref, pane: target.id, message, resubmits: result.resubmits },
+			toon: toonObject({ nudged: ref, pane }),
+			json: { ref, pane, message, resubmits },
 		})
 	})
 
@@ -386,13 +353,8 @@ withGlobals(unit.command('read'))
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const target = resolveTarget(ctx, ref)
-		const text = selectSessionAdapter(ctx.env ?? process.env).read(realExec, target, { lines: opts.lines })
-		if (formatOf(opts) === 'json') {
-			console.log(JSON.stringify({ ref, pane: target.id, output: text }, null, 2))
-		} else {
-			console.log(text)
-		}
+		const { pane, output } = readUnit(ctx, ref, { lines: opts.lines })
+		console.log(readCommandOutput(formatOf(opts), { ref, pane, output }))
 	})
 
 withGlobals(unit.command('clear'))
@@ -875,7 +837,19 @@ withGlobals(program).action((opts: GlobalOpts) => {
 	else if (unread > 0) nextStep('cyberlegion mail inbox --unread')
 })
 
-program.parseAsync(process.argv).catch((err: unknown) => {
-	console.error(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
-	process.exit(1)
-})
+/**
+ * Run the CLI. Exported rather than executed at module scope so the command bodies are reachable
+ * from a test: with a bare `program.parseAsync(process.argv)` here, importing this module ran the
+ * whole CLI, so every `.action()` body — and every option wire inside it — was unreachable, and a
+ * flag that stopped being forwarded changed real behavior with the suite green.
+ *
+ * `bin/cyberlegion.mjs` calls this; nothing else should.
+ */
+export async function runCli(argv: string[] = process.argv): Promise<void> {
+	try {
+		await program.parseAsync(argv)
+	} catch (err: unknown) {
+		console.error(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }))
+		process.exit(1)
+	}
+}

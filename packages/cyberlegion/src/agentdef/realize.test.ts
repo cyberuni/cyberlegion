@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { realizeLaunch, shellQuote } from './realize.ts'
+import { realizeLaunch, resolveSpawnLaunch, shellQuote } from './realize.ts'
 import type { AgentDef } from './resolve.ts'
 
 function def(overrides: Partial<AgentDef> = {}): AgentDef {
@@ -51,5 +54,36 @@ describe('realizeLaunch', () => {
 	it('safely quotes instructions containing shell-special characters', () => {
 		const res = realizeLaunch(def({ instructions: `don't leak "quotes"; $(rm -rf /)`, harness: 'claude' }))
 		expect(res.command).toContain(shellQuote(`don't leak "quotes"; $(rm -rf /)`))
+	})
+})
+
+// spec: unit/lifecycle/lifecycle.feature — `--agent` resolves a def whose harness/model/
+// instructions compose the launch, and an explicit `--harness` overrides the def's own. These bind
+// the RESOLUTION WIRE: realizeLaunch and resolveAgentDef were each well covered, but nothing
+// exercised the join, so replacing the whole resolution with a constant left the suite green.
+describe('spec:cyberlegion/unit/lifecycle resolveSpawnLaunch', () => {
+	function defFile(fm: string, instructions: string): string {
+		const dir = mkdtempSync(join(tmpdir(), 'cl-def-'))
+		const file = join(dir, 'reviewer.md')
+		writeFileSync(file, `---\n${fm}\n---\n\n${instructions}\n`)
+		return file
+	}
+
+	it('--agent resolves a def whose harness, model and instructions compose the launch', () => {
+		const file = defFile('name: reviewer\nharness: claude\nmodel: sonnet', 'Look for correctness bugs first.')
+		const res = resolveSpawnLaunch({ agentFile: file })
+		expect(res.harness).toBe('claude')
+		expect(res.command).toContain('claude')
+		expect(res.command).toContain("'sonnet'") // the def's model
+		expect(res.command).toContain('Look for correctness bugs first.') // the def's instructions
+	})
+
+	it('an explicit --harness overrides the resolved def own harness', () => {
+		const file = defFile('name: reviewer\nharness: claude\nmodel: sonnet', 'Look for correctness bugs first.')
+		expect(resolveSpawnLaunch({ agentFile: file, harness: 'codex' }).harness).toBe('codex')
+	})
+
+	it('passes a bare --harness straight through when no def is named', () => {
+		expect(resolveSpawnLaunch({ harness: 'cursor' })).toEqual({ harness: 'cursor' })
 	})
 })
