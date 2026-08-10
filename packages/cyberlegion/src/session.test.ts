@@ -1387,8 +1387,13 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 
 	it('nudge confirms the turn was taken and reports success without re-submitting', async () => {
 		// the pane comes back with the text gone — the turn was taken on the first submit
-		const { ctx } = peerCtx({ captures: ['scrolled away\n> '] })
+		const { calls, ctx } = peerCtx({ captures: ['scrolled away\n> '] })
 		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		// it READS THE PANE BACK to confirm — and that peer's pane, not merely some pane. Without
+		// this, a confirmation aimed anywhere (or skipped outright) still reports success.
+		const capture = tmuxArgs(calls, 'capture-pane').at(-1)
+		expect(capture).toBeDefined()
+		expect(targetOf(capture)).toBe(PANE)
 		expect(res.resubmits).toBe(0) // it issues no re-submit
 	})
 
