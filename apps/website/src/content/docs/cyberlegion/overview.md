@@ -49,7 +49,7 @@ Run the CLI with `npx` (or pin a version for reproducible hooks):
 
 ```sh
 npx cyberlegion <command>
-npx cyberlegion@0.1.0 <command>
+npx cyberlegion@0.3.0 <command>
 ```
 
 ## Related
