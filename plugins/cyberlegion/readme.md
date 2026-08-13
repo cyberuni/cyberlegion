@@ -6,8 +6,11 @@ and communicating over the filesystem.
 
 ## The console
 
-The `cyberlegion` CLI is the cold, deterministic mechanism: identity, warm peer sessions, durable
-mail, agent-definition resolution, and admin/diagnostics. It never decides *when* to spawn a peer
+The `cyberlegion` CLI is the cold, deterministic mechanism: identity (`unit register`, `unit claim`,
+`unit who`), warm peer sessions in their own git worktrees (`unit spawn`, `unit close`,
+`unit prune`), durable mail (`mail send`, `mail inbox`, `mail read`, `mail await`),
+agent-definition resolution (`agent resolve`), hook registration (`init`), and
+admin/diagnostics (`mux doctor`, `admin migrate`). It never decides *when* to spawn a peer
 versus a subagent, and it carries no dispatch/result-slot primitives of its own — a cold subagent
 returns via the caller's own Task-result, a warm peer via `mail await`.
 
@@ -30,11 +33,32 @@ multiplexer availability, then picks exactly one strategy:
 spawn/close a unit, wait for a reply, dispatch work) and either run the matching CLI call directly or
 hand routing judgment to `dispatch-governance`. It loads no governance itself and writes no state.
 
+## Onboarding and the owner mailbox
+
+Two more user-facing skills sit beside the gateway:
+
+- **`init-cyberlegion`** — the onboarding front door: probe the environment, register the
+  mail-surfacing hook so incoming mail reaches you mid-session, and (only in a root session, only on
+  an explicit yes) bind this pane as the durable `legate` owner inbox. Every step is a
+  `cyberlegion` CLI call; the skill holds the conversation and the judgment.
+- **`manage-inbox`** — the human's surface for that **owner mailbox**: the hub-level,
+  session-independent inbox a standing identity holds, where frameless agents (cron-started, no
+  parent frame) push their reports. It's how you read and ack those reports from whichever session
+  you happen to be in.
+
 ## Installation
 
 ```bash
 npx skills add cyberuni/cyberplace --plugin cyberlegion --global
 ```
 
-The `cyberlegion` CLI ships separately from npm (not yet published — see the design doc's
-`legion-publish` CR); until then, invoke it from a workspace checkout (`packages/cyberlegion/bin/cyberlegion.mjs`).
+The `cyberlegion` CLI ships separately on npm:
+
+```bash
+npm install -g cyberlegion
+```
+
+The plugin bundle carries the version it was built against in `.plugin/pins.json`, and its skills
+read that pin to invoke `npx cyberlegion@<version> …` rather than inventing a version. In a
+workspace checkout with no bundled pin, they fall back to the unpinned `npx cyberlegion …` form or
+the local bin (`packages/cyberlegion/bin/cyberlegion.mjs`).
