@@ -18,7 +18,7 @@ npx cyberlegion <command>
 Or pin to an exact version for reproducible hooks:
 
 ```sh
-npx cyberlegion@0.1.0 <command>
+npx cyberlegion@0.3.0 <command>
 ```
 
 ## Commands
