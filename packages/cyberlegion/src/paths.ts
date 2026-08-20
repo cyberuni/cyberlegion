@@ -84,16 +84,61 @@ export function ensureMarker(root: string): void {
 	}
 }
 
+/**
+ * Thrown when an agent/message id destined to become a filename PATH SEGMENT fails
+ * `assertSafeId` — see that function's doc for why this rejects rather than encodes.
+ */
+export class InvalidIdError extends Error {
+	constructor(
+		public readonly kind: string,
+		public readonly value: string,
+	) {
+		super(`invalid ${kind} ${JSON.stringify(value)} — must not be empty, ".", "..", or contain a path separator`)
+		this.name = 'InvalidIdError'
+	}
+}
+
+const UNSAFE_ID = /[\\/\0]/
+
+/**
+ * Filename-safety guard for any id that becomes a bare PATH SEGMENT under the hub root — agent ids
+ * (`agentFile`/`inboxDir`/`dataDir`/`briefFile`) and message ids (`messageFile`). Both are
+ * effectively user/peer-controlled: an agent id round-trips a caller-supplied `--handle`-adjacent
+ * value in some flows, and nothing upstream of the store validates it before it reaches a `join()`.
+ *
+ * REJECT, don't encode: unlike `sanitizePane` (which deliberately encodes, because a tmux/herdr pane
+ * locator is an opaque, internally-produced token that only needs to survive as a *lookup key*, not
+ * round-trip as an identity), an agent/message id is a PRIMARY KEY — `getAgent(id)` must return
+ * exactly what `putAgent` stored under that same `id`. Silently encoding two different malformed ids
+ * onto the same sanitized filename would let one caller's write silently clobber or read another's
+ * record — a worse failure than a loud, immediate refusal. So: empty, `.`, `..`, and any embedded
+ * path separator (POSIX `/`, Windows `\`) or NUL byte are rejected outright, which also rejects an
+ * absolute path outright (an absolute path always contains a separator).
+ */
+export function assertSafeId(id: string, kind: string): string {
+	if (!id || id === '.' || id === '..' || UNSAFE_ID.test(id)) {
+		throw new InvalidIdError(kind, id)
+	}
+	return id
+}
+
 export const paths = {
 	agentsDir: (root: string) => join(root, 'agents'),
-	agentFile: (root: string, id: string) => join(root, 'agents', `${id}.json`),
+	agentFile: (root: string, id: string) => join(root, 'agents', `${assertSafeId(id, 'agent id')}.json`),
 	panesDir: (root: string) => join(root, 'panes'),
 	paneFile: (root: string, pane: string) => join(root, 'panes', `${sanitizePane(pane)}.id`),
-	inboxDir: (root: string, id: string) => join(root, 'inbox', id),
-	inboxReadDir: (root: string, id: string) => join(root, 'inbox', id, 'read'),
-	dataDir: (root: string, id: string) => join(root, 'data', id),
-	briefFile: (root: string, id: string) => join(root, 'data', id, 'brief.md'),
+	inboxDir: (root: string, id: string) => join(root, 'inbox', assertSafeId(id, 'agent id')),
+	inboxReadDir: (root: string, id: string) => join(root, 'inbox', assertSafeId(id, 'agent id'), 'read'),
+	dataDir: (root: string, id: string) => join(root, 'data', assertSafeId(id, 'agent id')),
+	briefFile: (root: string, id: string) => join(root, 'data', assertSafeId(id, 'agent id'), 'brief.md'),
 	mainPaneFile: (root: string) => join(root, 'main-pane.id'),
+	/** A message's file path within `toId`'s unread/read inbox dir, keyed by its own collision-free
+	 * id — validated the same as an agent id (it's the same class of risk: a peer- or CLI-controlled
+	 * string becoming a filename). */
+	messageFile: (root: string, toId: string, msgId: string) =>
+		join(paths.inboxDir(root, toId), `${assertSafeId(msgId, 'message id')}.json`),
+	messageReadFile: (root: string, toId: string, msgId: string) =>
+		join(paths.inboxReadDir(root, toId), `${assertSafeId(msgId, 'message id')}.json`),
 }
 
 /**

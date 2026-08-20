@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { ensureMarker, paths } from '../paths.ts'
+import { ensureMarker, InvalidIdError, paths } from '../paths.ts'
 import { CorruptRecordError } from './errors.ts'
 import type { AgentRecord, InboxSnapshot, Message, Store } from './store.ts'
 
@@ -60,6 +60,25 @@ function writeText(file: string, text: string): void {
 	writeFileAtomic(file, text)
 }
 
+/** Build a path via `build()` for a READ-only lookup, treating a syntactically-invalid id
+ * (`InvalidIdError`) the same as "not found" rather than throwing. Reads are the wrong place to
+ * enforce id-shape: `resolveAgent`/`resolveRecipient` (identity.ts) speculatively probe an arbitrary
+ * ref — which may legitimately be a worktree BRANCH NAME containing `/` — as a candidate id before
+ * falling back to handle/branch lookup, so `getAgent('cyberlegion/unit-abc')` must fail soft, not
+ * throw, or that fallback chain breaks. The traversal risk this guards against (an id escaping the
+ * store root) only bites on a WRITE — nothing is ever created or overwritten by a probe that finds
+ * nothing — so a hard reject stays reserved for the write paths below (`putAgent`, `putMessage`,
+ * `putPaneIndex`, `writeBrief`), where a malformed id would otherwise put a stray file wherever it
+ * pointed. */
+function readPathOrUndefined(build: () => string): string | undefined {
+	try {
+		return build()
+	} catch (err) {
+		if (err instanceof InvalidIdError) return undefined
+		throw err
+	}
+}
+
 /** The on-disk `Store` implementation — current per-writer sharded `.json` layout (ADR-0020):
  * one file per message/agent, collision-free filenames, ack = atomic rename into `read/`. */
 export class FileStore implements Store {
@@ -70,37 +89,38 @@ export class FileStore implements Store {
 	}
 
 	putMessage(toId: string, msg: Message): void {
-		const dir = paths.inboxDir(this.root, toId)
-		writeFileAtomic(join(dir, `${msg.id}.json`), `${JSON.stringify(msg, null, 2)}\n`)
+		writeFileAtomic(paths.messageFile(this.root, toId, msg.id), `${JSON.stringify(msg, null, 2)}\n`)
 	}
 
 	listInbox(id: string): InboxSnapshot {
+		const inbox = readPathOrUndefined(() => paths.inboxDir(this.root, id))
+		const read = readPathOrUndefined(() => paths.inboxReadDir(this.root, id))
 		return {
-			unread: readMessages(paths.inboxDir(this.root, id)),
-			read: readMessages(paths.inboxReadDir(this.root, id)),
+			unread: inbox ? readMessages(inbox) : [],
+			read: read ? readMessages(read) : [],
 		}
 	}
 
 	ackMessage(id: string, msgId: string): Message {
-		const src = join(paths.inboxDir(this.root, id), `${msgId}.json`)
-		if (!existsSync(src)) {
+		const src = readPathOrUndefined(() => paths.messageFile(this.root, id, msgId))
+		if (!src || !existsSync(src)) {
 			throw new Error(`"${msgId}" is not an unread message in this inbox`)
 		}
 		const msg = readJsonRecord<Message>(src)
-		const dir = paths.inboxReadDir(this.root, id)
-		mkdirSync(dir, { recursive: true })
-		renameSync(src, join(dir, `${msgId}.json`))
+		const dest = paths.messageReadFile(this.root, id, msgId)
+		mkdirSync(dirname(dest), { recursive: true })
+		renameSync(src, dest)
 		return msg
 	}
 
 	removeMessage(id: string, msgId: string): void {
-		const unreadFile = join(paths.inboxDir(this.root, id), `${msgId}.json`)
-		if (existsSync(unreadFile)) {
+		const unreadFile = readPathOrUndefined(() => paths.messageFile(this.root, id, msgId))
+		if (unreadFile && existsSync(unreadFile)) {
 			rmSync(unreadFile)
 			return
 		}
-		const readFile = join(paths.inboxReadDir(this.root, id), `${msgId}.json`)
-		if (existsSync(readFile)) {
+		const readFile = readPathOrUndefined(() => paths.messageReadFile(this.root, id, msgId))
+		if (readFile && existsSync(readFile)) {
 			rmSync(readFile)
 			return
 		}
@@ -112,8 +132,8 @@ export class FileStore implements Store {
 	}
 
 	getAgent(id: string): AgentRecord | undefined {
-		const file = paths.agentFile(this.root, id)
-		if (!existsSync(file)) return undefined
+		const file = readPathOrUndefined(() => paths.agentFile(this.root, id))
+		if (!file || !existsSync(file)) return undefined
 		return readJsonRecord<AgentRecord>(file)
 	}
 
@@ -162,8 +182,8 @@ export class FileStore implements Store {
 	}
 
 	readBrief(agentId: string): string | undefined {
-		const file = paths.briefFile(this.root, agentId)
-		return existsSync(file) ? readFileSync(file, 'utf8') : undefined
+		const file = readPathOrUndefined(() => paths.briefFile(this.root, agentId))
+		return file && existsSync(file) ? readFileSync(file, 'utf8') : undefined
 	}
 
 	setMainPane(pane: string | null): void {

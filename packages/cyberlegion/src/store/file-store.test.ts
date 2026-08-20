@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { InvalidIdError } from '../paths.ts'
 import { CorruptRecordError } from './errors.ts'
 import { FileStore } from './file-store.ts'
 import type { AgentRecord, Message } from './store.ts'
@@ -192,6 +193,41 @@ describe('corrupt records surface a typed, file-named error — never a bare Syn
 		store.putAgent(agent('c4'))
 		writeFileSync(join(store.root, 'agents', 'c4.json'), 'not json at all')
 		expect(() => store.getAgent('c4')).toThrow(CorruptRecordError)
+	})
+})
+
+describe('path/id injection: an id that would escape its intended subtree is rejected, not encoded', () => {
+	it('putAgent rejects an id containing a traversal segment', () => {
+		expect(() => store.putAgent(agent('../escaped'))).toThrow(InvalidIdError)
+		expect(existsSync(join(store.root, '..', 'escaped.json'))).toBe(false)
+	})
+
+	it('putAgent rejects an absolute-path id', () => {
+		expect(() => store.putAgent(agent('/etc/passwd'))).toThrow(InvalidIdError)
+	})
+
+	it('putMessage rejects a toId containing an embedded separator', () => {
+		expect(() => store.putMessage('a/b', msg('m6'))).toThrow(InvalidIdError)
+	})
+
+	it('putMessage rejects a message id containing a traversal segment', () => {
+		expect(() => store.putMessage('b', msg('../escaped'))).toThrow(InvalidIdError)
+	})
+
+	// Reads fail SOFT on an unsafe id (never found — not "not found because it crashed"), because
+	// `identity.ts`'s `resolveAgent`/`resolveRecipient` speculatively probe an arbitrary ref (which
+	// may legitimately be a branch name containing `/`) as a candidate agent id before falling back
+	// to handle/branch lookup; a hard throw here would break that fallback chain even though nothing
+	// is ever read from or written outside the store root either way.
+	it('getAgent/listInbox/readBrief return "not found" rather than throwing on a malformed id', () => {
+		expect(store.getAgent('a/b')).toBeUndefined()
+		expect(store.listInbox('../x')).toEqual({ unread: [], read: [] })
+		expect(store.readBrief('a/b')).toBeUndefined()
+	})
+
+	it('ackMessage/removeMessage still report "not found" (their normal shape) on a malformed id, not InvalidIdError', () => {
+		expect(() => store.ackMessage('a/b', 'm')).toThrow(/not an unread/)
+		expect(() => store.removeMessage('a/b', 'm')).toThrow(/not a message/)
 	})
 })
 

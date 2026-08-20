@@ -3,7 +3,16 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { Exec } from './identity.ts'
-import { ensureMarker, resolveProjectLocalRoot, resolveRoot, resolveUnitWorktreePath, sanitizePane } from './paths.ts'
+import {
+	assertSafeId,
+	ensureMarker,
+	InvalidIdError,
+	paths,
+	resolveProjectLocalRoot,
+	resolveRoot,
+	resolveUnitWorktreePath,
+	sanitizePane,
+} from './paths.ts'
 
 describe('resolveRoot', () => {
 	it('prefers explicit --root/--space over the env', () => {
@@ -81,5 +90,59 @@ describe('sanitizePane', () => {
 	it('makes a tmux pane id filesystem-safe', () => {
 		expect(sanitizePane('%3')).toBe('_3')
 		expect(sanitizePane('pane-1_2')).toBe('pane-1_2')
+	})
+})
+
+describe('assertSafeId', () => {
+	it('passes through an ordinary id unchanged', () => {
+		expect(assertSafeId('a1b2c3', 'agent id')).toBe('a1b2c3')
+	})
+
+	it.each([
+		['a traversal segment', '../etc/passwd'],
+		['a nested traversal segment', 'foo/../../bar'],
+		['an absolute path', '/etc/passwd'],
+		['an embedded POSIX separator', 'a/b'],
+		['an embedded Windows separator', 'a\\b'],
+		['a bare "."', '.'],
+		['a bare ".."', '..'],
+		['the empty string', ''],
+		['an embedded NUL byte', 'a\0b'],
+	])('rejects %s (%j) rather than silently encoding it', (_label, bad) => {
+		expect(() => assertSafeId(bad, 'agent id')).toThrow(InvalidIdError)
+	})
+
+	it('names the offending value and kind in the thrown error', () => {
+		try {
+			assertSafeId('../x', 'agent id')
+			expect.unreachable()
+		} catch (err) {
+			expect(err).toBeInstanceOf(InvalidIdError)
+			expect((err as InvalidIdError).kind).toBe('agent id')
+			expect((err as InvalidIdError).value).toBe('../x')
+		}
+	})
+})
+
+describe('paths.* path builders reject an unsafe id before it ever reaches join()', () => {
+	it('agentFile/inboxDir/dataDir/briefFile all reject a traversal id', () => {
+		const root = '/hub'
+		expect(() => paths.agentFile(root, '../x')).toThrow(InvalidIdError)
+		expect(() => paths.inboxDir(root, '../x')).toThrow(InvalidIdError)
+		expect(() => paths.inboxReadDir(root, '../x')).toThrow(InvalidIdError)
+		expect(() => paths.dataDir(root, '../x')).toThrow(InvalidIdError)
+		expect(() => paths.briefFile(root, '../x')).toThrow(InvalidIdError)
+	})
+
+	it('messageFile/messageReadFile reject a traversal message id even when toId is safe', () => {
+		const root = '/hub'
+		expect(() => paths.messageFile(root, 'bob', '../x')).toThrow(InvalidIdError)
+		expect(() => paths.messageReadFile(root, 'bob', '../x')).toThrow(InvalidIdError)
+	})
+
+	it('a safe id resolves strictly under the intended subtree', () => {
+		const root = '/hub'
+		expect(paths.agentFile(root, 'bob')).toBe(join(root, 'agents', 'bob.json'))
+		expect(paths.messageFile(root, 'bob', 'm1')).toBe(join(root, 'inbox', 'bob', 'm1.json'))
 	})
 })
