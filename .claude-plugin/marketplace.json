@@ -1,0 +1,19 @@
+{
+	"name": "cyberuni",
+	"owner": { "name": "unional", "url": "https://github.com/cyberuni" },
+	"description": "Agent plugins from cyberuni",
+	"plugins": [
+		{
+			"name": "cyberlegion",
+			"displayName": "Cyberlegion",
+			"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
+			"source": "./plugins/cyberlegion",
+			"author": { "name": "unional" },
+			"homepage": "https://github.com/cyberuni/cyberlegion",
+			"repository": "https://github.com/cyberuni/cyberlegion",
+			"license": "MIT",
+			"category": "development",
+			"keywords": ["cyberlegion", "agents", "cli", "dispatch"]
+		}
+	]
+}

@@ -1,0 +1,19 @@
+name: release
+on:
+  push:
+    branches: [main]
+
+jobs:
+  code:
+    uses: cyberuni/.github/.github/workflows/pnpm-verify.yml@main
+    with:
+      os: '["ubuntu-latest"]'
+      skip-playwright: true
+
+  release:
+    uses: cyberuni/.github/.github/workflows/pnpm-release-changeset-oidc.yml@main
+    needs: code
+    permissions:
+      id-token: write
+      contents: write
+      pull-requests: write

@@ -1,0 +1,25 @@
+name: pull-request
+on:
+  pull_request:
+    types: [opened, synchronize]
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  code:
+    uses: cyberuni/.github/.github/workflows/pnpm-verify.yml@main
+    permissions:
+      contents: read
+    with:
+      os: '["ubuntu-latest"]'
+      skip-playwright: true
+      skip-codecov: true
+
+  publish-gate:
+    if: startsWith(github.head_ref, 'changeset-release/')
+    uses: cyberuni/.github/.github/workflows/pnpm-publish-gate.yml@main
+    permissions:
+      contents: read
