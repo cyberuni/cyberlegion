@@ -30,6 +30,15 @@ export default defineConfig({
 						{ label: 'Mail Model', link: '/concepts/mail-model/' },
 					],
 				},
+				{
+					label: 'Skills',
+					items: [
+						{ label: 'Overview', link: '/skills/' },
+						{ label: 'legate', link: '/skills/legate/' },
+						{ label: 'init-cyberlegion', link: '/skills/init-cyberlegion/' },
+						{ label: 'manage-inbox', link: '/skills/manage-inbox/' },
+					],
+				},
 			],
 			editLink: {
 				baseUrl: 'https://github.com/cyberuni/cyberlegion/edit/main/apps/web/',
