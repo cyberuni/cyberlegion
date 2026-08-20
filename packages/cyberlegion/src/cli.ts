@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { Command, Option } from 'commander'
 import { currentPane, probeMultiplexer } from 'cyber-mux'
@@ -45,7 +46,10 @@ import { watchMail } from './wake/watch.ts'
 // `mail await`; the Legate plugin governance composes those primitives. Command groups (ADR-0024):
 //   mux · unit · mail · agent · attach · init · admin
 
-const VERSION = '0.0.0'
+// Read from the package manifest at runtime rather than a literal: a hardcoded constant silently
+// reports the wrong version to every `--version` caller for as long as nobody re-edits it by hand.
+// `../package.json` resolves identically from `src/` and from the bundled `dist/`, so one URL serves both.
+const VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 interface GlobalOpts {
 	space?: string

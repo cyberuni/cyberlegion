@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -10,8 +11,18 @@ function legion(args: string[]): string {
 }
 
 describe('cli scaffold', () => {
-	it('reports its version', () => {
-		expect(legion(['--version']).trim()).toBe('0.0.0')
+	it('reports the version its own manifest declares, never a placeholder', () => {
+		// Asserted against the manifest rather than a literal: pinning the literal is what let a
+		// hardcoded `VERSION = '0.0.0'` ship green for five releases. The placeholder guard is the
+		// half that fails loud if the read is ever replaced by a constant again.
+		const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+			version: string
+		}
+
+		const reported = legion(['--version']).trim()
+
+		expect(reported).toBe(manifest.version)
+		expect(reported).not.toBe('0.0.0')
 	})
 
 	it('--help lists the mechanism command groups', () => {
