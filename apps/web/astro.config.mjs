@@ -52,6 +52,10 @@ export default defineConfig({
 						{ label: 'admin', link: '/cli/admin/' },
 					],
 				},
+				{
+					label: 'Reference',
+					items: [{ label: 'Glossary', link: '/reference/glossary/' }],
+				},
 			],
 			editLink: {
 				baseUrl: 'https://github.com/cyberuni/cyberlegion/edit/main/apps/web/',
