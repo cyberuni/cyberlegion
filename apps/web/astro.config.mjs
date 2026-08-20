@@ -15,11 +15,20 @@ export default defineConfig({
 				},
 			],
 			sidebar: [
-				{ label: 'Overview', link: '/overview/' },
-				{ label: 'CLI Architecture', link: '/architecture/' },
 				{
-					label: 'CLI',
-					items: [{ autogenerate: { directory: 'cli' } }],
+					label: 'Getting Started',
+					items: [
+						{ label: 'Introduction', link: '/getting-started/introduction/' },
+						{ label: 'Installation', link: '/getting-started/installation/' },
+					],
+				},
+				{
+					label: 'Concepts',
+					items: [
+						{ label: 'The Spine', link: '/concepts/spine/' },
+						{ label: 'Architecture', link: '/concepts/architecture/' },
+						{ label: 'Mail Model', link: '/concepts/mail-model/' },
+					],
 				},
 			],
 			editLink: {
