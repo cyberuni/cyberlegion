@@ -52,19 +52,13 @@ describe('pinned registration', () => {
 		)
 	})
 
-	it.each([
-		'',
-		' ',
-		'1.2.3 ',
-		'>=1 <2',
-		'1.2.3 && rm -rf /',
-		'0.2.0; echo hi',
-		'a@b',
-		'x/y',
-	])('rejects the malformed pin %j and writes no config', (pin) => {
-		expect(() => install('claude', dir, pin)).toThrow(/invalid --pin/)
-		expect(existsSync(join(dir, '.claude/settings.json'))).toBe(false)
-	})
+	it.each(['', ' ', '1.2.3 ', '>=1 <2', '1.2.3 && rm -rf /', '0.2.0; echo hi', 'a@b', 'x/y'])(
+		'rejects the malformed pin %j and writes no config',
+		(pin) => {
+			expect(() => install('claude', dir, pin)).toThrow(/invalid --pin/)
+			expect(existsSync(join(dir, '.claude/settings.json'))).toBe(false)
+		},
+	)
 
 	it('validatePin accepts a concrete version and throws on a range', () => {
 		expect(() => validatePin('0.2.0')).not.toThrow()

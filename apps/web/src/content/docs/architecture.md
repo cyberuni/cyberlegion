@@ -5,7 +5,7 @@ description: How the cyberlegion CLI is organized — two layers (mux and legion
 
 The cyberlegion CLI is **pure mechanism**: it never selects a backend and never invokes a harness subagent tool. Routing — deciding *when* to spawn a warm peer versus a cold subagent versus doing the work in-session — is the caller's judgment, carried by the **Legate** (the plugin). Everything below follows from holding the CLI to that line.
 
-For the command reference and installation, see the [Overview](/cyberlegion/overview/).
+For the command reference and installation, see the [Overview](/overview/).
 
 ## The spine — three nouns
 

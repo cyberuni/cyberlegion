@@ -23,12 +23,12 @@ describe('spec:cyberlegion/mux', () => {
 		expect(() => selectSessionAdapter({}, nullExec)).toThrow(/herdr/)
 	})
 
-	it.each([
-		'wezterm',
-		'zellij',
-	] as const)('refuses a detected %s outright, naming it as detected-but-unsupported', (mux) => {
-		expect(() => selectSessionAdapter({ CYBER_MUX: mux }, nullExec)).toThrow(new RegExp(mux))
-	})
+	it.each(['wezterm', 'zellij'] as const)(
+		'refuses a detected %s outright, naming it as detected-but-unsupported',
+		(mux) => {
+			expect(() => selectSessionAdapter({ CYBER_MUX: mux }, nullExec)).toThrow(new RegExp(mux))
+		},
+	)
 
 	it('the legacy $CYBERLEGION_MUX fast-path still selects a backend via the transitional env seam', () => {
 		expect(selectSessionAdapter({ CYBERLEGION_MUX: 'herdr' }, nullExec).name).toBe('herdr')
