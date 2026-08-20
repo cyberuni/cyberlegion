@@ -1,0 +1,12 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"workspaces": {
+		"packages/cyberlegion": {
+			"project": ["src/**/*.ts"]
+		},
+		"apps/web": {
+			"entry": ["src/**/*.{astro,ts,mdx}"],
+			"project": ["src/**/*.{astro,ts,mdx}"]
+		}
+	}
+}

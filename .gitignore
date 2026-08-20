@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.local
+*.tsbuildinfo
+TODO.local.md
+apps/web/.astro
+.turbo/
+.cyberfleet/
