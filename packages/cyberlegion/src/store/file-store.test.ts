@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { CorruptRecordError } from './errors.ts'
 import { FileStore } from './file-store.ts'
 import type { AgentRecord, Message } from './store.ts'
 
@@ -152,6 +153,45 @@ describe('main pane (hub-level owner-presence pointer)', () => {
 		store.setMainPane('%3')
 		store.setMainPane('%9')
 		expect(store.getMainPane()).toBe('%9')
+	})
+})
+
+describe('corrupt records surface a typed, file-named error — never a bare SyntaxError', () => {
+	it('getAgent throws CorruptRecordError naming the file when the JSON is torn', () => {
+		store.putAgent(agent('c1'))
+		const file = join(store.root, 'agents', 'c1.json')
+		writeFileSync(file, '{"id": "c1", "handle":') // deliberately truncated, as a torn/crashed write would leave it
+		expect(() => store.getAgent('c1')).toThrow(CorruptRecordError)
+		try {
+			store.getAgent('c1')
+			expect.unreachable()
+		} catch (err) {
+			expect(err).toBeInstanceOf(CorruptRecordError)
+			expect((err as CorruptRecordError).file).toBe(file)
+		}
+	})
+
+	it('listAgents throws CorruptRecordError when one record among several is torn', () => {
+		store.putAgent(agent('c2'))
+		store.putAgent(agent('c3'))
+		writeFileSync(join(store.root, 'agents', 'c3.json'), '{"id"')
+		expect(() => store.listAgents()).toThrow(CorruptRecordError)
+	})
+
+	it('listInbox throws CorruptRecordError when a message file is torn', () => {
+		store.putMessage('b', msg('m5'))
+		writeFileSync(join(store.root, 'inbox', 'b', 'm5.json'), '{"id"')
+		expect(() => store.listInbox('b')).toThrow(CorruptRecordError)
+	})
+
+	// The other half of finding 3: a MISSING record reads as `undefined` (no agent by that id,
+	// legitimately), a CORRUPT one throws — those are different conditions and must stay
+	// distinguishable rather than both collapsing to "nothing here."
+	it('getAgent distinguishes missing (undefined) from corrupt (throws)', () => {
+		expect(store.getAgent('never-registered')).toBeUndefined()
+		store.putAgent(agent('c4'))
+		writeFileSync(join(store.root, 'agents', 'c4.json'), 'not json at all')
+		expect(() => store.getAgent('c4')).toThrow(CorruptRecordError)
 	})
 })
 

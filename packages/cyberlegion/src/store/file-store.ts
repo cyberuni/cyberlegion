@@ -1,13 +1,29 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { ensureMarker, paths } from '../paths.ts'
+import { CorruptRecordError } from './errors.ts'
 import type { AgentRecord, InboxSnapshot, Message, Store } from './store.ts'
+
+/** Parse a record file's content, wrapping a `JSON.parse` failure in a typed, file-named
+ * `CorruptRecordError` instead of letting a bare `SyntaxError` bubble up from deep inside
+ * `listInbox`/`listAgents`/`getAgent` with no indication of WHICH file broke. A file that doesn't
+ * exist is a caller error — callers check existence first, so this only ever sees files known to
+ * be present but possibly torn (a crash mid-write predating the atomic-write fix, or on-disk
+ * tampering) — see evidence.md item 5, "no silent success on a broken store". */
+function readJsonRecord<T>(file: string): T {
+	const raw = readFileSync(file, 'utf8')
+	try {
+		return JSON.parse(raw) as T
+	} catch (err) {
+		throw new CorruptRecordError(file, err)
+	}
+}
 
 function readMessages(dir: string): Message[] {
 	if (!existsSync(dir)) return []
 	return readdirSync(dir)
 		.filter((f) => f.endsWith('.json'))
-		.map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as Message)
+		.map((f) => readJsonRecord<Message>(join(dir, f)))
 }
 
 /** Write `data` to `file` crash-safely: write to a sibling temp file first, then `renameSync` into
@@ -70,7 +86,7 @@ export class FileStore implements Store {
 		if (!existsSync(src)) {
 			throw new Error(`"${msgId}" is not an unread message in this inbox`)
 		}
-		const msg = JSON.parse(readFileSync(src, 'utf8')) as Message
+		const msg = readJsonRecord<Message>(src)
 		const dir = paths.inboxReadDir(this.root, id)
 		mkdirSync(dir, { recursive: true })
 		renameSync(src, join(dir, `${msgId}.json`))
@@ -98,7 +114,7 @@ export class FileStore implements Store {
 	getAgent(id: string): AgentRecord | undefined {
 		const file = paths.agentFile(this.root, id)
 		if (!existsSync(file)) return undefined
-		return JSON.parse(readFileSync(file, 'utf8')) as AgentRecord
+		return readJsonRecord<AgentRecord>(file)
 	}
 
 	listAgents(): AgentRecord[] {
@@ -106,7 +122,7 @@ export class FileStore implements Store {
 		if (!existsSync(dir)) return []
 		return readdirSync(dir)
 			.filter((f) => f.endsWith('.json'))
-			.map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as AgentRecord)
+			.map((f) => readJsonRecord<AgentRecord>(join(dir, f)))
 			.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 	}
 
