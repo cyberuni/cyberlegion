@@ -111,4 +111,15 @@ export interface Store {
 	setMainPane(pane: string | null): void
 	/** The hub's currently bound main pane, or undefined when none is bound. */
 	getMainPane(): string | undefined
+
+	// -- advisory locking --
+	/** Run `fn` while holding an exclusive, named advisory lock scoped to this store's root —
+	 * mutual exclusion for a genuine read-modify-write (read current state, decide, write back),
+	 * which an atomic single-file write alone can't make safe against a concurrent racer. Blocks
+	 * until acquired or throws `LockTimeoutError` (`store/lock.ts`) after a bounded wait; never
+	 * steals a lock a live holder still holds — only one abandoned by a confirmed-dead process.
+	 * `setMainPane` uses this internally; callers doing their own load-mutate-save against this
+	 * store (e.g. a standing record's presence rebind) should hold the SAME named lock around that
+	 * whole sequence, not just around the final write. */
+	withLock<T>(name: string, fn: () => T): T
 }

@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { dirname, join } from 'node:path'
 import { ensureMarker, InvalidIdError, paths } from '../paths.ts'
 import { CorruptRecordError } from './errors.ts'
+import { withLock } from './lock.ts'
 import type { AgentRecord, InboxSnapshot, Message, Store } from './store.ts'
 
 /** Parse a record file's content, wrapping a `JSON.parse` failure in a typed, file-named
@@ -187,16 +188,26 @@ export class FileStore implements Store {
 	}
 
 	setMainPane(pane: string | null): void {
-		const file = paths.mainPaneFile(this.root)
-		if (pane) {
-			writeText(file, pane)
-			return
-		}
-		rmSync(file, { force: true })
+		// The hub-level singleton pointer — wrapped in the store's advisory lock so two concurrent
+		// rebinds (or a rebind racing a clear) serialize rather than interleave (finding 2). Each
+		// branch below is itself now a single atomic write/remove (finding 1), so the lock's job here
+		// is ordering the two operations, not protecting either one individually.
+		withLock(this.root, 'main-pane', () => {
+			const file = paths.mainPaneFile(this.root)
+			if (pane) {
+				writeText(file, pane)
+				return
+			}
+			rmSync(file, { force: true })
+		})
 	}
 
 	getMainPane(): string | undefined {
 		const file = paths.mainPaneFile(this.root)
 		return existsSync(file) ? readFileSync(file, 'utf8').trim() : undefined
+	}
+
+	withLock<T>(name: string, fn: () => T): T {
+		return withLock(this.root, name, fn)
 	}
 }
