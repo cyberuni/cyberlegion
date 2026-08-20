@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { acquireLock, LockTimeoutError, withLock } from './lock.ts'
 
 let root: string
@@ -75,5 +75,33 @@ describe('acquireLock: a LIVE holder is never stolen', () => {
 		expect(existsSync(lockDir)).toBe(true)
 		const holder = JSON.parse(readFileSync(join(lockDir, 'holder.json'), 'utf8'))
 		expect(holder.pid).toBe(process.pid) // still the original (live) holder — nothing stole it
+	})
+})
+
+describe("acquireLock: an UNKNOWN liveness read (e.g. EPERM) is treated as 'do not steal'", () => {
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	it('never reclaims a lock whose holder pid reads as EPERM, even though the pid may in fact be dead', () => {
+		freshRoot()
+		// Simulate the sandboxed/cross-uid case where process.kill(pid, 0) can't disambiguate alive
+		// from dead for a pid this process doesn't own the signal rights to — injected via a mock, per
+		// the brief, rather than depending on a real permission-denied target being set up on the
+		// runner. Recorded under an arbitrary pid distinct from our own so the same-pid short-circuit
+		// in probeProcess can't mask the mock.
+		vi.spyOn(process, 'kill').mockImplementation((pid) => {
+			if (pid === process.pid) return true as never // keep our OWN liveness reads (elsewhere) truthful
+			const err = new Error('EPERM') as NodeJS.ErrnoException
+			err.code = 'EPERM'
+			throw err
+		})
+		const lockDir = join(root, 'locks', 'w.lock')
+		mkdirSync(lockDir, { recursive: true })
+		writeFileSync(join(lockDir, 'holder.json'), JSON.stringify({ pid: 999999, acquiredAt: Date.now() - 999999 }))
+		expect(() => acquireLock(root, 'w', { timeoutMs: 100, retryDelayMs: 10 })).toThrow(LockTimeoutError)
+		expect(existsSync(lockDir)).toBe(true)
+		const holder = JSON.parse(readFileSync(join(lockDir, 'holder.json'), 'utf8'))
+		expect(holder.pid).toBe(999999) // the unresolved holder — an ambiguous read never grounds a steal
 	})
 })

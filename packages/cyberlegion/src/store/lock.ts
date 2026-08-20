@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { probeProcess } from './process-liveness.ts'
 
 // An advisory lock for the one class of store operation `writeFileAtomic` alone can't make safe:
 // a genuine read-modify-write, where a torn WRITE isn't the risk (finding 1 already fixes that) —
@@ -50,19 +51,15 @@ function readHolder(dir: string): Holder | undefined {
 	}
 }
 
-/** ESRCH (no such process) is the only signal that means "definitely dead". Any other errno —
- * EPERM above all, common under sandboxes/containers where a live process can be unsignalable —
- * must read as "alive, or at least not provably dead", because the one invariant that must never
- * break is stealing a lock a live holder still holds. Same-pid is trivially "alive" (a process
- * checking its own lock, e.g. after a crash-and-restart that reused nothing). */
-function isPidAlive(pid: number): boolean {
-	if (pid === process.pid) return true
-	try {
-		process.kill(pid, 0)
-		return true
-	} catch (err) {
-		return (err as NodeJS.ErrnoException).code !== 'ESRCH'
-	}
+/** Locking's policy on `probeProcess`'s `'unknown'` state: treat it exactly like `'alive'` — i.e.
+ * NOT `'dead'`. The one invariant that must never break here is stealing a lock a live holder still
+ * holds, and `'unknown'` means "cannot rule out alive", so it can only ever be safe to fold it into
+ * the "do not steal" side. This is a local policy decision, not `probeProcess`'s — a different call
+ * site (a staleness reaper, say) folding `'unknown'` into "not provably alive" instead would be
+ * reading the SAME three states toward the opposite default, which is exactly the bug class this
+ * three-state type exists to force each call site to decide explicitly (see process-liveness.ts). */
+function heldByLiveOrUnknownPid(pid: number): boolean {
+	return probeProcess(pid) !== 'dead'
 }
 
 function sleepSync(ms: number): void {
@@ -97,7 +94,7 @@ function tryReclaimStale(dir: string): boolean {
 		throw err
 	}
 	const captured = readHolder(grave)
-	if (captured && isPidAlive(captured.pid)) {
+	if (captured && heldByLiveOrUnknownPid(captured.pid)) {
 		try {
 			renameSync(grave, dir) // restore — never finalize a steal against a live holder
 		} catch {
@@ -137,7 +134,7 @@ export function acquireLock(root: string, name: string, opts: LockOptions = {}):
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
 			const holder = readHolder(dir)
-			if (holder && !isPidAlive(holder.pid) && tryReclaimStale(dir)) continue // dead holder recovered — retry the mkdir above on a clear path
+			if (holder && !heldByLiveOrUnknownPid(holder.pid) && tryReclaimStale(dir)) continue // dead holder recovered — retry the mkdir above on a clear path
 			if (Date.now() > deadline) throw new LockTimeoutError(name)
 			sleepSync(retryDelayMs)
 		}
