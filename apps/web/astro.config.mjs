@@ -39,6 +39,19 @@ export default defineConfig({
 						{ label: 'manage-inbox', link: '/skills/manage-inbox/' },
 					],
 				},
+				{
+					label: 'CLI Reference',
+					items: [
+						{ label: 'Overview', link: '/cli/' },
+						{ label: 'unit', link: '/cli/unit/' },
+						{ label: 'mail', link: '/cli/mail/' },
+						{ label: 'agent', link: '/cli/agent/' },
+						{ label: 'mux', link: '/cli/mux/' },
+						{ label: 'attach', link: '/cli/attach/' },
+						{ label: 'init', link: '/cli/init/' },
+						{ label: 'admin', link: '/cli/admin/' },
+					],
+				},
 			],
 			editLink: {
 				baseUrl: 'https://github.com/cyberuni/cyberlegion/edit/main/apps/web/',
