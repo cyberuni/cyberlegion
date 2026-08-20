@@ -1,6 +1,9 @@
-import { existsSync, mkdtempSync, readdirSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FileStore } from './file-store.ts'
 import type { AgentRecord, Message } from './store.ts'
@@ -150,4 +153,54 @@ describe('main pane (hub-level owner-presence pointer)', () => {
 		store.setMainPane('%9')
 		expect(store.getMainPane()).toBe('%9')
 	})
+})
+
+describe('atomic writes: a reader never observes a torn write from a concurrent real writer process', () => {
+	it('every read during heavy concurrent writing is either absent or fully valid JSON — never a parse failure', async () => {
+		const scriptDir = mkdtempSync(join(tmpdir(), 'cl-racer-'))
+		const scriptPath = join(scriptDir, 'racer.mts')
+		const fileStoreSrc = fileURLToPath(new URL('./file-store.ts', import.meta.url))
+		writeFileSync(
+			scriptPath,
+			[
+				`import { FileStore } from ${JSON.stringify(fileStoreSrc)}`,
+				'const store = new FileStore(process.argv[2])',
+				`const big = 'x'.repeat(400_000) // large enough that a non-atomic writeFileSync can tear across syscalls`,
+				'for (let i = 0; i < 150; i++) {',
+				`  store.putAgent({ id: 'racer', handle: 'racer', harness: 'claude', cwd: '/x', status: 'active', createdAt: '2026-01-01T00:00:00.000Z', lastSeen: '2026-01-01T00:00:00.000Z', brief: big + i })`,
+				'}',
+			].join('\n'),
+		)
+		const tsxRequire = createRequire(import.meta.url)
+		const tsxCli = tsxRequire.resolve('tsx/cli')
+		const child = spawn(process.execPath, [tsxCli, scriptPath, store.root], { stdio: ['ignore', 'pipe', 'pipe'] })
+		let stderr = ''
+		child.stderr?.on('data', (d) => {
+			stderr += String(d)
+		})
+		child.on('error', (e) => {
+			stderr += `spawn error: ${e}`
+		})
+
+		let sawCorrupt: unknown
+		let sawClean = 0
+		const deadline = Date.now() + 5000
+		while (Date.now() < deadline && child.exitCode === null) {
+			try {
+				if (store.getAgent('racer')) sawClean++
+			} catch (err) {
+				sawCorrupt = err
+				break
+			}
+			await new Promise((r) => setImmediate(r))
+		}
+		if (child.exitCode === null) {
+			child.kill()
+			await new Promise((resolve) => child.once('exit', resolve))
+		}
+		if (stderr) console.error('racer stderr:', stderr)
+
+		expect(sawCorrupt).toBeUndefined()
+		expect(sawClean).toBeGreaterThan(0) // the race actually happened — this saw real writes, not just misses
+	}, 10000)
 })

@@ -10,14 +10,38 @@ function readMessages(dir: string): Message[] {
 		.map((f) => JSON.parse(readFileSync(join(dir, f), 'utf8')) as Message)
 }
 
-function writeJson(file: string, data: unknown): void {
+/** Write `data` to `file` crash-safely: write to a sibling temp file first, then `renameSync` into
+ * place. `rename` is atomic within a filesystem (POSIX guarantees this; Node's Win32 rename is too
+ * for same-volume paths, which every path here is — always under the same store root), so any
+ * reader either sees the OLD complete content or the NEW complete content, never a truncated
+ * in-between. Before this fix, `putMessage`/`putAgent`/`putPaneIndex`/`setMainPane` called
+ * `writeFileSync` directly on the final path — only `ackMessage`'s move (a rename of an already-
+ * complete file) was atomic. A process crashing mid-`writeFileSync`, or a reader racing a writer on
+ * a large record, could hand `JSON.parse` a truncated file and throw an uncaught `SyntaxError` deep
+ * inside `listInbox`/`listAgents`/`getAgent`.
+ *
+ * Deliberately no `fsync` before the rename: this tool defends against a process CRASHING mid-write
+ * (the actual, observed risk in a daemonless multi-process CLI), where the page cache alone is
+ * sufficient, not against a power-loss/OS-crash losing unflushed pages, which cyberlegion doesn't
+ * claim to survive today (no writer here holds data the user can't just re-send). Add fsync if that
+ * durability bar ever changes.
+ *
+ * The temp name embeds pid + a counter so two writers to the SAME final path never collide on their
+ * own temp files mid-write (each writer's temp file is unique to it). */
+let tmpCounter = 0
+function writeFileAtomic(file: string, data: string | Buffer): void {
 	mkdirSync(dirname(file), { recursive: true })
-	writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`)
+	const tmp = `${file}.${process.pid}.${tmpCounter++}.tmp`
+	writeFileSync(tmp, data)
+	renameSync(tmp, file)
+}
+
+function writeJson(file: string, data: unknown): void {
+	writeFileAtomic(file, `${JSON.stringify(data, null, 2)}\n`)
 }
 
 function writeText(file: string, text: string): void {
-	mkdirSync(dirname(file), { recursive: true })
-	writeFileSync(file, text)
+	writeFileAtomic(file, text)
 }
 
 /** The on-disk `Store` implementation — current per-writer sharded `.json` layout (ADR-0020):
@@ -31,8 +55,7 @@ export class FileStore implements Store {
 
 	putMessage(toId: string, msg: Message): void {
 		const dir = paths.inboxDir(this.root, toId)
-		mkdirSync(dir, { recursive: true })
-		writeFileSync(join(dir, `${msg.id}.json`), `${JSON.stringify(msg, null, 2)}\n`)
+		writeFileAtomic(join(dir, `${msg.id}.json`), `${JSON.stringify(msg, null, 2)}\n`)
 	}
 
 	listInbox(id: string): InboxSnapshot {
