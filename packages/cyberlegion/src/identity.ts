@@ -241,8 +241,10 @@ export function resolveStandingOwner(store: Store, handle: string): string {
  * multiplexer never touches the pointer. Last claim wins: a plain overwrite, no merge.
  */
 export function claimPresence(ctx: IdContext, handle: string): AgentRecord {
-	const rec = loadAgent(ctx.store, resolveStandingOwner(ctx.store, handle))
-	if (!rec)
+	// Resolve the handle and gate on spawn capability OUTSIDE the lock: both can throw, and a throw
+	// must leave the pointer untouched — no reason to hold the lock across work that never writes.
+	const standingId = resolveStandingOwner(ctx.store, handle)
+	if (!loadAgent(ctx.store, standingId))
 		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
 	// Gated on spawn capability, not on what kind of agent asks: a caller with no multiplexer has no
 	// dispatch mechanism to act on what the mailbox delivers, so it cannot claim — checked BEFORE any
@@ -255,9 +257,21 @@ export function claimPresence(ctx: IdContext, handle: string): AgentRecord {
 	if (!selfId) {
 		throw new Error('no identity in this session — run `cyberlegion unit register` first')
 	}
-	rec.presence = selfId
-	saveAgent(ctx.store, rec)
-	return rec
+	// The genuine read-modify-write `store/lock.ts` flagged as the sanctioned next adopter: load the
+	// standing record, mutate `.presence`, save it back, all under one lock so two concurrent claims
+	// can't interleave their reads and each clobber the other's write with a stale copy. The lock
+	// makes the TRANSITION atomic; it changes nothing about WHO wins — re-load fresh under the lock
+	// (rather than reusing the pre-lock read above, which may already be stale by the time the lock
+	// is granted) and simply overwrite `.presence`, so the last claim to acquire the lock still wins,
+	// exactly as an unlocked last-write-wins did before.
+	return ctx.store.withLock(`presence:${standingId}`, () => {
+		const rec = loadAgent(ctx.store, standingId)
+		if (!rec)
+			throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
+		rec.presence = selfId
+		saveAgent(ctx.store, rec)
+		return rec
+	})
 }
 
 /**
@@ -267,14 +281,23 @@ export function claimPresence(ctx: IdContext, handle: string): AgentRecord {
  * reporting a clear it never performed.
  */
 export function clearPresence(ctx: IdContext, handle: string): AgentRecord {
-	const rec = loadAgent(ctx.store, resolveStandingOwner(ctx.store, handle))
-	if (!rec)
+	const standingId = resolveStandingOwner(ctx.store, handle)
+	if (!loadAgent(ctx.store, standingId))
 		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
-	if (rec.presence !== undefined) {
-		rec.presence = undefined
-		saveAgent(ctx.store, rec)
-	}
-	return rec
+	// Same lock name as `claimPresence` — a clear racing a claim must serialize too, or the clear
+	// could land on top of a load taken before the claim's write and silently resurrect nothing while
+	// discarding the claim (or vice versa): whichever of the two acquires the lock second sees the
+	// OTHER's write and decides on that, not on a stale pre-lock read.
+	return ctx.store.withLock(`presence:${standingId}`, () => {
+		const rec = loadAgent(ctx.store, standingId)
+		if (!rec)
+			throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
+		if (rec.presence !== undefined) {
+			rec.presence = undefined
+			saveAgent(ctx.store, rec)
+		}
+		return rec
+	})
 }
 
 /**

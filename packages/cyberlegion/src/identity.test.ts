@@ -584,6 +584,35 @@ describe('spec:cyberlegion/identity', () => {
 			expect(loadAgent(store, standingId('homa'))?.presence).toBe(bob.id)
 		})
 
+		it("claimPresence and clearPresence hold the store's advisory lock around their whole load-mutate-save, keyed per standing record", () => {
+			// The genuine read-modify-write race `store/lock.ts` flags by name (load a standing record,
+			// mutate `.presence`, save it back) — `setMainPane` already wraps its equivalent in
+			// `store.withLock`; this asserts `claimPresence`/`clearPresence` do too, rather than trusting
+			// the semantics test above (which can pass by luck on an unlocked but atomic-write store —
+			// see the CR report's ablation finding). Wraps the real FileStore so every OTHER Store method
+			// still behaves exactly as normal; only `withLock` calls are also recorded.
+			registerStanding(ctx({}), { handle: 'homa' })
+			register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			const calls: string[] = []
+			const spyStore: typeof store = new Proxy(store, {
+				get(target, prop, receiver) {
+					if (prop === 'withLock') {
+						return (name: string, fn: () => unknown) => {
+							calls.push(name)
+							return target.withLock(name, fn)
+						}
+					}
+					return Reflect.get(target, prop, receiver)
+				},
+			})
+			const spyCtx: IdContext = { store: spyStore, env: muxEnv('tmux', '%1'), now: () => 1_700_000_000_000 }
+			claimPresence(spyCtx, 'homa')
+			expect(calls).toEqual([`presence:${standingId('homa')}`])
+			calls.length = 0
+			clearPresence({ ...spyCtx, env: {} }, 'homa')
+			expect(calls).toEqual([`presence:${standingId('homa')}`])
+		})
+
 		it('unit claim --clear unbinds the presence', () => {
 			registerStanding(ctx({}), { handle: 'homa' })
 			register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })

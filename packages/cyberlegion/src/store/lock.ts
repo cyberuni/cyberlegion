@@ -7,8 +7,9 @@ import { probeProcess } from './process-liveness.ts'
 // two writers interleaving their READ-then-decide-then-WRITE is. `setMainPane` uses this to
 // serialize concurrent rebinds of the hub's single owner-presence pointer; `identity.ts`'s
 // `claimPresence`/`clearPresence` (load a standing record, mutate `.presence`, save it back — the
-// other genuine RMW evidence.md names) is the sanctioned next adopter, left unwired here because
-// identity.ts is outside this pass's scope (store/ + paths.ts only) — see the CR report.
+// other genuine RMW evidence.md names) now wraps its own load-mutate-save in the same primitive,
+// under a lock named per standing record so two different owners' claims never contend on the same
+// name.
 
 export interface LockHandle {
 	release(): void
@@ -142,8 +143,7 @@ export function acquireLock(root: string, name: string, opts: LockOptions = {}):
 }
 
 /** Acquire `name`, run `fn`, and always release — the shape every genuine read-modify-write in the
- * store should use (`setMainPane` today; `identity.ts`'s presence rebind is the flagged next
- * adopter). */
+ * store should use (`setMainPane`, `identity.ts`'s `claimPresence`/`clearPresence` today). */
 export function withLock<T>(root: string, name: string, fn: () => T, opts?: LockOptions): T {
 	const handle = acquireLock(root, name, opts)
 	try {
