@@ -41,6 +41,31 @@ async function routes(prefix: string): Promise<Set<string>> {
 	return published
 }
 
+/** Starlight slugs headings with github-slugger: lowercase, drop punctuation, spaces to hyphens. */
+function slug(heading: string): string {
+	return heading
+		.trim()
+		.toLowerCase()
+		.replace(/[^\w\- ]+/g, '')
+		.replace(/ +/g, '-')
+}
+
+/** The anchors a page publishes: one per markdown heading, ignoring fenced code. */
+function headingAnchors(source: string): Set<string> {
+	const anchors = new Set<string>()
+	let fenced = false
+	for (const line of source.split('\n')) {
+		if (line.trimStart().startsWith('```')) {
+			fenced = !fenced
+			continue
+		}
+		if (fenced) continue
+		const heading = line.match(/^#{2,6} +(.+?) *$/)
+		if (heading) anchors.add(slug(heading[1].replace(/[*`_]/g, '')))
+	}
+	return anchors
+}
+
 describe('authored links resolve under the deployed base', () => {
 	it('every site-absolute link in the docs starts with the configured base', async () => {
 		const prefix = `${await base()}/`
@@ -66,6 +91,32 @@ describe('authored links resolve under the deployed base', () => {
 			for (const link of siteLinks(await readFile(page, 'utf8'))) {
 				const route = link.split('#')[0]
 				if (route.startsWith(prefix) && !published.has(route)) {
+					dangling.push(`${page.slice(docsRoot.length + 1)} -> ${link}`)
+				}
+			}
+		}
+
+		expect(dangling).toEqual([])
+	})
+
+	it('every link with an anchor points at a heading that exists', async () => {
+		const prefix = `${await base()}/`
+		const anchors = new Map<string, Set<string>>()
+		for (const page of await docPages()) {
+			const slugPath = page
+				.slice(docsRoot.length + 1)
+				.replace(/\.mdx?$/, '')
+				.replace(/(^|\/)index$/, '')
+			const route = slugPath ? `${prefix}${slugPath}/` : prefix
+			anchors.set(route, headingAnchors(await readFile(page, 'utf8')))
+		}
+
+		const dangling: string[] = []
+		for (const page of await docPages()) {
+			for (const link of siteLinks(await readFile(page, 'utf8'))) {
+				const [route, anchor] = link.split('#')
+				if (!anchor) continue
+				if (!anchors.get(route)?.has(anchor)) {
 					dangling.push(`${page.slice(docsRoot.length + 1)} -> ${link}`)
 				}
 			}
