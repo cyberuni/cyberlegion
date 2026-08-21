@@ -18,9 +18,14 @@ async function base(): Promise<string> {
 	return found[1]
 }
 
-/** Every markdown link whose target is a site-absolute path. */
+/**
+ * Every site-absolute link a page authors — both markdown body links and the
+ * `link:` targets of splash-hero actions, which Starlight emits verbatim.
+ */
 function siteLinks(source: string): string[] {
-	return [...source.matchAll(/\]\((\/[^)\s]*)\)/g)].map((m) => m[1])
+	const body = [...source.matchAll(/\]\((\/[^)\s]*)\)/g)].map((m) => m[1])
+	const hero = [...source.matchAll(/^\s*link:\s*(\/\S+)\s*$/gm)].map((m) => m[1])
+	return [...body, ...hero]
 }
 
 /** The route each doc page is published at, base-prefixed, e.g. `/cyberlegion/cli/unit/`. */

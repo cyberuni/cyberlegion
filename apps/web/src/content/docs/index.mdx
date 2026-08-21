@@ -2,13 +2,53 @@
 title: cyberlegion
 description: Harness-agnostic, MCP-free agent session spawning and messaging over the filesystem.
 template: splash
+hero:
+  tagline: Spawn, address, and message agent sessions over the filesystem — Claude Code, Cursor, and Codex, all on one Legion. No daemon, no port, no server to keep alive.
+  actions:
+    - text: Get Started
+      link: /cyberlegion/getting-started/introduction/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/cyberuni/cyberlegion
+      icon: external
+      variant: minimal
 ---
 
-Harness-agnostic, MCP-free agent session spawning and messaging over the filesystem — Claude
-Code, Cursor, and Codex, all on one **Legion**. No daemon, no port, no server to keep alive.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-- [Introduction](/cyberlegion/getting-started/introduction/) — what cyberlegion is and the two things it ships
+## What ships
+
+<CardGrid>
+  <Card title="The console" icon="seti:shell">
+    `cyberlegion` — a cold, deterministic CLI. Pure mechanism: it offers the primitive, it never decides when to use it.
+    [CLI reference →](/cyberlegion/cli/)
+  </Card>
+  <Card title="The Legate" icon="pencil">
+    The agent plugin layered on the console, carrying the routing judgment the CLI deliberately leaves out.
+    [View skills →](/cyberlegion/skills/)
+  </Card>
+</CardGrid>
+
+## Why it looks like this
+
+<CardGrid>
+  <Card title="No MCP, no daemon" icon="rocket">
+    Coordination is filesystem state under a shared hub root, reached through a shell command — not a server, a port, or a long-lived process.
+  </Card>
+  <Card title="Harness-agnostic" icon="laptop">
+    Rides each harness's own session-start hook and speaks no vendor protocol, so every harness joins the same Legion with no per-harness glue.
+  </Card>
+  <Card title="Addressable units" icon="random">
+    An `agent` is a definition, a `unit` is a running instance with its own mailbox, a `pane` is where it lives.
+    [The spine →](/cyberlegion/concepts/spine/)
+  </Card>
+  <Card title="Agent-friendly output" icon="document">
+    Token-efficient TOON by default, `--format json` as the escape hatch, structured errors, and definitive empty states.
+  </Card>
+</CardGrid>
+
+## Go deeper
+
 - [Installation](/cyberlegion/getting-started/installation/) — the CLI via npx, the plugin via the marketplace
-- [Architecture](/cyberlegion/concepts/architecture/) — the mux/legion layering, the mail model, and the invariants
-- [CLI Reference](/cyberlegion/cli/) — every command group
-- [Skills](/cyberlegion/skills/) — the Legate and its onboarding/inbox skills
+- [Architecture](/cyberlegion/concepts/architecture/) — the two-layer split, the mail model, and the invariants
+- [Glossary](/cyberlegion/reference/glossary/) — the vocabulary the commands are named after
