@@ -1,36 +1,41 @@
 ---
 title: Introduction
-description: What cyberlegion is, the problem it solves, and the two pieces it ships, the CLI console and the Legate routing layer.
+description: What cyberlegion gives you, the Legate plugin you talk to, and the CLI underneath it.
 ---
 
-**cyberlegion** is harness-agnostic, MCP-free agent session spawning, messaging, and dispatch over
-the filesystem, across Claude Code, Cursor, and Codex, all on one **Legion**. It's the foundation both
-[SDD](https://cyberuni.github.io/sdd/) and [cyberfleet](https://cyberuni.github.io/cyberfleet/)
-build on: addressable agent units, mustered and reaped, commanded and communicating, with no
-server, port, or daemon to keep alive.
+**cyberlegion** lets one agent session reach another. Send a peer a message, spawn one to take a
+piece of work off your hands, collect the verdict when it comes back. Sessions in Claude Code,
+Cursor, and Codex all join the same **Legion** and address each other the same way, so a mixed set
+of tools behaves like one team.
 
-State lives under a shared hub root (`$CYBERLEGION_ROOT`, else the global hub).
+There is nothing to run. No server, no port, no daemon to keep alive. State lives under a shared
+hub root (`$CYBERLEGION_ROOT`, else the global hub), and each harness's own session-start hook
+delivers the mail. [SDD](https://cyberuni.github.io/sdd/) and
+[cyberfleet](https://cyberuni.github.io/cyberfleet/) are both built on it.
 
-## Why no MCP
+## The Legate
 
-The usual way to wire agents together is MCP: a server to start, a port to hold open, config to
-add to every harness. cyberlegion needs none of it. Coordination lives in the shared hub on the
-filesystem, rides each harness's own session-start hook, and speaks no vendor-specific protocol,
-so Claude Code, Cursor, and Codex all join the same Legion with no per-harness glue.
+The Legate is the agent plugin, and it is the part you talk to. Ask in plain language: get this to
+the pane on the right, spawn a reviewer for this branch, tell me what is in my inbox. It reads the
+request and works out how to reach the target, choosing between a warm peer in its own pane, a
+cold one-shot subagent, and simply doing the work in-session.
 
-## Two things it ships
+That choice is the whole value of the layer. Load the [`legate` skill](/cyberlegion/skills/legate/)
+in any session and you have it, along with onboarding and inbox skills for the rest. See
+[Skills](/cyberlegion/skills/).
 
-cyberlegion is one repository with two halves that ship together but stay strictly layered:
+## The CLI
 
-- **The console**: the `npm` package (`cyberlegion`), a cold, deterministic CLI. It never decides
-  *when* to spawn a peer versus a subagent; it only offers the primitive once a caller has decided.
-  See the [CLI Reference](/cyberlegion/cli/).
-- **The Legate**: the agent plugin, the routing brain built on top of the console. It carries the
-  judgment the CLI deliberately doesn't: which dispatch strategy to use for a given intent. See
-  [Skills](/cyberlegion/skills/).
+`cyberlegion` is the npm package the Legate composes, and you can drive it yourself. It spawns
+sessions, sends and reads mail, and reports which multiplexer is live. It never decides *when* any
+of that is the right move, which is exactly why a routing layer can be built on top of it.
+
+Reach for it directly when you already know the command you want, or when you are scripting. Its
+output is shaped for agents to read: token-efficient TOON by default, `--format json` when
+something needs to parse it. See the [CLI Reference](/cyberlegion/cli/).
 
 ## Where to go next
 
-- New to the CLI? Start with [Installation](/cyberlegion/getting-started/installation/).
-- Want the mental model before the commands? Read [Concepts](/cyberlegion/concepts/architecture/).
-- Working from an agent session? Load the [`legate` skill](/cyberlegion/skills/legate/).
+- [Installation](/cyberlegion/getting-started/installation/): the plugin via the marketplace, the CLI via npx
+- [The Spine](/cyberlegion/concepts/spine/): the three nouns every command is named after
+- [Architecture](/cyberlegion/concepts/architecture/): how the layers fit and the invariants that hold them

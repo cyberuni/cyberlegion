@@ -23,14 +23,6 @@ export default defineConfig({
 					],
 				},
 				{
-					label: 'Concepts',
-					items: [
-						{ label: 'The Spine', link: '/concepts/spine/' },
-						{ label: 'Architecture', link: '/concepts/architecture/' },
-						{ label: 'Mail Model', link: '/concepts/mail-model/' },
-					],
-				},
-				{
 					label: 'Skills',
 					items: [
 						{ label: 'Overview', link: '/skills/' },
@@ -50,6 +42,14 @@ export default defineConfig({
 						{ label: 'attach', link: '/cli/attach/' },
 						{ label: 'init', link: '/cli/init/' },
 						{ label: 'admin', link: '/cli/admin/' },
+					],
+				},
+				{
+					label: 'Concepts',
+					items: [
+						{ label: 'The Spine', link: '/concepts/spine/' },
+						{ label: 'Architecture', link: '/concepts/architecture/' },
+						{ label: 'Mail Model', link: '/concepts/mail-model/' },
 					],
 				},
 				{
