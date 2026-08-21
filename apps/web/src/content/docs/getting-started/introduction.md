@@ -10,8 +10,7 @@ of tools behaves like one team.
 
 There is nothing to run. No server, no port, no daemon to keep alive. State lives under a shared
 hub root (`$CYBERLEGION_ROOT`, else the global hub), and each harness's own session-start hook
-delivers the mail. [SDD](https://cyberuni.github.io/sdd/) and
-[cyberfleet](https://cyberuni.github.io/cyberfleet/) are both built on it.
+delivers the mail.
 
 ## The Legate
 
@@ -33,6 +32,17 @@ of that is the right move, which is exactly why a routing layer can be built on 
 Reach for it directly when you already know the command you want, or when you are scripting. Its
 output is shaped for agents to read: token-efficient TOON by default, `--format json` when
 something needs to parse it. See the [CLI Reference](/cyberlegion/cli/).
+
+## Building your own layer
+
+The Legate is one routing layer over the CLI, not the only one.
+[cyberfleet](https://cyberuni.github.io/cyberfleet/) is another: its skills call `unit spawn`,
+`unit who`, and `mail send` directly and use no cyberlegion skill at all, because fleet work needs
+its own judgment about mission graphs and merge order. [SDD](https://cyberuni.github.io/sdd/)
+builds on the same primitives.
+
+That is what the CLI holding no routing opinion buys. A layer takes the parts it needs and decides
+the rest for itself.
 
 ## Where to go next
 
