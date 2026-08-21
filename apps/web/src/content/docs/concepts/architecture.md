@@ -86,7 +86,7 @@ tmux's local name for the Tab concept, already covered by `tab`.
 | **init** | init | onboarding: detect harness, wire hook, advise attach |
 | **admin** | migrate | hub-state maintenance |
 
-Hot-path top-level aliases stay: `who` · `send` · `inbox` · `spawn` · bare-status.
+The most common verbs also answer at the top level, and a bare `cyberlegion` prints a status line. The [CLI Reference](/cyberlegion/cli/) lists them.
 
 ## Delegation & return — prefer wake over wait
 
