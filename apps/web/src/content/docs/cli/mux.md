@@ -1,16 +1,16 @@
 ---
 title: 'CLI: mux'
-description: 'CLI reference for cyberlegion mux: doctor and mode — multiplexer detection and diagnostics.'
+description: 'CLI reference for cyberlegion mux, whose doctor and mode subcommands handle multiplexer detection and diagnostics.'
 ---
 
 ```sh
 npx cyberlegion mux <doctor|mode> ...
 ```
 
-`mux` is the unit-agnostic pane layer — detection and diagnostics for the multiplexer (tmux or
+`mux` is the unit-agnostic pane layer: detection and diagnostics for the multiplexer (tmux or
 herdr) a unit might be running under. It carries zero unit knowledge; see [Architecture: Two
 layers](/cyberlegion/concepts/architecture/#two-layers-one-way-dependency). Only `doctor` and `mode` surface to
-a user — everything else in the mux layer is internal, composed by the `unit`/`mail`/`attach`
+a user. Everything else in the mux layer is internal, composed by the `unit`/`mail`/`attach`
 commands.
 
 ## doctor
@@ -33,11 +33,11 @@ is even available.
 npx cyberlegion mux mode
 ```
 
-Report the detected session-backend mode. Output: `mode` — the detected adapter name, or `none`
+Report the detected session-backend mode. Output: `mode`, the detected adapter name, or `none`
 when no multiplexer is detected.
 
 ## Related
 
-- [Architecture](/cyberlegion/concepts/architecture/) — the mux/legion layer split and the mux plane's authority
-- [CLI: attach](/cyberlegion/cli/attach/) — binds a pane this layer can locate
-- [Skill: init-cyberlegion](/cyberlegion/skills/init-cyberlegion/) — runs `mux doctor` as its first onboarding step
+- [Architecture](/cyberlegion/concepts/architecture/): the mux/legion layer split and the mux plane's authority
+- [CLI: attach](/cyberlegion/cli/attach/): binds a pane this layer can locate
+- [Skill: init-cyberlegion](/cyberlegion/skills/init-cyberlegion/): runs `mux doctor` as its first onboarding step
