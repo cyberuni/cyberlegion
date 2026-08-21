@@ -1,5 +1,50 @@
 # cyberlegion
 
+## 0.3.2
+
+### Patch Changes
+
+- d28a531: Hardened `FileStore` against the concurrency and corruption risks a filesystem-only,
+  daemonless, multi-process mailbox is actually exposed to (surveyed from `agmsg` and
+  `firstmate`, two comparable tools, in `.research/messaging-robustness/evidence.md`):
+  
+  - Every store mutation (`putMessage`, `putAgent`, `putPaneIndex`, `writeBrief`,
+    `setMainPane`) now writes atomically — a sibling temp file, then `renameSync` into place —
+    instead of `writeFileSync` on the final path directly. A process crash mid-write, or a
+    reader racing a writer, can no longer hand `JSON.parse` a truncated file.
+  - Added an advisory, mkdir-based lock (`store/lock.ts`, `Store#withLock`) for genuine
+    read-modify-write operations such as `setMainPane`'s rebind. It reclaims a lock abandoned
+    by a confirmed-dead process but never steals one a live process still holds.
+  - A corrupt record file now throws a typed, file-named `CorruptRecordError` instead of a
+    bare `SyntaxError`; missing and corrupt records stay distinguishable.
+  - An agent or message id that would traverse outside its intended path segment (`../`, an
+    absolute path, an embedded path separator) is now rejected with a typed `InvalidIdError`
+    on write, rather than being joined into a filename unchanged.
+- 6d242f9: Restored the license file in the published tarball. Up to 0.3.1 this package was
+  published from a monorepo whose root license file was picked up automatically at publish
+  time. After the move to its own repository the root file is named in lower case, which
+  that mechanism no longer matched, so the tarball would have shipped with no license text
+  at all — only the `license: MIT` field in the manifest. The package now carries its own
+  copy, so the license travels with the code regardless of what the repository root is
+  called.
+- 1536191: `unit claim`/`unit claim --clear` (`identity.ts`'s `claimPresence`/`clearPresence`) now serialize
+  their load-mutate-save of a standing owner's presence pointer behind the store's advisory lock,
+  matching `setMainPane`. Two concurrent claims (or a claim racing a clear) against the same standing
+  owner previously read-modified-wrote the record unguarded; the last-claim-wins semantics are
+  unchanged, but the transition itself is now atomic rather than racing two processes' independent
+  reads against each other.
+- f551433: Removed the package's `prepack` script. It ran `pnpm build`, and the build tool writes
+  ANSI-colored progress lines to stdout — which corrupted the JSON that `npm pack --json`
+  emits, so any tool inspecting the package that way got a parse error instead of a file
+  list. Nothing is lost by dropping it: every path that packs or publishes this package
+  already builds first.
+- 19e95be: `--version` now reports the version from the package manifest instead of a hardcoded
+  `0.0.0`. Every release since 0.0.1 shipped a CLI that reported `0.0.0` regardless of the
+  version actually installed, which made `npx cyberlegion@<pin> --version` useless for
+  confirming which build was running. The test that covered `--version` asserted the literal
+  `0.0.0`, so it pinned the defect rather than catching it; it now asserts against the
+  manifest and fails loud on a placeholder.
+
 ## 0.3.1
 
 ### Patch Changes
