@@ -1,7 +1,7 @@
 {
 	"$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
 	"name": "cyberlegion",
-	"version": "0.0.0",
+	"version": "0.3.2",
 	"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
 	"author": { "name": "unional" },
 	"homepage": "https://github.com/cyberuni/cyberplace",
