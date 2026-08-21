@@ -55,16 +55,16 @@ always lives in the mailbox (`mail send`, or the brief file `unit spawn` drops f
 ## Placement — a concept, not a backend command
 
 `unit spawn --at` names *where* a new session opens as a **placement concept**, and the mux layer
-maps it onto whatever the live backend calls it. Every multiplexer nests the same four levels —
-**Session › Workspace › Tab › Pane** — but the vocabulary drifts (notably: a tmux/screen "Window"
-*is* the **Tab** level, not a workspace):
+maps it onto whatever the live backend calls it. The concept nests four levels, **Session ›
+Workspace › Tab › Pane**, and each backend names them differently. Watch the Tab row: what tmux
+calls a "Window" is the **Tab** level, not a workspace.
 
-| Concept       | tmux    | screen | zellij  | cmux                          | Orca                  | herdr     |
-| ------------- | ------- | ------ | ------- | ------------------------------ | --------------------- | --------- |
-| **Session**   | Session | Session| Session | App (state saved on restart)  | ----                  | Session   |
-| **Workspace** | ----    | ----   | ----    | Window/Workspace              | Worktree (git branch) | Workspace |
-| **Tab**       | Window  | Window | Tab     | Vertical Tab (w/ git status)  | Tab                   | Tab       |
-| **Pane**      | Pane    | Region | Pane    | Split Pane                    | Pane                  | Pane      |
+| Concept | tmux | herdr |
+| --- | --- | --- |
+| **Session** | Session | Session |
+| **Workspace** | (none) | Workspace |
+| **Tab** | Window | Tab |
+| **Pane** | Pane | Pane |
 
 cyberlegion drives two backends (tmux, herdr) and exposes three levels: `pane:right` / `pane:down`
 (**Pane**), `tab` (**Tab**, the default), `workspace` (**Workspace**). `--at` **defaults to `tab`**
