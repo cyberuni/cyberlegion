@@ -11,7 +11,7 @@ npx cyberlegion init [--agent <h>] [--dir <path>] [--pin <version>]
 the Legion surfacing hook into its config, and advise binding the owner pane. It does the wiring
 only — it never asks a question and never binds anything itself. The judgment (is this a root
 session? should we offer to bind? has an owner already been minted?) belongs to the [`init-cyberlegion`
-skill](/skills/init-cyberlegion/), which runs this command as its step 2.
+skill](/cyberlegion/skills/init-cyberlegion/), which runs this command as its step 2.
 
 This is a distinct command from the `init-cyberlegion` **skill** — same name-adjacent concept,
 different job. Run this directly only when scripting a known harness; use the skill for a guided,
@@ -37,9 +37,9 @@ as the owner's live presence.
 
 ## Related
 
-- [Skill: init-cyberlegion](/skills/init-cyberlegion/) — the guided onboarding flow this command
+- [Skill: init-cyberlegion](/cyberlegion/skills/init-cyberlegion/) — the guided onboarding flow this command
   is a step of
-- [CLI: unit](/cli/unit/) — `unit register --standing` mints the owner identity this command
+- [CLI: unit](/cyberlegion/cli/unit/) — `unit register --standing` mints the owner identity this command
   advises on
-- [CLI: attach](/cli/attach/) — binds the pane this command advises on
-- [CLI: mail](/cli/mail/) — `mail hook` is what the registered hook calls on each harness event
+- [CLI: attach](/cyberlegion/cli/attach/) — binds the pane this command advises on
+- [CLI: mail](/cyberlegion/cli/mail/) — `mail hook` is what the registered hook calls on each harness event

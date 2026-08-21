@@ -19,7 +19,7 @@ npx cyberlegion mail inbox   # list this session's mail
 
 The CLI is **pure mechanism** — it spawns sessions, sends and reads mail, and reports environment
 state, but it never decides *how* to reach a peer (warm session vs. cold subagent vs. inline) and
-never invokes a harness's own subagent tool. That judgment is the [Legate](/skills/legate/)'s job.
+never invokes a harness's own subagent tool. That judgment is the [Legate](/cyberlegion/skills/legate/)'s job.
 
 Reach for the CLI directly when you already know exactly which command you need — scripting a
 known flow, or diagnosing with `mux doctor`. Reach for a skill when the request is "get a message
@@ -39,13 +39,13 @@ Every command also accepts `--space <path>` to isolate the hub root, overriding 
 
 | Group | Owns | Reference |
 |---|---|---|
-| `unit` | register/discover units, spawn/reap warm sessions | [CLI: unit](/cli/unit/) |
-| `mail` | durable inter-agent messaging | [CLI: mail](/cli/mail/) |
-| `agent` | resolve reusable agent definitions | [CLI: agent](/cli/agent/) |
-| `mux` | multiplexer detection and diagnostics | [CLI: mux](/cli/mux/) |
-| `attach` | bind the human's read-pane | [CLI: attach](/cli/attach/) |
-| `init` | onboarding — detect harness, wire the hook | [CLI: init](/cli/init/) |
-| `admin` | hub-state maintenance | [CLI: admin](/cli/admin/) |
+| `unit` | register/discover units, spawn/reap warm sessions | [CLI: unit](/cyberlegion/cli/unit/) |
+| `mail` | durable inter-agent messaging | [CLI: mail](/cyberlegion/cli/mail/) |
+| `agent` | resolve reusable agent definitions | [CLI: agent](/cyberlegion/cli/agent/) |
+| `mux` | multiplexer detection and diagnostics | [CLI: mux](/cyberlegion/cli/mux/) |
+| `attach` | bind the human's read-pane | [CLI: attach](/cyberlegion/cli/attach/) |
+| `init` | onboarding — detect harness, wire the hook | [CLI: init](/cyberlegion/cli/init/) |
+| `admin` | hub-state maintenance | [CLI: admin](/cyberlegion/cli/admin/) |
 
-See [Concepts](/concepts/architecture/) for the layering and invariants these groups follow, and
-[Skills](/skills/) for the plugin built on top of them.
+See [Concepts](/cyberlegion/concepts/architecture/) for the layering and invariants these groups follow, and
+[Skills](/cyberlegion/skills/) for the plugin built on top of them.

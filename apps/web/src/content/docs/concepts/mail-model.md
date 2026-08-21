@@ -4,7 +4,7 @@ description: The mail plane in email terms — address vs correlation, delivery,
 ---
 
 Mail is cyberlegion's durable, non-authoritative communication plane — see [Architecture: Two
-planes](/concepts/architecture/#two-planes-mail-vs-mux) for how it contrasts with the authoritative
+planes](/cyberlegion/concepts/architecture/#two-planes-mail-vs-mux) for how it contrasts with the authoritative
 mux plane. This page is the mail model itself.
 
 ## In email terms
@@ -36,20 +36,20 @@ send, which is what lets a cold subagent report back with no identity of its own
   the calling session's own registered identity.
 - **The owner mailbox** — a **standing**, session-independent identity's inbox, addressed with
   `--owner <handle>` on `inbox`/`read`/`ack`. This is where headless and cron-started agents with no
-  live parent frame push their reports. See the [`manage-inbox` skill](/skills/manage-inbox/) for
+  live parent frame push their reports. See the [`manage-inbox` skill](/cyberlegion/skills/manage-inbox/) for
   the human-facing workflow over it.
 
 ## Delivery: durable first, wake best-effort
 
 `mail send` always writes the message durably first, then attempts to wake the recipient's pane as
 a best-effort doorbell on top — a failed wake never fails the send (it prints a warning instead).
-`--no-nudge` suppresses the doorbell outright. See [CLI: mail](/cli/mail/) for the full flag
+`--no-nudge` suppresses the doorbell outright. See [CLI: mail](/cyberlegion/cli/mail/) for the full flag
 reference.
 
 ## Waiting for a reply
 
 Prefer being woken over blocking — see [Architecture: Delegation &
-return](/concepts/architecture/#delegation--return--prefer-wake-over-wait). `mail await --thread
+return](/cyberlegion/concepts/architecture/#delegation--return--prefer-wake-over-wait). `mail await --thread
 <id>` is the fallback for a context with no wake hook: it blocks until a thread-correlated reply
 arrives, prints it, and acks it. `mail watch` is the read-only sibling — it streams new matching
 mail as it arrives and never acks anything, so it's safe to run as a passive observer.
@@ -64,6 +64,6 @@ spawn time — a peer message never grants power, it only activates power a huma
 
 ## Related
 
-- [Architecture](/concepts/architecture/) — the mail plane vs. the mux plane
-- [CLI: mail](/cli/mail/) — the full command reference
-- [Skill: manage-inbox](/skills/manage-inbox/) — managing the owner mailbox as a human
+- [Architecture](/cyberlegion/concepts/architecture/) — the mail plane vs. the mux plane
+- [CLI: mail](/cyberlegion/cli/mail/) — the full command reference
+- [Skill: manage-inbox](/cyberlegion/skills/manage-inbox/) — managing the owner mailbox as a human

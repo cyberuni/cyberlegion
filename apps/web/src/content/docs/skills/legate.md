@@ -6,7 +6,7 @@ description: What the legate skill does, what it hands off to routing judgment, 
 `legate` is the gateway skill for the Legion — the front door to agent session spawning,
 messaging, and dispatch. It is a **thin classifier**: it holds no production logic itself, loads
 no other governance except `dispatch-governance`, and writes no state of its own. It classifies the
-request and either runs the matching [`cyberlegion` CLI](/cli/) call directly, or — for a dispatch
+request and either runs the matching [`cyberlegion` CLI](/cyberlegion/cli/) call directly, or — for a dispatch
 intent — hands routing judgment off.
 
 ## Run it
@@ -24,7 +24,7 @@ Two different primitives, never confused: a **nudge** (`unit nudge <ref>`) is a 
 rings a peer's pane and carries no content. The **payload always lives in the mailbox** (`mail
 send`, or the brief file `unit spawn` drops for a new unit) — a peer that receives a nudge reads
 its mail to learn *why* it was rung. `legate` never encodes meaning in a nudge itself, and never
-skips the mailbox because a nudge already fired. See [Mail Model](/concepts/mail-model/).
+skips the mailbox because a nudge already fired. See [Mail Model](/cyberlegion/concepts/mail-model/).
 
 ## Classification map
 
@@ -38,7 +38,7 @@ skips the mailbox because a nudge already fired. See [Mail Model](/concepts/mail
 | Watch mail as it streams in (observer, never acks) | `mail watch` |
 | List addressable peers | `unit who` |
 | Sweep dead peers | `unit prune` |
-| Onboard / set up cyberlegion | invoke the [`init-cyberlegion` skill](/skills/init-cyberlegion/) |
+| Onboard / set up cyberlegion | invoke the [`init-cyberlegion` skill](/cyberlegion/skills/init-cyberlegion/) |
 | Diagnose the environment | `mux doctor` |
 | Register the surfacing hook by hand | `init --agent <harness>` (`init-cyberlegion` wraps this) |
 | Dispatch work to fulfill a role and expect a verdict back | hand off to `dispatch-governance` |
@@ -71,8 +71,8 @@ intent — that composition is `dispatch-governance`'s job, not a shortcut this 
 
 ## Related
 
-- [CLI: unit](/cli/unit/) · [CLI: mail](/cli/mail/) · [CLI: mux](/cli/mux/) — the commands this
+- [CLI: unit](/cyberlegion/cli/unit/) · [CLI: mail](/cyberlegion/cli/mail/) · [CLI: mux](/cyberlegion/cli/mux/) — the commands this
   skill classifies into
-- [Skill: init-cyberlegion](/skills/init-cyberlegion/) — where onboarding intent is routed
-- [Skill: manage-inbox](/skills/manage-inbox/) — the human's owner-mailbox surface, distinct from
+- [Skill: init-cyberlegion](/cyberlegion/skills/init-cyberlegion/) — where onboarding intent is routed
+- [Skill: manage-inbox](/cyberlegion/skills/manage-inbox/) — the human's owner-mailbox surface, distinct from
   this skill's session-scoped mail handling

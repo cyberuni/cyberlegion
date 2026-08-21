@@ -44,12 +44,12 @@ npx cyberlegion init
 ```
 
 This detects the harness and registers the mail-surfacing hook — see the
-[`init-cyberlegion` skill](/skills/init-cyberlegion/) for the guided version, which also offers to
-bind the current pane as the durable owner inbox, and [`cli/init`](/cli/init/) for the raw
+[`init-cyberlegion` skill](/cyberlegion/skills/init-cyberlegion/) for the guided version, which also offers to
+bind the current pane as the durable owner inbox, and [`cli/init`](/cyberlegion/cli/init/) for the raw
 command reference.
 
 ## Related
 
-- [Introduction](/getting-started/introduction/) — what cyberlegion is
-- [CLI: init](/cli/init/) — the onboarding command reference
-- [Skill: init-cyberlegion](/skills/init-cyberlegion/) — the guided onboarding flow
+- [Introduction](/cyberlegion/getting-started/introduction/) — what cyberlegion is
+- [CLI: init](/cyberlegion/cli/init/) — the onboarding command reference
+- [Skill: init-cyberlegion](/cyberlegion/skills/init-cyberlegion/) — the guided onboarding flow

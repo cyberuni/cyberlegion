@@ -3,18 +3,18 @@ title: Skills
 description: The three user-facing skills the cyberlegion plugin ships, the internal governance skills behind them, and when to run the CLI instead.
 ---
 
-The plugin ships three user-facing skills. [`legate`](/skills/legate/) is the front door to
-reaching another agent session — send, spawn, wait, dispatch. [`init-cyberlegion`](/skills/init-cyberlegion/)
+The plugin ships three user-facing skills. [`legate`](/cyberlegion/skills/legate/) is the front door to
+reaching another agent session — send, spawn, wait, dispatch. [`init-cyberlegion`](/cyberlegion/skills/init-cyberlegion/)
 onboards a session or repository: probe the environment, register the surfacing hook, and offer to
-bind the owner pane. [`manage-inbox`](/skills/manage-inbox/) is the human's surface for the owner
+bind the owner pane. [`manage-inbox`](/cyberlegion/skills/manage-inbox/) is the human's surface for the owner
 mailbox — the durable inbox headless and cron-started agents report into.
 
 | Reach for | When |
 |---|---|
-| [`legate`](/skills/legate/) | reaching another session — send mail, check inbox, spawn/close a peer, wait for a reply, dispatch work to fulfill a role |
-| [`init-cyberlegion`](/skills/init-cyberlegion/) | setting up cyberlegion in this session or repo for the first time |
-| [`manage-inbox`](/skills/manage-inbox/) | checking, reading, or clearing the owner mailbox as a human roaming across sessions |
-| the [CLI](/cli/) | you already know exactly which command you need, or you're scripting a known flow |
+| [`legate`](/cyberlegion/skills/legate/) | reaching another session — send mail, check inbox, spawn/close a peer, wait for a reply, dispatch work to fulfill a role |
+| [`init-cyberlegion`](/cyberlegion/skills/init-cyberlegion/) | setting up cyberlegion in this session or repo for the first time |
+| [`manage-inbox`](/cyberlegion/skills/manage-inbox/) | checking, reading, or clearing the owner mailbox as a human roaming across sessions |
+| the [CLI](/cyberlegion/cli/) | you already know exactly which command you need, or you're scripting a known flow |
 
 `legate` and `init-cyberlegion` each wrap CLI commands but carry judgment the CLI deliberately
 doesn't: `legate` decides *how* to reach a peer (or hands that decision to `dispatch-governance`),
@@ -25,7 +25,7 @@ mail command answers the human's ask.
 ## Skill or CLI?
 
 Reach for a skill when the request is judgment-shaped — "get this to that peer," "set this up,"
-"what's in my inbox" — and let the skill pick the commands. Reach for the [CLI](/cli/) directly
+"what's in my inbox" — and let the skill pick the commands. Reach for the [CLI](/cyberlegion/cli/) directly
 when you already know the exact command and flags, or you're scripting a flow outside an agent
 session entirely.
 
@@ -49,7 +49,7 @@ public skill surface:
   picked the **subagent** strategy: resolve the agent def, then realize it via the caller's own
   Task tool.
 
-See [Architecture: Routing judgment lives above the CLI](/concepts/architecture/#routing-judgment-lives-above-the-cli)
+See [Architecture: Routing judgment lives above the CLI](/cyberlegion/concepts/architecture/#routing-judgment-lives-above-the-cli)
 for how these fit together.
 
 ## Install
@@ -80,5 +80,5 @@ The three user-facing skills come with it:
 ## The commands behind them
 
 Every skill on this page is a wrapper over `cyberlegion` CLI calls — none of them talk to the
-filesystem or another session directly. See the [CLI Reference](/cli/) for the full command
+filesystem or another session directly. See the [CLI Reference](/cyberlegion/cli/) for the full command
 surface.

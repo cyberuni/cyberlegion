@@ -9,7 +9,7 @@ npx cyberlegion mail <send|inbox|read|ack|delete|await|watch|hook> ...
 
 `mail` is durable inter-agent messaging — the store and the universal return channel every unit
 gets once it registers. It is the **peer, non-authoritative** plane; see [Mail
-Model](/concepts/mail-model/) for the full model and its contrast with the authoritative mux plane.
+Model](/cyberlegion/concepts/mail-model/) for the full model and its contrast with the authoritative mux plane.
 
 ## send
 
@@ -110,7 +110,7 @@ Three outcomes:
 | `timed-out` | 1 | a clear stderr message and nothing on stdout — `--timeout` elapsed with no match |
 
 Prefer being woken over calling `await` — see [Architecture: Delegation &
-return](/concepts/architecture/#delegation--return--prefer-wake-over-wait).
+return](/cyberlegion/concepts/architecture/#delegation--return--prefer-wake-over-wait).
 
 ## watch
 
@@ -132,8 +132,8 @@ matching harness event; it's rarely invoked by hand.
 
 ## Related
 
-- [Mail Model](/concepts/mail-model/) — the address/correlation model and why mail stays
+- [Mail Model](/cyberlegion/concepts/mail-model/) — the address/correlation model and why mail stays
   non-authoritative
-- [CLI: unit](/cli/unit/) — registration is what mints a mailbox
-- [CLI: init](/cli/init/) — registers the hook that calls `mail hook`
-- [Skill: manage-inbox](/skills/manage-inbox/) — the human-facing wrapper for the owner mailbox
+- [CLI: unit](/cyberlegion/cli/unit/) — registration is what mints a mailbox
+- [CLI: init](/cyberlegion/cli/init/) — registers the hook that calls `mail hook`
+- [Skill: manage-inbox](/cyberlegion/skills/manage-inbox/) — the human-facing wrapper for the owner mailbox

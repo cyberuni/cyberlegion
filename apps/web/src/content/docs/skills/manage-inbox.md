@@ -5,7 +5,7 @@ description: What the manage-inbox skill does, how it wraps the owner-scoped mai
 
 `manage-inbox` is the human's surface for the **owner mailbox** — the hub-level,
 session-independent inbox a standing owner identity holds, where frameless agents (cron-started, no
-parent frame) push their reports. It wraps the [`cyberlegion` CLI](/cli/)'s owner-scoped mail
+parent frame) push their reports. It wraps the [`cyberlegion` CLI](/cyberlegion/cli/)'s owner-scoped mail
 commands so a human roaming across sessions manages the one owner mailbox from wherever they are.
 It is a thin wrapper: it decides nothing about routing or dispatch, and writes no state beyond the
 ack or reply the human directs.
@@ -54,7 +54,7 @@ the answer, since the thread carries state across the agent's stateless re-runs.
 ## Rules the skill follows
 
 - It only manages the **owner** mailbox (`--owner`) — a session's own inbox (plain `mail
-  inbox`/`read`/`ack`, no `--owner`) is [`legate`](/skills/legate/)'s concern, not this skill's.
+  inbox`/`read`/`ack`, no `--owner`) is [`legate`](/cyberlegion/skills/legate/)'s concern, not this skill's.
 - It is a thin CLI wrapper: it decides nothing about routing or dispatch.
 
 ## What it will not do
@@ -64,7 +64,7 @@ mint is a deliberate, separate act.
 
 ## Related
 
-- [Mail Model](/concepts/mail-model/) — the owner mailbox vs. a session's own inbox
-- [CLI: mail](/cli/mail/) — the full `--owner`-scoped command reference
-- [Skill: init-cyberlegion](/skills/init-cyberlegion/) — mints and binds the owner identity this
+- [Mail Model](/cyberlegion/concepts/mail-model/) — the owner mailbox vs. a session's own inbox
+- [CLI: mail](/cyberlegion/cli/mail/) — the full `--owner`-scoped command reference
+- [Skill: init-cyberlegion](/cyberlegion/skills/init-cyberlegion/) — mints and binds the owner identity this
   skill manages mail for

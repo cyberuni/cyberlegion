@@ -25,5 +25,5 @@ destination.
 
 ## Related
 
-- [Architecture](/concepts/architecture/) — the hub root and where state lives
-- [CLI: unit](/cli/unit/) · [CLI: mail](/cli/mail/) — the record types this command merges
+- [Architecture](/cyberlegion/concepts/architecture/) — the hub root and where state lives
+- [CLI: unit](/cyberlegion/cli/unit/) · [CLI: mail](/cyberlegion/cli/mail/) — the record types this command merges

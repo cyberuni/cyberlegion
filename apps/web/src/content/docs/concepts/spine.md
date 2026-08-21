@@ -18,10 +18,10 @@ those: it is the multiplexer location a unit happens to occupy right now, and a 
 (headless, `--standing`) with no pane at all.
 
 This split is why the command groups are shaped the way they are — see [CLI:
-agent](/cli/agent/) for the definition side and [CLI: unit](/cli/unit/) for the instance side.
+agent](/cyberlegion/cli/agent/) for the definition side and [CLI: unit](/cyberlegion/cli/unit/) for the instance side.
 
 ## Related
 
-- [Architecture](/concepts/architecture/) — how the spine sits inside the two-layer split
-- [Mail Model](/concepts/mail-model/) — how a `unit`'s identity becomes a mailbox address
-- [CLI: unit](/cli/unit/) · [CLI: agent](/cli/agent/) · [CLI: mux](/cli/mux/)
+- [Architecture](/cyberlegion/concepts/architecture/) — how the spine sits inside the two-layer split
+- [Mail Model](/cyberlegion/concepts/mail-model/) — how a `unit`'s identity becomes a mailbox address
+- [CLI: unit](/cyberlegion/cli/unit/) · [CLI: agent](/cyberlegion/cli/agent/) · [CLI: mux](/cyberlegion/cli/mux/)

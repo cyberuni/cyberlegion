@@ -8,8 +8,8 @@ subagent tool. Routing — deciding *when* to spawn a warm peer versus a cold su
 the work in-session — is the caller's judgment, carried by the **Legate** (the plugin). Everything
 below follows from holding the CLI to that line.
 
-For the noun model behind every command, see [The Spine](/concepts/spine/). For the command
-reference and installation, see [Getting Started](/getting-started/introduction/).
+For the noun model behind every command, see [The Spine](/cyberlegion/concepts/spine/). For the command
+reference and installation, see [Getting Started](/cyberlegion/getting-started/introduction/).
 
 ## Two layers, one-way dependency
 
@@ -113,7 +113,7 @@ an intent (fulfill a role with a brief, expect a verdict), it reads the target a
 strategy: **channel** (a warm, interactive peer in its own pane), **run-inline** (no multiplexer to
 host a peer), or **subagent** (a cold, one-shot unit realized via the caller's own Task tool). In an
 attended session this runs in-session as the `dispatch-governance` skill; with no user channel it's
-realized headless as the `headless-legate` agent. See [Skills](/skills/) for how this surfaces to a
+realized headless as the `headless-legate` agent. See [Skills](/cyberlegion/skills/) for how this surfaces to a
 session.
 
 ## Invariants
@@ -138,6 +138,6 @@ registration *is* mailbox creation, the orchestrator simply has to be registered
 
 ## Related
 
-- [The Spine](/concepts/spine/) — the agent / unit / pane nouns this architecture is built from
-- [Mail Model](/concepts/mail-model/) — the mail plane in detail
-- [CLI Reference](/cli/) — every command group this architecture organizes
+- [The Spine](/cyberlegion/concepts/spine/) — the agent / unit / pane nouns this architecture is built from
+- [Mail Model](/cyberlegion/concepts/mail-model/) — the mail plane in detail
+- [CLI Reference](/cyberlegion/cli/) — every command group this architecture organizes

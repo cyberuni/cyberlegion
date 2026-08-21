@@ -24,13 +24,13 @@ cyberlegion is one repository with two halves that ship together but stay strict
 
 - **The console** — the `npm` package (`cyberlegion`), a cold, deterministic CLI. It never decides
   *when* to spawn a peer versus a subagent; it only offers the primitive once a caller has decided.
-  See the [CLI Reference](/cli/).
+  See the [CLI Reference](/cyberlegion/cli/).
 - **The Legate** — the agent plugin, the routing brain built on top of the console. It carries the
   judgment the CLI deliberately doesn't: which dispatch strategy to use for a given intent. See
-  [Skills](/skills/).
+  [Skills](/cyberlegion/skills/).
 
 ## Where to go next
 
-- New to the CLI? Start with [Installation](/getting-started/installation/).
-- Want the mental model before the commands? Read [Concepts](/concepts/architecture/).
-- Working from an agent session? Load the [`legate` skill](/skills/legate/).
+- New to the CLI? Start with [Installation](/cyberlegion/getting-started/installation/).
+- Want the mental model before the commands? Read [Concepts](/cyberlegion/concepts/architecture/).
+- Working from an agent session? Load the [`legate` skill](/cyberlegion/skills/legate/).
