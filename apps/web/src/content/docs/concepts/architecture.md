@@ -8,8 +8,9 @@ subagent tool. Routing — deciding *when* to spawn a warm peer versus a cold su
 the work in-session — is the caller's judgment, carried by the **Legate** (the plugin). Everything
 below follows from holding the CLI to that line.
 
-For the noun model behind every command, see [The Spine](/cyberlegion/concepts/spine/). For the command
-reference and installation, see [Getting Started](/cyberlegion/getting-started/introduction/).
+For the noun model behind every command, see [The Spine](/cyberlegion/concepts/spine/). For every
+command group, see the [CLI Reference](/cyberlegion/cli/). To install, see
+[Installation](/cyberlegion/getting-started/installation/).
 
 ## Two layers, one-way dependency
 
