@@ -66,8 +66,9 @@ filesystem (Claude Code, Cursor, Codex). It ships as two workspace members:
 
 Unlike a repo where the npm package root doubles as the plugin root, cyberlegion keeps these as
 two separate workspace members — the CLI is a general-purpose mechanism a routing layer builds
-on, and the plugin is one particular consumer of it (others, like `cyberfleet`, import the CLI's
-library surface directly instead).
+on, and the plugin is one particular consumer of it. Others bypass the Legate entirely: the
+`cyberfleet` plugin's skills shell out to the `cyberlegion` CLI (`unit spawn`, `unit who`, `mail
+send`) and reference no cyberlegion skill, because cyberfleet carries its own routing judgment.
 
 It is deliberately **not** an MCP server. Coordination acts on filesystem state under a shared
 hub root, through a shell command and skills, not through a remote API or a long-lived process.
