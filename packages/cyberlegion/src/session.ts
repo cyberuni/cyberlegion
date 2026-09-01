@@ -354,7 +354,7 @@ export function readUnit(
 ): { agent: AgentRecord; pane: string; output: string } {
 	const { agent, target } = paneTargetOf(ctx, ref)
 	const exec = ctx.exec ?? realExec
-	const output = selectSessionAdapter(ctx.env ?? process.env, exec).read(exec, target, { lines: options.lines })
+	const output = selectSessionAdapter(ctx.env ?? process.env, exec).read(exec, target, { lines: options.lines }).text
 	return { agent, pane: target.id, output }
 }
 
