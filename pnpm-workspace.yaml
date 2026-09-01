@@ -10,3 +10,12 @@ onlyBuiltDependencies:
   - "@biomejs/biome"
   - esbuild
   - sharp
+
+# Supply-chain soak: refuse packages published less than 24h ago, so a compromised
+# release has a window to be caught and unpublished before it reaches a build.
+# Strict mode makes the soak a hard gate rather than an advisory warning; without
+# it pnpm auto-writes `minimumReleaseAgeExclude` entries and installs anyway.
+# Mirrors `minimumReleaseAge` in the renovate preset, which shortens it to 1 day
+# for vulnerability alerts rather than to zero.
+minimumReleaseAge: 1440
+minimumReleaseAgeStrict: true

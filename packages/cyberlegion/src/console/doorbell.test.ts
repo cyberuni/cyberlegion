@@ -74,9 +74,12 @@ function fakeAdapter(
 		read: () => {
 			const value = reads[Math.min(readIndex, reads.length - 1)] ?? ''
 			readIndex++
-			return value
+			return { text: value }
 		},
 		focus: () => {},
+		waitForOutput: () => {
+			throw new Error('not used')
+		},
 		teardown: () => {},
 		paneExists: () => true,
 		isPaneFocused: () => focused,
