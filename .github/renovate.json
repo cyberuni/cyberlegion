@@ -1,11 +1,19 @@
 {
-	"extends": ["github>unional/renovate-preset"],
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": ["github>unional/renovate-preset", ":dependencyDashboard"],
+	"minimumReleaseAge": "1 day",
 	"platformAutomerge": true,
+	"rebaseWhen": "behind-base-branch",
 	"packageRules": [
 		{
 			"description": "Auto-merge non-major updates. Majors stay manual.",
 			"matchUpdateTypes": ["minor", "patch", "pin", "digest"],
 			"automerge": true
+		},
+		{
+			"description": "Majors break builds in ways CI catches but a human should choose to absorb.",
+			"matchUpdateTypes": ["major"],
+			"automerge": false
 		},
 		{
 			"description": "@types/node tracks the supported Node range, so bumps are a deliberate call.",
