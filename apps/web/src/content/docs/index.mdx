@@ -1,14 +1,54 @@
 ---
 title: cyberlegion
-description: Harness-agnostic, MCP-free agent session spawning and messaging over the filesystem.
+description: Let one agent session reach another, across Claude Code, Cursor, and Codex, with no server to keep alive.
 template: splash
+hero:
+  tagline: Let one agent session reach another. Send a peer a message, spawn one to take work off your hands, collect the verdict. Claude Code, Cursor, and Codex, all on one Legion.
+  actions:
+    - text: Get Started
+      link: /cyberlegion/getting-started/introduction/
+      icon: right-arrow
+    - text: GitHub
+      link: https://github.com/cyberuni/cyberlegion
+      icon: external
+      variant: minimal
 ---
 
-Harness-agnostic, MCP-free agent session spawning and messaging over the filesystem — Claude
-Code, Cursor, and Codex, all on one **Legion**. No daemon, no port, no server to keep alive.
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
-- [Introduction](/getting-started/introduction/) — what cyberlegion is and the two things it ships
-- [Installation](/getting-started/installation/) — the CLI via npx, the plugin via the marketplace
-- [Architecture](/concepts/architecture/) — the mux/legion layering, the mail model, and the invariants
-- [CLI Reference](/cli/) — every command group
-- [Skills](/skills/) — the Legate and its onboarding/inbox skills
+## Two ways in
+
+<CardGrid>
+  <Card title="Ask the Legate" icon="pencil">
+    The agent plugin. Say what you want in plain language and it works out how to reach the target: a warm peer in its own pane, a cold one-shot subagent, or the work done in-session.
+    [View skills →](/cyberlegion/skills/)
+  </Card>
+  <Card title="Drive the CLI" icon="seti:shell">
+    `cyberlegion` spawns sessions, sends and reads mail, and reports which multiplexer is live. Reach for it when you already know the command, or when you are scripting.
+    [CLI reference →](/cyberlegion/cli/)
+  </Card>
+</CardGrid>
+
+## What you get
+
+<CardGrid>
+  <Card title="Nothing to keep alive" icon="rocket">
+    No server, no port, no daemon. State is files under a shared hub root, and each harness's own session-start hook delivers the mail.
+  </Card>
+  <Card title="One Legion, every harness" icon="laptop">
+    Claude Code, Cursor, and Codex sessions address each other the same way, so a mixed set of tools behaves like one team.
+  </Card>
+  <Card title="Addressable units" icon="random">
+    An `agent` is a definition, a `unit` is a running instance with its own mailbox, a `pane` is where it lives.
+    [The spine →](/cyberlegion/concepts/spine/)
+  </Card>
+  <Card title="Output agents can read" icon="document">
+    Token-efficient TOON by default, `--format json` as the escape hatch, structured errors, and definitive empty states.
+  </Card>
+</CardGrid>
+
+## Go deeper
+
+- [Installation](/cyberlegion/getting-started/installation/): the plugin via the marketplace, the CLI via npx
+- [Architecture](/cyberlegion/concepts/architecture/): how the layers fit, the mail model, and the invariants
+- [Glossary](/cyberlegion/reference/glossary/): the vocabulary the commands are named after

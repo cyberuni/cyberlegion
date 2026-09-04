@@ -7,9 +7,9 @@ description: 'CLI reference for cyberlegion mail: send, inbox, read, ack, delete
 npx cyberlegion mail <send|inbox|read|ack|delete|await|watch|hook> ...
 ```
 
-`mail` is durable inter-agent messaging — the store and the universal return channel every unit
+`mail` is durable inter-agent messaging: the store and the universal return channel every unit
 gets once it registers. It is the **peer, non-authoritative** plane; see [Mail
-Model](/concepts/mail-model/) for the full model and its contrast with the authoritative mux plane.
+Model](/cyberlegion/concepts/mail-model/) for the full model and its contrast with the authoritative mux plane.
 
 ## send
 
@@ -32,7 +32,7 @@ send`.
 | `--no-nudge` | suppress the delivery doorbell (do not wake the recipient's pane) |
 
 Delivery is durable first; waking the recipient's pane is a best-effort act on top and never fails
-the send — a failed wake prints a warning instead. Output: `sent` (message id), `to`, `subject`,
+the send. A failed wake prints a warning instead. Output: `sent` (message id), `to`, `subject`,
 `rung` (whether the doorbell fired).
 
 ## inbox
@@ -63,7 +63,7 @@ Read a message. Peeking alone does not consume it; `--ack` acknowledges it in th
 
 | Option | Meaning |
 |---|---|
-| `--ack` | acknowledge the message in the same step (idempotent — no error if already acked) |
+| `--ack` | acknowledge the message in the same step (idempotent, so no error if already acked) |
 | `--owner <handle>` | read a standing owner's mailbox instead of this session's own |
 
 Errors if the message id isn't in the resolved inbox. Without `--ack`, suggests `mail ack <id>` as
@@ -75,7 +75,7 @@ a next step.
 npx cyberlegion mail ack <msg-id> [--owner <handle>]
 ```
 
-Acknowledge a message — moves it out of the unread set. `--owner <handle>` acks a standing owner's
+Acknowledge a message, moving it out of the unread set. `--owner <handle>` acks a standing owner's
 mailbox instead of this session's own.
 
 ## delete
@@ -98,19 +98,19 @@ Block until a thread-correlated reply arrives, print it, and ack it.
 |---|---|
 | `--thread <id>` | thread id to wait on (required) |
 | `--from <h>` | only match a reply from this sender |
-| `--timeout <ms>` | give up after this many ms with no match (`0` = wait forever); exits non-zero on timeout — default `600000` |
-| `--max-wait <s>` | self-cap for one internal poll cycle, in seconds; returns the clean "waiting" sentinel at this cap so the caller can re-arm rather than blocking past a harness tool-timeout — default `240` |
+| `--timeout <ms>` | give up after this many ms with no match (`0` = wait forever); exits non-zero on timeout. Default `600000` |
+| `--max-wait <s>` | self-cap for one internal poll cycle, in seconds; returns the clean "waiting" sentinel at this cap so the caller can re-arm rather than blocking past a harness tool-timeout. Default `240` |
 
 Three outcomes:
 
 | Outcome | Exit | Behavior |
 |---|---|---|
 | `matched` | 0 | the message is printed on stdout and acked |
-| `waiting` | 0 | a stderr "waiting" line and nothing on stdout — the per-call `--max-wait` cap was hit with no match yet; re-run the same command to keep waiting |
-| `timed-out` | 1 | a clear stderr message and nothing on stdout — `--timeout` elapsed with no match |
+| `waiting` | 0 | a stderr "waiting" line and nothing on stdout. The per-call `--max-wait` cap was hit with no match yet; re-run the same command to keep waiting |
+| `timed-out` | 1 | a clear stderr message and nothing on stdout. `--timeout` elapsed with no match |
 
-Prefer being woken over calling `await` — see [Architecture: Delegation &
-return](/concepts/architecture/#delegation--return--prefer-wake-over-wait).
+Prefer being woken over calling `await`. See [Architecture: Delegation &
+return](/cyberlegion/concepts/architecture/#delegation-and-return-prefer-wake-over-wait).
 
 ## watch
 
@@ -118,7 +118,7 @@ return](/concepts/architecture/#delegation--return--prefer-wake-over-wait).
 npx cyberlegion mail watch [--thread <id>] [--from <h>]
 ```
 
-Stream new matching mail as it arrives. An observer only — it never acks. Ctrl-C to stop.
+Stream new matching mail as it arrives. An observer only: it never acks. Ctrl-C to stop.
 
 ## hook
 
@@ -132,8 +132,8 @@ matching harness event; it's rarely invoked by hand.
 
 ## Related
 
-- [Mail Model](/concepts/mail-model/) — the address/correlation model and why mail stays
+- [Mail Model](/cyberlegion/concepts/mail-model/): the address/correlation model and why mail stays
   non-authoritative
-- [CLI: unit](/cli/unit/) — registration is what mints a mailbox
-- [CLI: init](/cli/init/) — registers the hook that calls `mail hook`
-- [Skill: manage-inbox](/skills/manage-inbox/) — the human-facing wrapper for the owner mailbox
+- [CLI: unit](/cyberlegion/cli/unit/): registration is what mints a mailbox
+- [CLI: init](/cyberlegion/cli/init/): registers the hook that calls `mail hook`
+- [Skill: manage-inbox](/cyberlegion/skills/manage-inbox/): the human-facing wrapper for the owner mailbox

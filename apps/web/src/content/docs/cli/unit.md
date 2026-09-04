@@ -7,10 +7,10 @@ description: 'CLI reference for cyberlegion unit: register, discover, spawn, and
 npx cyberlegion unit <register|claim|whoami|who|prune|spawn|close|focus|nudge|read|clear> ...
 ```
 
-`unit` owns the instance registry and session lifecycle — the middle noun of [the
-spine](/concepts/spine/), a running, addressable agent with its own record and mailbox. It never
+`unit` owns the instance registry and session lifecycle, the middle noun of [the
+spine](/cyberlegion/concepts/spine/), a running, addressable agent with its own record and mailbox. It never
 decides whether a peer *should* exist for a given task; that judgment is the caller's (or the
-[Legate](/skills/legate/)'s).
+[Legate](/cyberlegion/skills/legate/)'s).
 
 ## register
 
@@ -97,7 +97,7 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | `--branch <name>` | branch for the new worktree (default `cyberlegion/unit-<id>`) |
 | `--worktree-path <path>` | where to check out the new worktree |
 | `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`) |
-| `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`) — see [Placement](/concepts/architecture/#placement--a-concept-not-a-backend-command) |
+| `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`); see [Placement](/cyberlegion/concepts/architecture/#placement-is-a-concept-not-a-backend-command) |
 | `--no-wake` | suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself) |
 
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
@@ -110,7 +110,7 @@ act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, 
 npx cyberlegion unit close <id> [--force]
 ```
 
-Tear down a unit's worktree and session and reap its state — the inverse of `spawn`. `<id>` may be
+Tear down a unit's worktree and session and reap its state, the inverse of `spawn`. `<id>` may be
 a unit id, handle, or worktree branch/CR ref.
 
 | Option | Meaning |
@@ -131,10 +131,10 @@ Move input focus to a peer's session.
 npx cyberlegion unit nudge <ref> [--message <text>]
 ```
 
-Ring a peer's session — a doorbell that tells them to check their mail. `<ref>` is a unit id,
+Ring a peer's session: a doorbell that tells them to check their mail. `<ref>` is a unit id,
 handle, or worktree branch/CR ref. `--message` defaults to the standard delivery doorbell text. A
-nudge carries no payload of its own — the message the peer is being told to read always lives in
-the mailbox. See [Mail Model](/concepts/mail-model/).
+nudge carries no payload of its own. The message the peer is being told to read always lives in
+the mailbox. See [Mail Model](/cyberlegion/concepts/mail-model/).
 
 ## read
 
@@ -156,7 +156,7 @@ injected command).
 
 ## Related
 
-- [The Spine](/concepts/spine/) — the agent / unit / pane nouns
-- [CLI: mail](/cli/mail/) — the mailbox every registered unit gets
-- [CLI: agent](/cli/agent/) — the definitions `--agent` resolves
-- [Skill: legate](/skills/legate/) — decides *when* to spawn or close a unit
+- [The Spine](/cyberlegion/concepts/spine/): the agent / unit / pane nouns
+- [CLI: mail](/cyberlegion/cli/mail/): the mailbox every registered unit gets
+- [CLI: agent](/cyberlegion/cli/agent/): the definitions `--agent` resolves
+- [Skill: legate](/cyberlegion/skills/legate/): decides *when* to spawn or close a unit

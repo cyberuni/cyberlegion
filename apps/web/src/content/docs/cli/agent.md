@@ -7,8 +7,8 @@ description: 'CLI reference for cyberlegion agent: list, show, resolve, and loca
 npx cyberlegion agent <list|show|resolve|path> ...
 ```
 
-`agent` resolves reusable agent definitions under `.agents/agents/*.md` — the template noun of
-[the spine](/concepts/spine/). It never spawns anything; it only reads and reports a definition
+`agent` resolves reusable agent definitions under `.agents/agents/*.md`, the template noun of
+[the spine](/cyberlegion/concepts/spine/). It never spawns anything; it only reads and reports a definition
 for a caller (typically `unit spawn --agent <name>`, or the Legate composing a dispatch) to act on.
 
 ## list
@@ -48,7 +48,7 @@ Output fields: `name`, `description`, `model` (or `(harness default)`), `effort`
 npx cyberlegion agent resolve [name] [--file <path>] [--dir <path>]
 ```
 
-Emit the full machine payload for a def — for a routing caller (the Legate's
+Emit the full machine payload for a def, for a routing caller (the Legate's
 `dispatch-governance`) to compose a launch/spawn from.
 
 | Option | Meaning |
@@ -68,7 +68,7 @@ Print the resolved def file path.
 
 ## Related
 
-- [The Spine](/concepts/spine/) — where `agent` (definition) sits relative to `unit` (instance)
-- [CLI: unit](/cli/unit/) — `unit spawn --agent <name>` consumes what this group resolves
-- [Skill: legate](/skills/legate/) and its `dispatch-governance` internals read `warm`/`interactive`
+- [The Spine](/cyberlegion/concepts/spine/): where `agent` (definition) sits relative to `unit` (instance)
+- [CLI: unit](/cyberlegion/cli/unit/): `unit spawn --agent <name>` consumes what this group resolves
+- [Skill: legate](/cyberlegion/skills/legate/) and its `dispatch-governance` internals read `warm`/`interactive`
   off `agent resolve` to pick a dispatch strategy
