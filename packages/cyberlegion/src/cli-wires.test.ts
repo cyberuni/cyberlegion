@@ -109,6 +109,17 @@ describe('spec:cyberlegion/unit/lifecycle CLI option wires', () => {
 		await cli(['unit', 'close', 'p1'])
 		expect(decommission.mock.calls[0]?.[1]).not.toMatchObject({ force: true })
 	})
+
+	it('--keep-worktree reaches close, and its absence does not', async () => {
+		registerPeer()
+		await cli(['unit', 'close', 'p1', '--keep-worktree'])
+		expect(decommission.mock.calls[0]?.[1]).toMatchObject({ keepWorktree: true })
+		vi.clearAllMocks()
+		decommission.mockReturnValue({ id: 'p1', worktreeRemoved: false, paneTornDown: false })
+		registerPeer()
+		await cli(['unit', 'close', 'p1'])
+		expect(decommission.mock.calls[0]?.[1]).not.toMatchObject({ keepWorktree: true })
+	})
 })
 
 // `unit read`'s whole result is what it PRINTS — the command emits no TOON object, it hands the

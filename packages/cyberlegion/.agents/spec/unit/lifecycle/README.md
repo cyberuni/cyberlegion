@@ -171,6 +171,19 @@ cleanly — the deterministic inverse pair:
     close and leave the worktree and its uncommitted changes on disk, together with the record, the
     pane pointer, and the stored brief — which is what makes the close retryable; `--force` discards the changes and proceeds. A **clean**
     worktree needs no `--force`.
+  - **`--keep-worktree` reaps everything but the checkout** — the flag leaves the worktree on disk,
+    tears the session pane down, reaps the record, pane pointer and brief exactly as an ordinary
+    close does, and **reports the retained path** so a pool manager can pick the directory up (detach
+    it to `main` and spawn the next unit into it with `--cwd` — far cheaper than a fresh checkout).
+    The retained path is reported **only when a worktree was actually there to keep**: an ordinary
+    close, or a keep-close whose worktree had already vanished from disk, names none rather than
+    handing a pool a path that no longer exists. Under this flag the **dirty check is relaxed**:
+    it exists only to stop `git worktree remove` from discarding uncommitted work, and nothing is
+    removed here — keeping it would refuse a close that destroys nothing and push the operator toward
+    `--force`, the strictly *more* destructive flag, to obtain the strictly *less* destructive
+    outcome. The **primary-checkout refusal is not relaxed**: it is not a destructiveness question —
+    closing the primary checkout's unit also kills the session the operator is sitting in and reaps
+    that checkout's record — so `--keep-worktree`, alone or with `--force`, still hits it.
   - **Completes the reap when the worktree or pane is already gone** — a worktree already absent from
     disk, or a pane the session backend can no longer find, is tolerated; the reap (record, pane
     index, stored data) still completes. When **no pane can be resolved at all** (the record carries
@@ -401,10 +414,13 @@ graph TD
   CL0["unit close ref"] --> CL1{"ref resolves to a unit?"}
   CL1 -- no --> CL1X["throw; nothing is reaped"]
   CL1 -- yes --> CL2{"its worktree root is the primary checkout?"}
-  CL2 -- yes --> CL2X["throw — --force does not override this"]
+  CL2 -- yes --> CL2X["throw — neither --force nor --keep-worktree overrides this"]
   CL2 -- no --> CL3{"a worktree still on disk?"}
   CL3 -- no --> CL6["skip removal entirely — an already-gone worktree is tolerated"]
-  CL3 -- yes --> CL4{"dirty, and no --force?"}
+  CL3 -- yes --> CLK{"--keep-worktree?"}
+  CLK -- yes --> CLK1["skip removal AND the dirty check — nothing is discarded; report the retained path"]
+  CLK1 --> CL6
+  CLK -- no --> CL4{"dirty, and no --force?"}
   CL4 -- yes --> CL4X["throw about uncommitted changes — record, pane pointer and brief all left intact"]
   CL4 -- no --> CL5{"removal succeeds?"}
   CL5 -- no --> CL5X["abort BEFORE the pane teardown — record left intact for retry"]
@@ -612,6 +628,12 @@ column records. They are not gaps.
 | `CL4 -- yes` | a unit with a live pane, a pane pointer and a stored brief, uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
 | `CL4 -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
 | `CL3 -- no` worktree already gone | a unit whose worktree is no longer on disk | `close completes the reap when the worktree no longer exists on disk` |
+| `CLK -- yes` → `CLK1` | a unit with a clean worktree and a live pane, with --keep-worktree | `--keep-worktree leaves the worktree on disk and reaps everything else` |
+| `CLK -- no` (no retained path) | the same, without the flag | `an ordinary close names no retained worktree` |
+| `CLK -- yes` skips the dirty check | a unit with uncommitted changes, with --keep-worktree and no --force | `--keep-worktree keeps a dirty worktree without --force` |
+| `CL3 -- no` under the flag | a unit whose worktree is no longer on disk, with --keep-worktree | `--keep-worktree names no retained worktree when the worktree was already gone` |
+| `CL2 -- yes` under the flag | a unit whose worktree is the primary checkout, with --keep-worktree | `--keep-worktree does not override the primary-checkout refusal` |
+| `CL2 -- yes` under both flags | the same, with --keep-worktree --force | `--keep-worktree with --force does not override the primary-checkout refusal either` |
 | `CL9` swallowed teardown failure | a unit whose pane the backend can no longer find | `close completes the reap when the session pane no longer exists` |
 | `CL7 -- no` → `CL8` | a unit with no pane locator and a pane index holding another unit’s entry | `close reaps a unit no pane can be resolved for, tearing nothing down` |
 | `CL5 -- no` → `CL5X` | a unit with a live pane whose worktree removal genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
