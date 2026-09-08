@@ -419,6 +419,60 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then the worktree is removed
     And the unit's record is gone
 
+  # ── --keep-worktree reaps everything but the checkout ──
+  # The motivating workflow is a POOL: after a unit's work merges, its worktree is detached back to
+  # main and the next unit is spawned into it with --cwd — far cheaper than a fresh checkout each
+  # time. Without this flag the operator must choose between leaking unit records (skip close) and
+  # paying for a rebuild. The dirty check is deliberately RELAXED here: it exists only to protect
+  # uncommitted work from `git worktree remove`, and under this flag nothing is removed.
+
+  Scenario: --keep-worktree leaves the worktree on disk and reaps everything else
+    Given a registered unit with a worktree and a live session pane
+    When a caller runs unit close <id> --keep-worktree
+    Then no worktree removal is attempted
+    And its worktree is still on disk
+    And the session pane is torn down
+    And the unit's registry record, pane pointer, and stored data are gone
+    And the result names the retained worktree path
+
+  Scenario: an ordinary close names no retained worktree
+    Given a registered unit with a worktree and a live session pane
+    When a caller runs unit close <id>
+    Then the worktree is removed
+    And the result names no retained worktree
+
+  Scenario: --keep-worktree keeps a dirty worktree without --force
+    Given a registered unit whose worktree has uncommitted changes
+    When a caller runs unit close <id> --keep-worktree
+    Then it does not throw about uncommitted changes
+    And no worktree removal is attempted
+    And its worktree and its uncommitted changes are still on disk
+    And the unit's registry record and stored data are gone
+    And the result names the retained worktree path
+
+  Scenario: --keep-worktree names no retained worktree when the worktree was already gone
+    Given a registered unit whose worktree root no longer exists on disk
+    When a caller runs unit close <id> --keep-worktree
+    Then no worktree removal is attempted
+    And the unit's record and stored data are gone
+    And the result names no retained worktree
+
+  Scenario: --keep-worktree does not override the primary-checkout refusal
+    Given a registered unit with a live session pane whose worktree root equals the primary checkout
+    When a caller runs unit close <id> --keep-worktree
+    Then it still throws refusing the primary checkout
+    And the unit's record still exists
+    And its pane pointer still exists
+    And its session pane is not torn down
+
+  Scenario: --keep-worktree with --force does not override the primary-checkout refusal either
+    Given a registered unit with a live session pane whose worktree root equals the primary checkout
+    When a caller runs unit close <id> --keep-worktree --force
+    Then it still throws refusing the primary checkout
+    And the unit's record still exists
+    And no worktree removal is attempted
+    And its session pane is not torn down
+
   # ── Completes the reap when the worktree/pane is already gone ──
 
   Scenario: close completes the reap when the worktree no longer exists on disk

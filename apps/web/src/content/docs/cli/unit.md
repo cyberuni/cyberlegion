@@ -107,7 +107,7 @@ act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, 
 ## close
 
 ```sh
-npx cyberlegion unit close <id> [--force]
+npx cyberlegion unit close <id> [--force] [--keep-worktree]
 ```
 
 Tear down a unit's worktree and session and reap its state, the inverse of `spawn`. `<id>` may be
@@ -116,6 +116,20 @@ a unit id, handle, or worktree branch/CR ref.
 | Option | Meaning |
 |---|---|
 | `--force` | discard uncommitted changes in the worktree (never overrides refusing the primary checkout) |
+| `--keep-worktree` | leave the worktree on disk and reap everything else — record, mailbox, pane, brief (never overrides refusing the primary checkout) |
+
+Output: `closed` (id), `worktree`, `retained`, `pane`.
+
+`--keep-worktree` is for **worktree pools**: after a unit's work merges, keep its checkout, detach
+it back to `main`, and spawn the next unit into it with `--cwd` — much cheaper than a fresh checkout
+per unit. The retained path is reported as `retained` (and `retainedWorktree` under `--format json`),
+and only when a worktree was actually there to keep, so an empty value always means "nothing reusable
+here".
+
+Because nothing is deleted, `--keep-worktree` skips the dirty-worktree refusal: that check exists
+only to protect uncommitted work from `git worktree remove`. The primary-checkout refusal is *not*
+relaxed — it protects the session and record of the checkout you are sitting in, not just its files —
+so neither `--force` nor `--keep-worktree` overrides it.
 
 ## focus
 

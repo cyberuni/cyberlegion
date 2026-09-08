@@ -312,13 +312,22 @@ withGlobals(unit.command('close'))
 	.description("tear down a unit's worktree + session and reap its state (the inverse of spawn)")
 	.argument('<id>', 'unit id, handle, or worktree branch/CR ref')
 	.option('--force', 'discard uncommitted changes in the worktree (never overrides refusing the primary checkout)')
+	.option(
+		'--keep-worktree',
+		'leave the worktree on disk for reuse and reap everything else (skips the dirty check; never overrides refusing the primary checkout)',
+	)
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		const agent = resolveAgent(ctx.store, ref)
-		const res = decommission(ctx, { id: agent.id, force: opts.force })
+		const res = decommission(ctx, { id: agent.id, force: opts.force, keepWorktree: opts.keepWorktree })
 		emit(formatOf(opts), {
-			toon: toonObject({ closed: agent.id, worktree: res.worktreeRoot ?? '-', pane: res.pane ?? '-' }),
+			toon: toonObject({
+				closed: agent.id,
+				worktree: res.worktreeRoot ?? '-',
+				retained: res.retainedWorktree ?? '-',
+				pane: res.pane ?? '-',
+			}),
 			json: res,
 		})
 	})

@@ -261,6 +261,97 @@ describe('dirty-worktree refusal', () => {
 	})
 })
 
+describe('keeping the worktree', () => {
+	it('reaps the record, pane pointer, brief and session while leaving the worktree on disk', () => {
+		registerUnit({ id: 'k1' })
+		writePaneFile('%9', 'k1')
+		writeData('k1')
+		const { exec, calls } = makeExec()
+		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k1', keepWorktree: true })
+		// the whole point: no removal is even attempted...
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(existsSync(worktreeRoot)).toBe(true)
+		// ...while every OTHER piece of the unit is reaped exactly as an ordinary close reaps it. A
+		// keep path that also skipped the reap would leave the record leaking, which is the very
+		// thing this flag exists to avoid.
+		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
+		expect(store.getAgent('k1')).toBeUndefined()
+		expect(store.resolvePaneId('%9')).toBeUndefined()
+		expect(store.readBrief('k1')).toBeUndefined()
+	})
+
+	it('reports the retained path so a pool can pick the worktree up', () => {
+		registerUnit({ id: 'k2' })
+		const { exec } = makeExec()
+		const res = decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k2', keepWorktree: true })
+		expect(res.retainedWorktree).toBe(worktreeRoot)
+		expect(res.worktreeRoot).toBe(worktreeRoot)
+	})
+
+	it('reports no retained path on an ordinary close, which removed the worktree', () => {
+		// Without this, `retainedWorktree` set unconditionally to the recorded root passes the test
+		// above while telling a pool manager that a DELETED directory is reusable.
+		registerUnit({ id: 'k3' })
+		const { exec: e3, calls } = makeExec()
+		const res = decommission({ store, env: { TMUX: 't' }, exec: e3 }, { id: 'k3' })
+		expect(calls.worktreeRemove).toHaveLength(1)
+		expect(res.retainedWorktree).toBeUndefined()
+	})
+
+	it('reports no retained path when the worktree was already gone from disk', () => {
+		// Nothing was kept — there was nothing there. Reporting the recorded root here would hand a
+		// pool a path that does not exist.
+		registerUnit({ id: 'k4', worktree: { root: join(worktreeRoot, 'gone') } })
+		const { exec, calls } = makeExec()
+		const res = decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k4', keepWorktree: true })
+		expect(res.retainedWorktree).toBeUndefined()
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(store.getAgent('k4')).toBeUndefined()
+	})
+
+	it('keeps a DIRTY worktree without --force — nothing is discarded, so nothing needs guarding', () => {
+		// The dirty refusal protects uncommitted work from `git worktree remove`. Under keep-worktree
+		// there is no removal, so the refusal would only force the operator toward `--force` — the
+		// strictly MORE destructive flag — to get the strictly LESS destructive outcome.
+		registerUnit({ id: 'k5' })
+		writeData('k5')
+		const { exec, calls } = makeExec({ dirty: true })
+		const res = decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k5', keepWorktree: true })
+		expect(res.retainedWorktree).toBe(worktreeRoot)
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(existsSync(worktreeRoot)).toBe(true)
+		expect(store.getAgent('k5')).toBeUndefined()
+		expect(store.readBrief('k5')).toBeUndefined()
+	})
+
+	it('still refuses the primary checkout, and reaps nothing', () => {
+		// keep-worktree relaxes destructiveness; the primary-checkout guard is not about
+		// destructiveness — closing it would also kill the session the operator is sitting in and
+		// reap the record for the primary checkout. It stays unconditional.
+		registerUnit({ id: 'k6', worktree: { root: primaryRoot } })
+		writePaneFile('%9', 'k6')
+		const { exec, calls } = makeExec()
+		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k6', keepWorktree: true })).toThrow(
+			/primary checkout/,
+		)
+		expect(store.getAgent('k6')).toBeDefined()
+		expect(store.resolvePaneId('%9')).toBe('k6')
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(calls.tmuxKill).toHaveLength(0)
+	})
+
+	it('refuses the primary checkout with --keep-worktree AND --force together', () => {
+		registerUnit({ id: 'k7', worktree: { root: primaryRoot } })
+		const { exec, calls } = makeExec()
+		expect(() =>
+			decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k7', keepWorktree: true, force: true }),
+		).toThrow(/primary checkout/)
+		expect(store.getAgent('k7')).toBeDefined()
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(calls.tmuxKill).toHaveLength(0)
+	})
+})
+
 describe('unknown id', () => {
 	it('errors and reaps nothing when no agent is registered', () => {
 		const { exec } = makeExec()

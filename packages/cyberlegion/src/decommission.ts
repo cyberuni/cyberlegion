@@ -8,20 +8,35 @@ export interface DecommissionInput {
 	id: string
 	/** Discard uncommitted changes in the worktree. Never overrides refusing the primary checkout. */
 	force?: boolean
+	/**
+	 * Reap the unit but leave its worktree on disk, so a pool can detach it and hand it to the next
+	 * unit — far cheaper than a fresh checkout per unit. Never overrides refusing the primary
+	 * checkout: that guard is about identity, not destructiveness.
+	 */
+	keepWorktree?: boolean
 }
 
 export interface DecommissionResult {
 	agent: AgentRecord
 	worktreeRoot?: string
+	/**
+	 * The worktree left on disk by `keepWorktree` — set only when a worktree was actually there to
+	 * keep, so a pool manager can treat its presence as "this path is reusable" rather than
+	 * re-checking `worktreeRoot` against disk.
+	 */
+	retainedWorktree?: string
 	pane?: string
 }
 
 /**
  * Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses
- * the primary checkout (absolute — `--force` never overrides it) and a dirty worktree unless
- * `--force`. Teardown always precedes reap: an already-gone worktree or pane is tolerated, but a
- * genuine worktree-removal failure aborts and leaves the record intact so the operation is
- * retryable.
+ * the primary checkout (absolute — neither `--force` nor `--keep-worktree` overrides it) and a
+ * dirty worktree unless `--force`. Teardown always precedes reap: an already-gone worktree or pane
+ * is tolerated, but a genuine worktree-removal failure aborts and leaves the record intact so the
+ * operation is retryable.
+ *
+ * `keepWorktree` reaps everything else — pane, record, pane pointer, brief — and leaves the
+ * checkout on disk, reporting it as `retainedWorktree`.
  */
 export function decommission(ctx: IdContext, input: DecommissionInput): DecommissionResult {
 	const rec = loadAgent(ctx.store, input.id)
@@ -36,21 +51,26 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 	if (worktreeRoot && resolve(worktreeRoot) === resolve(primaryRoot as string)) {
 		throw new Error(
 			`refusing to decommission "${input.id}" — its worktree is the primary checkout; ` +
-				'--force does not override this',
+				'neither --force nor --keep-worktree overrides this',
 		)
 	}
 
 	// A worktree already gone from disk has nothing to check or remove — tolerated regardless of
 	// --force. Only a worktree that still exists is subject to the dirty check and real removal.
 	const worktreeExists = worktreeRoot != null && existsSync(worktreeRoot)
+	// Under keepWorktree nothing is removed, so there is no removal to guard: the dirty check exists
+	// only to stop `git worktree remove` from discarding uncommitted work. Keeping it here would
+	// refuse a close that destroys nothing, and push the operator toward `--force` — the strictly
+	// more destructive flag — to get the strictly less destructive outcome. So it is relaxed.
+	const removesWorktree = worktreeExists && !input.keepWorktree
 
-	if (worktreeExists && !input.force && isDirty(exec, worktreeRoot as string)) {
+	if (removesWorktree && !input.force && isDirty(exec, worktreeRoot as string)) {
 		throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`)
 	}
 
 	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id)
 
-	if (worktreeExists) {
+	if (removesWorktree) {
 		try {
 			gitWorktreeAdapter.remove(exec, worktreeRoot as string, { primaryRoot: primaryRoot as string })
 		} catch (err) {
@@ -76,7 +96,12 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 	if (pane) ctx.store.removePaneIndex(pane)
 	ctx.store.removeAgentData(input.id)
 
-	return { agent: rec, worktreeRoot, pane }
+	return {
+		agent: rec,
+		worktreeRoot,
+		retainedWorktree: worktreeExists && input.keepWorktree ? (worktreeRoot as string) : undefined,
+		pane,
+	}
 }
 
 function isDirty(exec: Exec, worktreeRoot: string): boolean {
