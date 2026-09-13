@@ -88,11 +88,13 @@ canonical `plugin.json`, or a client won't discover it.
 | `agents/<name>.md` | Claude Code (and any client that reads Agent Plugins subagents) |
 
 After editing `plugin.json`, run `pnpm exec universal-plugin plugin build --root plugins/cyberlegion`
-then `pnpm check:fix`; the build's JSON formatting fails biome otherwise.
+and commit what it writes as-is — `biome.json` excludes the generated files, so never reformat them.
 
 `.claude-plugin/marketplace.json` at the **repo root** lists the plugin with a local directory
 source (`./plugins/cyberlegion`) rather than an npm source, since the plugin is not itself
-published to npm. Version bumps flow from `packages/cyberlegion/package.json` through
+published to npm. The build refolds this plugin's entry on every run, so its `keywords` and
+`version` come from `plugin.json`; edit `name`, `owner`, `displayName`, `category`, and
+`license` in the catalog itself. Version bumps flow from `packages/cyberlegion/package.json` through
 `scripts/sync-plugin-version.mjs` into `plugin.json` on `pnpm version`, which then rebuilds the
 vendor manifests.
 
