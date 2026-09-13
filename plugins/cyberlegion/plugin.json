@@ -1,5 +1,5 @@
 {
-	"$schema": "https://raw.githubusercontent.com/cyberuni/marketplace/main/schema/claude/plugin.json",
+	"$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
 	"name": "cyberlegion",
 	"version": "0.3.2",
 	"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
@@ -9,6 +9,16 @@
 	"homepage": "https://github.com/cyberuni/cyberlegion",
 	"repository": "https://github.com/cyberuni/cyberlegion",
 	"keywords": ["agent", "dispatch", "inter-agent", "multiplexer"],
-	"skills": "./skills",
-	"agents": ["./agents/headless-legate.md"]
+	"extensions": {
+		"org.cyberuni.universal-plugin": {
+			"vendors": ["claude-code", "codex"],
+			"packagePath": "../../packages/cyberlegion",
+			"skills": "./skills",
+			"agents": ["./agents/headless-legate.md"],
+			"harnesses": {
+				"claude-code": {},
+				"codex": {}
+			}
+		}
+	}
 }
