@@ -32,6 +32,9 @@ importers:
       turbo:
         specifier: ^2.10.8
         version: 2.10.11
+      universal-plugin:
+        specifier: ^0.7.0
+        version: 0.7.0
 
   apps/web:
     dependencies:
@@ -1277,6 +1280,9 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@toon-format/toon@4.1.1':
+    resolution: {integrity: sha512-SGCkS7IjVpwRmGPgnY8ENKpAf0EdAnZDOQkvFW0d2cgOpdn9FEFl7sTgryESyypXrWr0YajHGpwsAUX4zw9ZvA==}
 
   '@turbo/darwin-64@2.10.11':
     resolution: {integrity: sha512-v3R+1R/Ysozyo+p7Ri8MCIbndOvYt3DgPFrGLhrhQHfvyvbxyH3WyJj+A/2JTNmNleuAlh3JUyCV0iSVHIONTA==}
@@ -3035,6 +3041,11 @@ packages:
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
 
+  universal-plugin@0.7.0:
+    resolution: {integrity: sha512-bbFvnyR2AhA6LTOdWJeiMlNR0UJKw6Y8b/UtOmStBCO2K5uHA6gbpBOZPmb+xU6+kCc1ImX4KmOWPuxPdO6tPg==}
+    engines: {node: '>=22'}
+    hasBin: true
+
   unstorage@1.17.5:
     resolution: {integrity: sha512-0i3iqvRfx29hkNntHyQvJTpf5W9dQ9ZadSoRU8+xVlhVtT7jAX57fazYO9EHvcRCfBCyi5YRya7XCDOsbTgkPg==}
     peerDependencies:
@@ -4345,6 +4356,8 @@ snapshots:
   '@simple-libs/stream-utils@2.0.0': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@toon-format/toon@4.1.1': {}
 
   '@turbo/darwin-64@2.10.11':
     optional: true
@@ -6593,6 +6606,12 @@ snapshots:
       '@types/unist': 3.0.3
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
+
+  universal-plugin@0.7.0:
+    dependencies:
+      '@toon-format/toon': 4.1.1
+      commander: 14.0.3
+      semver: 7.8.5
 
   unstorage@1.17.5:
     dependencies:
