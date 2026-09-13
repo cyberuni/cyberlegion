@@ -30,7 +30,13 @@
 	},
 	"files": [
 		"bin",
-		"dist"
+		"dist",
+		"plugin.json",
+		".claude-plugin",
+		".codex-plugin",
+		".plugin",
+		"skills",
+		"agents"
 	],
 	"scripts": {
 		"build": "tsdown",

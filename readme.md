@@ -52,7 +52,7 @@ reference.
 
 ## Plugin
 
-The npm package's sibling, `plugins/cyberlegion`, ships the agent plugin — the **Legate**
+The npm package also ships the agent plugin — the **Legate**
 routing layer, its skills (`legate`, `dispatch-governance`, `manage-inbox`, `init-cyberlegion`,
 and more), and the `headless-legate` subagent for unattended dispatch.
 

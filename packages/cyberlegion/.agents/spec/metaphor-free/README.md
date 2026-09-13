@@ -9,8 +9,8 @@ concept: [cyberlegion]
 
 `cyberlegion` (the CLI/package) is chartered **metaphor-free**: it is pure mechanism and carries no
 fleet-persona vocabulary (root [`spec.md`](../spec.md)). The fleet personas — **Operator**, **Council**,
-**Pod** — and the **Bunker** place live in `plugins/cyberfleet`; the **Legate** routing brain lives in
-`plugins/cyberlegion`. The package names things generically (`--owner <handle>`, "main pane", "unit",
+**Pod** — and the **Bunker** place live in `plugins/cyberfleet`; the **Legate** routing brain lives in the
+plugin layer (this package's `skills/` and `agents/`, outside the guard's scope). The CLI names things generically (`--owner <handle>`, "main pane", "unit",
 "pane", "doorbell") and **never** a persona or place.
 
 That boundary was, until now, enforced only by a human's memory: a cold spec-judge running a manual
@@ -64,7 +64,7 @@ vocabulary stays generic.
 
 **Non-goals** — deciding *which* terms are metaphors (that is the metaphor-boundary doctrine's call,
 which this guard consumes as its list); policing the plugin layers, where persona/place naming is
-correct and expected (`plugins/cyberfleet`, `plugins/cyberlegion`); detecting a *lowercase* or
+correct and expected (`plugins/cyberfleet`, this package's `skills/` and `agents/`); detecting a *lowercase* or
 prose-sense metaphor leak (the guard is a capitalized-proper-noun backstop, not a total metaphor
 detector — Council-ratified scope, below); and natural-language spell- or style-checking. The guard
 checks one thing: no unsanctioned capitalized banned term inside the package.

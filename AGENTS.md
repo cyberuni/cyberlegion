@@ -59,14 +59,16 @@ Rejected proposals are recorded with their reasons in `docs/backlog.md` under
 ## What This Repo Is
 
 `cyberlegion` — harness-agnostic, MCP-free agent session spawning and messaging over the
-filesystem (Claude Code, Cursor, Codex). It ships as two workspace members:
+filesystem (Claude Code, Cursor, Codex). One npm package, `packages/cyberlegion/` (published as
+`cyberlegion`), carries two layers:
 
-- `packages/cyberlegion/` — the npm package, published as `cyberlegion`, powered by Commander. This is the CLI: pure mechanism, no routing judgment.
-- `plugins/cyberlegion/` — the agent plugin (the **Legate**) that composes the CLI's primitives into routing decisions, plus the skills and the `headless-legate` subagent that back it.
+- `src/` — the CLI, powered by Commander: pure mechanism, no routing judgment.
+- `skills/` and `agents/` — the agent plugin (the **Legate**) that composes the CLI's primitives into routing decisions, plus the `headless-legate` subagent that backs it.
 
-Unlike a repo where the npm package root doubles as the plugin root, cyberlegion keeps these as
-two separate workspace members — the CLI is a general-purpose mechanism a routing layer builds
-on, and the plugin is one particular consumer of it. Others bypass the Legate entirely: the
+The package root doubles as the plugin root, but the layers stay separate in concept — the CLI is
+a general-purpose mechanism a routing layer builds on, and the plugin is one particular consumer
+of it. The CLI's `src/` and `.agents/spec/` stay metaphor-free (`pnpm cl check:metaphor-free`);
+the plugin's skills are where the Legion vocabulary lives. Others bypass the Legate entirely: the
 `cyberfleet` plugin's skills shell out to the `cyberlegion` CLI (`unit spawn`, `unit who`, `mail
 send`) and reference no cyberlegion skill, because cyberfleet carries its own routing judgment.
 
@@ -75,8 +77,9 @@ hub root, through a shell command and skills, not through a remote API or a long
 
 ### Plugin layout
 
-Everything the plugin needs lives in `plugins/cyberlegion/` and must stay listed in its
-canonical `plugin.json`, or a client won't discover it.
+Everything the plugin needs lives in `packages/cyberlegion/` and must stay listed in its
+canonical `plugin.json`, or a client won't discover it, and in `package.json` `files`, or npm
+won't ship it.
 
 | Path | Read by |
 | --- | --- |
@@ -87,12 +90,12 @@ canonical `plugin.json`, or a client won't discover it.
 | `skills/<name>/SKILL.md` | All of them (fixed location) |
 | `agents/<name>.md` | Claude Code (and any client that reads Agent Plugins subagents) |
 
-After editing `plugin.json`, run `pnpm exec universal-plugin plugin build --root plugins/cyberlegion`
+After editing `plugin.json`, run `pnpm exec universal-plugin plugin build --root packages/cyberlegion`
 and commit what it writes as-is — `biome.json` excludes the generated files, so never reformat them.
 
 `.claude-plugin/marketplace.json` at the **repo root** lists the plugin with a local directory
-source (`./plugins/cyberlegion`) rather than an npm source, since the plugin is not itself
-published to npm. The build refolds this plugin's entry on every run, so its `keywords` and
+source (`./packages/cyberlegion`), so a marketplace install tracks the repo rather than the
+last npm release. The build refolds this plugin's entry on every run, so its `keywords` and
 `version` come from `plugin.json`; edit `name`, `owner`, `displayName`, `category`, and
 `license` in the catalog itself. Version bumps flow from `packages/cyberlegion/package.json` through
 `scripts/sync-plugin-version.mjs` into `plugin.json` on `pnpm version`, which then rebuilds the
@@ -114,8 +117,7 @@ pnpm web dev                     # run the docs site locally
 ## Layout
 
 ```
-packages/cyberlegion/   the npm package — the CLI, pure mechanism
-plugins/cyberlegion/    the agent plugin — the Legate, its skills, and headless-legate
+packages/cyberlegion/   the npm package — the CLI (src/) and the agent plugin (skills/, agents/)
 apps/web/               Astro + Starlight docs site, deployed to GitHub Pages
 docs/adr/               architecture decision records
 .research/              background research dossiers behind ADRs and design decisions

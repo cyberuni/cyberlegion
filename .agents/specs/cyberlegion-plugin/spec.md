@@ -1,15 +1,15 @@
 ---
 status: draft
-project-path: plugins/cyberlegion
+project-path: packages/cyberlegion
 name: cyberlegion-plugin
 ---
 
 # cyberlegion-plugin — the Legion's gateway and Legate (agent behavior)
 
 > Root project spec — the **descriptive** top index for the `cyberlegion` **plugin** (the
-> marketplace distribution at `plugins/cyberlegion`). Behaviors live in the capability folders
-> below. The deterministic engine — the `cyberlegion` CLI — lives in the sibling `packages/cyberlegion`
-> package and is not tracked by this spec (mirrors the `cyberfleet` / `cyberfleet-plugin` split: CLI
+> plugin assets — `plugin.json`, `skills/`, `agents/` — distributed inside the `packages/cyberlegion`
+> npm package). Behaviors live in the capability folders below. The deterministic engine — the
+> `cyberlegion` CLI in that same package's `src/` — is not tracked by this spec (mirrors the `cyberfleet` / `cyberfleet-plugin` split: CLI
 > mechanics vs. plugin persona/routing behavior are two packages, two deploy targets, two specs).
 
 ## What this is
@@ -24,7 +24,8 @@ separate headless design.
 ## Why this is its own project
 
 Same three axes as `cyberfleet-plugin`: artifact-type (agent behavior vs. deterministic script),
-deploy target (marketplace vs. npm), and package (`plugins/cyberlegion` vs. `packages/cyberlegion`).
+deploy artifact (plugin assets vs. CLI build), and tree (`skills/` + `agents/` vs. `src/`), both
+inside `packages/cyberlegion`.
 The CLI is intentionally mechanism-only (per the design doc's "CLI = pure mechanism; the Legate =
 routing brain" split) — it never auto-routes, never invokes a Task tool, never decides warm vs.
 cold. All of that judgment lives here, in this plugin, so it stays swappable without touching the

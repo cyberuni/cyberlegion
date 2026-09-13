@@ -44,7 +44,7 @@ pnpm changeset     # describe the change and its bump level
 
 Merging to `main` opens a version PR; merging *that* publishes. `pnpm version` runs
 `scripts/sync-plugin-version.mjs`, which carries the new version into the plugin
-manifests under `plugins/cyberlegion/` — add any new manifest to that script's list.
+manifests under `packages/cyberlegion/` — add any new manifest to that script's list.
 
 ## Commits
 

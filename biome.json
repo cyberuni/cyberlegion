@@ -10,8 +10,8 @@
 			"!.agents",
 			"!**/.astro",
 			"!.cyberfleet",
-			"!plugins/cyberlegion/.claude-plugin/plugin.json",
-			"!plugins/cyberlegion/.codex-plugin/plugin.json",
+			"!packages/cyberlegion/.claude-plugin/plugin.json",
+			"!packages/cyberlegion/.codex-plugin/plugin.json",
 			"!.claude-plugin/marketplace.json"
 		]
 	},

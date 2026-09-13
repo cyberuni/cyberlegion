@@ -12,7 +12,7 @@
 	"extensions": {
 		"org.cyberuni.universal-plugin": {
 			"vendors": ["claude-code", "codex"],
-			"packagePath": "../../packages/cyberlegion",
+			"packagePath": ".",
 			"skills": "./skills",
 			"agents": ["./agents/headless-legate.md"],
 			"harnesses": {

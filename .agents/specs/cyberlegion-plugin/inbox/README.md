@@ -15,7 +15,7 @@ nothing about routing or dispatch and writes no state beyond the ack/reply the h
 ## Placement note (backfilled by the formation pass)
 
 This node was added by a post-mission formation pass following CR `cyberlegion-plugin-init-skill`:
-the `manage-inbox` skill already shipped under `plugins/cyberlegion/skills/manage-inbox/` and is
+the `manage-inbox` skill already shipped under `packages/cyberlegion/skills/manage-inbox/` and is
 already named by both `gateway/README.md`'s non-goals and `init/README.md`'s trigger-disambiguation
 (and its own `.feature`'s routing-defer scenario), but carried no owning node in this project's
 capability map — an untagged orphan. The split from `gateway/`/`init/`/`dispatch/` is purely

@@ -10,7 +10,7 @@
 			"name": "cyberlegion",
 			"displayName": "Cyberlegion",
 			"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
-			"source": "./plugins/cyberlegion",
+			"source": "./packages/cyberlegion",
 			"author": {
 				"name": "unional"
 			},
