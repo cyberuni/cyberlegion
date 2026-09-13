@@ -9,7 +9,10 @@
 			"!skills-lock.json",
 			"!.agents",
 			"!**/.astro",
-			"!.cyberfleet"
+			"!.cyberfleet",
+			"!plugins/cyberlegion/.claude-plugin/plugin.json",
+			"!plugins/cyberlegion/.codex-plugin/plugin.json",
+			"!.claude-plugin/marketplace.json"
 		]
 	},
 	"overrides": [

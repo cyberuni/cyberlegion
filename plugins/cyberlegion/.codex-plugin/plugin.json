@@ -7,7 +7,14 @@
 	},
 	"homepage": "https://github.com/cyberuni/cyberlegion",
 	"repository": "https://github.com/cyberuni/cyberlegion",
-	"keywords": ["agent", "dispatch", "inter-agent", "multiplexer"],
+	"keywords": [
+		"agent",
+		"dispatch",
+		"inter-agent",
+		"multiplexer"
+	],
 	"skills": "./skills",
-	"agents": ["./agents/headless-legate.md"]
+	"agents": [
+		"./agents/headless-legate.md"
+	]
 }

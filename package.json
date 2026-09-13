@@ -13,7 +13,7 @@
 		"test": "turbo run test",
 		"typecheck": "turbo run typecheck",
 		"verify": "pnpm check && turbo run build typecheck test && pnpm knip",
-		"version": "changeset version && node scripts/sync-plugin-version.mjs && universal-plugin plugin build --root plugins/cyberlegion && biome check --write plugins/cyberlegion .claude-plugin",
+		"version": "changeset version && node scripts/sync-plugin-version.mjs && universal-plugin plugin build --root plugins/cyberlegion",
 		"web": "turbo run --filter=@cyberuni/web"
 	},
 	"devDependencies": {
