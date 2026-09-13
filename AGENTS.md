@@ -131,3 +131,12 @@ The CLI follows the [10 agent-CLI principles](https://github.com/kunchenguid/axi
 `packages/cyberlegion/package.json` at runtime — a pre-existing gap carried over from the
 monorepo, not something this scaffold fixes. Reading it at runtime (rather than importing the
 JSON, which a bundler could inline) is the convention to converge on when this is addressed.
+
+<!-- buddy-agent-harness:begin -->
+
+Skills are canonical in `.agents/skills/` — create and edit them there.
+`.claude/skills/` is a generated bridge to it; never write to it directly.
+`CLAUDE.md` (and `apps/web/CLAUDE.md`) is a symlink to the `AGENTS.md` beside it, so
+shared instructions belong in `AGENTS.md`; editing `CLAUDE.md` edits that file.
+
+<!-- buddy-agent-harness:end -->
