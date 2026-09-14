@@ -61,6 +61,20 @@ export interface AgentRecord {
 	presence?: string
 }
 
+/** A registered project: one git repository, shared by its default checkout and every linked
+ * worktree of it. Keyed by its git common dir, never by a pane or a display name. */
+export interface ProjectRecord {
+	/** Stable reference derived from the canonical git common dir (`project.ts`). */
+	id: string
+	/** Display name — the default checkout's directory basename. Not unique; never a key. */
+	name: string
+	/** The default checkout's root. */
+	root: string
+	/** The canonical (realpath) git common dir the id is derived from. */
+	commonDir: string
+	registeredAt: string
+}
+
 export interface InboxSnapshot {
 	unread: Message[]
 	read: Message[]
@@ -92,6 +106,12 @@ export interface Store {
 	listAgents(): AgentRecord[]
 	removeAgent(id: string): void
 	removeAgentData(id: string): void
+
+	// -- projects --
+	/** Upsert a project record (keyed by `rec.id`). */
+	putProject(rec: ProjectRecord): void
+	getProject(id: string): ProjectRecord | undefined
+	listProjects(): ProjectRecord[]
 
 	// -- pane index (multiplexer pane id -> agent id) --
 	putPaneIndex(pane: string, agentId: string): void

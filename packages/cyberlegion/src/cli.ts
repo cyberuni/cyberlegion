@@ -34,6 +34,7 @@ import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
+import { listProjects, type ProjectRecord, registerProject, resolveProject } from './project.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
 import { clearUnit, focusUnit, nudgeUnit, readUnit, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
@@ -388,6 +389,64 @@ withGlobals(unit.command('clear'))
 			toon: toonObject({ cleared: ref, pane: res.pane, command: res.command }),
 			json: { cleared: ref, pane: res.pane, command: res.command },
 		})
+	})
+
+// -------------------------------------------------------------------------------------------
+// project — a stable reference to one repository, shared by its default checkout and worktrees
+// -------------------------------------------------------------------------------------------
+const project = program.command('project').description('register and resolve projects (one per git repository)')
+
+function projectFields(p: ProjectRecord) {
+	return { id: p.id, name: p.name, root: p.root }
+}
+
+withGlobals(project.command('register'))
+	.description('register (or refresh) the project containing a directory — any checkout of it')
+	.option('--dir <path>', 'a directory inside the project (default: the current directory)')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		let rec: ProjectRecord
+		try {
+			rec = registerProject({ store: ctx.store }, { dir: opts.dir })
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), { toon: toonObject(projectFields(rec)), json: rec })
+	})
+
+withGlobals(project.command('list'))
+	.description('list the registered projects')
+	.action((opts) => {
+		const ctx = ctxOf(opts)
+		const projects = listProjects(ctx.store)
+		emit(formatOf(opts), {
+			toon: toonList(
+				'projects',
+				projects,
+				[
+					{ key: 'id', get: (p) => p.id },
+					{ key: 'name', get: (p) => p.name },
+					{ key: 'root', get: (p) => p.root },
+				],
+				`${projects.length} projects`,
+			),
+			json: projects,
+		})
+		if (projects.length === 0) nextStep('cyberlegion project register to add the current repository')
+	})
+
+withGlobals(project.command('show'))
+	.description('resolve a registered project by id, path, or unique name')
+	.argument('<ref>', 'project id, a path inside any of its checkouts, or its name')
+	.action((ref, opts) => {
+		const ctx = ctxOf(opts)
+		let rec: ProjectRecord
+		try {
+			rec = resolveProject({ store: ctx.store }, ref)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		emit(formatOf(opts), { toon: toonObject(projectFields(rec)), json: rec })
 	})
 
 // -------------------------------------------------------------------------------------------

@@ -43,6 +43,9 @@ export { emit, fail, nextStep, toonList, toonObject } from './output.ts'
 // ── Paths + the hub ────────────────────────────────────────────────────────────────────────────
 export type { RootOptions } from './paths.ts'
 export { ensureMarker, paths, projectRoot, resolveProjectLocalRoot, resolveRoot } from './paths.ts'
+// ── Projects ───────────────────────────────────────────────────────────────────────────────────
+export type { ProjectContext, ProjectRecord } from './project.ts'
+export { listProjects, registerProject, resolveProject } from './project.ts'
 // ── Surfacing + install (hooks) ────────────────────────────────────────────────────────────────
 export type { HookEvent } from './runtime/inject-inbox.ts'
 export { injectInbox } from './runtime/inject-inbox.ts'
