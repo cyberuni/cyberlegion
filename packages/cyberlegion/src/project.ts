@@ -21,11 +21,7 @@ export interface ProjectContext {
 function commonDirOf(exec: Exec, dir: string): string | undefined {
 	const out = exec('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
 	if (!out) return undefined
-	try {
-		return realpathSync(out)
-	} catch {
-		return resolve(out)
-	}
+	return realOrResolved(out)
 }
 
 /**
@@ -35,6 +31,28 @@ function commonDirOf(exec: Exec, dir: string): string | undefined {
  */
 function projectIdOf(commonDir: string): string {
 	return `prj-${createHash('sha256').update(commonDir).digest('hex').slice(0, 16)}`
+}
+
+function realOrResolved(path: string): string {
+	try {
+		return realpathSync(path)
+	} catch {
+		return resolve(path)
+	}
+}
+
+/**
+ * The default checkout's root, and whether that answer is authoritative. Asked from the default
+ * checkout itself (its git dir IS the common dir), `--show-toplevel` is exact wherever the git dir
+ * lives. Asked from a linked worktree, git has no pointer back to the default checkout when its git
+ * dir was separated (`git init --separate-git-dir`) — even `git worktree list` then reports the git
+ * dir — so the common dir's parent is only a guess.
+ */
+function defaultCheckoutOf(exec: Exec, dir: string, commonDir: string): { root: string; exact: boolean } {
+	const gitDir = exec('git', ['-C', dir, 'rev-parse', '--path-format=absolute', '--git-dir'])
+	const top = exec('git', ['-C', dir, 'rev-parse', '--show-toplevel'])
+	if (gitDir && top && realOrResolved(gitDir) === commonDir) return { root: realOrResolved(top), exact: true }
+	return { root: dirname(commonDir), exact: false }
 }
 
 /**
@@ -49,7 +67,9 @@ export function registerProject(ctx: ProjectContext, input: { dir?: string } = {
 	ctx.store.ensureMarker()
 	const id = projectIdOf(commonDir)
 	const existing = ctx.store.getProject(id)
-	const root = dirname(commonDir)
+	const checkout = defaultCheckoutOf(exec, dir, commonDir)
+	// A guess from a linked worktree never overwrites a root already on record.
+	const root = checkout.exact || !existing ? checkout.root : existing.root
 	const rec: ProjectRecord = {
 		id,
 		name: basename(root),

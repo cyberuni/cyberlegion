@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -71,6 +71,41 @@ describe('spec:cyberlegion/project — a stable project reference', () => {
 		const dir = repo(join(base, 'loose'))
 		expect(() => resolveProject({ store }, dir)).toThrow(/not registered/)
 		expect(listProjects(store)).toHaveLength(0)
+	})
+
+	it('the main checkout records its own root, even when the git dir lives elsewhere', () => {
+		const work = join(base, 'app')
+		mkdirSync(join(base, 'store'))
+		execFileSync('git', ['init', '-q', '-b', 'main', '--separate-git-dir', join(base, 'store', 'app.git'), work], {
+			stdio: 'ignore',
+		})
+		git(work, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init')
+		const linked = join(base, 'app.worktrees', 'w1')
+		git(work, 'worktree', 'add', '-q', '-b', 'w1', linked)
+
+		const fromMain = registerProject({ store }, { dir: work })
+		expect(fromMain.root).toBe(realpathSync(work))
+		expect(fromMain.name).toBe('app')
+
+		// A linked worktree cannot see where a separate git dir's main checkout is, so it keeps the root
+		// the main checkout recorded rather than overwriting it with a guess.
+		const fromLinked = registerProject({ store }, { dir: linked })
+		expect(fromLinked.id).toBe(fromMain.id)
+		expect(fromLinked.root).toBe(realpathSync(work))
+	})
+
+	it('a later registration from the main checkout corrects a root guessed from a worktree', () => {
+		const work = join(base, 'app')
+		mkdirSync(join(base, 'store'))
+		execFileSync('git', ['init', '-q', '-b', 'main', '--separate-git-dir', join(base, 'store', 'app.git'), work], {
+			stdio: 'ignore',
+		})
+		git(work, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init')
+		const linked = join(base, 'app.worktrees', 'w1')
+		git(work, 'worktree', 'add', '-q', '-b', 'w1', linked)
+
+		registerProject({ store }, { dir: linked })
+		expect(registerProject({ store }, { dir: work }).root).toBe(realpathSync(work))
 	})
 
 	it('registering outside any git repository fails loud', () => {
