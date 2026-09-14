@@ -55,7 +55,7 @@ import { watchMail } from './wake/watch.ts'
 // (warm-peer vs cold-subagent vs run-inline), the wake-matrix decision, and result collection are
 // never decided here — a cold subagent returns via the caller's own Task-result, a warm peer via
 // `mail await`; the Legate plugin governance composes those primitives. Command groups (ADR-0024):
-//   mux · unit · mail · agent · attach · init · admin
+//   mux · unit · project · service · mail · agent · attach · init · admin
 
 // Read from the package manifest at runtime rather than a literal: a hardcoded constant silently
 // reports the wrong version to every `--version` caller for as long as nobody re-edits it by hand.

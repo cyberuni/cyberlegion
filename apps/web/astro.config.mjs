@@ -36,6 +36,8 @@ export default defineConfig({
 					items: [
 						{ label: 'Overview', link: '/cli/' },
 						{ label: 'unit', link: '/cli/unit/' },
+						{ label: 'project', link: '/cli/project/' },
+						{ label: 'service', link: '/cli/service/' },
 						{ label: 'mail', link: '/cli/mail/' },
 						{ label: 'agent', link: '/cli/agent/' },
 						{ label: 'mux', link: '/cli/mux/' },
