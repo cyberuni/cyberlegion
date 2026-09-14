@@ -404,15 +404,21 @@ function isSessionIndependent(rec: AgentRecord): boolean {
 }
 
 /**
- * Whether a unit's session is still there, as far as its backend can tell. A record carrying a pane
- * asks that pane's own multiplexer; a record with no pane cannot be probed, and reads as live —
- * "cannot rule out alive" must never become grounds to replace an owner (the same fail-closed
- * policy `store/lock.ts` takes on an ambiguous holder). An exited record is never live.
+ * Whether a unit's session is still there, as far as its backend can tell. "Cannot rule out alive"
+ * must never become grounds to replace an owner — the same fail-closed policy `store/lock.ts` takes
+ * on an ambiguous holder — so a session reads as gone only on positive evidence: its multiplexer
+ * answered with a pane list and the pane is not in it. A record with no pane cannot be probed, and a
+ * backend the caller cannot reach (a different server, no client, a failed query) answers with
+ * nothing; both read as live. `paneExists` is not used here because it collapses "unreachable" into
+ * "gone". An exited record is never live.
  */
 export function sessionLive(ctx: IdContext, rec: AgentRecord): boolean {
 	if (rec.status === 'exited') return false
 	if (!rec.pane) return true
-	return PANE_ADAPTERS[rec.pane.mux].paneExists(ctx.exec ?? realExec, { id: rec.pane.id })
+	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec)
+	if (panes.length === 0) return true
+	const id = rec.pane.id
+	return panes.some((p) => p.id === id)
 }
 
 /** The per-mux session adapters `prune` consults for pane liveness — each answers with its own

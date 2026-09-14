@@ -63,8 +63,10 @@ second authority. `startService` composes the three steps around an injected lau
 
 ### 4. A healthy owner is never displaced silently
 
-An owner is unhealthy only when its record is missing or `exited`, or when its multiplexer reports
-its pane gone. A pane-less owner cannot be probed and reads as live. This is the same fail-closed
+An owner is unhealthy only when its record is missing or `exited`, or when its multiplexer answers
+with a pane list that does not include its pane. A pane-less owner cannot be probed, and a backend
+the caller cannot reach answers with nothing, so both read as live. `paneExists` is not used for this
+check because it reports an unreachable backend as a missing pane. This is the same fail-closed
 policy the lock applies to an ambiguous holder. Such an owner is recovered after `unit prune` marks it
 exited, or by an explicit `--force-generation <n>`. The force must name the current generation, so a
 force decided on a stale read fails instead of displacing an owner the caller never saw.
