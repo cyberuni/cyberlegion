@@ -504,6 +504,12 @@ function orFail<T>(fn: () => T): T {
 
 const generationOf = (v: string) => Number.parseInt(v, 10)
 
+/** `service <verb> [project] <name>`: with one argument it is the name, and the project is the one
+ * containing the current directory (registered on first use, like any path). */
+function serviceTarget(first: string, second: string | undefined): [string, string] {
+	return second === undefined ? ['.', first] : [first, second]
+}
+
 /** A unit reference option, defaulting to the calling session's own identity. */
 function unitOrSelf(ctx: IdContext, ref: string | undefined): string {
 	return ref ? orFail(() => resolveAgent(ctx.store, ref)).id : requireSelf(ctx)
@@ -511,24 +517,26 @@ function unitOrSelf(ctx: IdContext, ref: string | undefined): string {
 
 withGlobals(service.command('resolve'))
 	.description("show a service's owner, generation, health, and whether its session is controllable")
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
-	.action((projectRef, name, opts) => {
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
+	.action((first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		emitService(opts, serviceFields(orFail(() => resolveService(ctx, projectRef, name))))
 	})
 
 withGlobals(service.command('acquire'))
 	.description('resolve the healthy owner, or reserve the right to start one (exactly one caller wins)')
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
 	.option('--ttl <ms>', 'how long the reservation holds before another caller may take over', generationOf)
 	.option(
 		'--force-generation <n>',
 		'reserve even over a healthy owner — must name the current generation',
 		generationOf,
 	)
-	.action((projectRef, name, opts) => {
+	.action((first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		const res = orFail(() =>
 			acquireService(ctx, projectRef, name, {
@@ -553,12 +561,13 @@ withGlobals(service.command('acquire'))
 
 withGlobals(service.command('bind'))
 	.description('complete a reservation: make a live unit (default: this session) the owner')
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
 	.requiredOption('--generation <n>', 'the reserved generation', generationOf)
 	.requiredOption('--token <token>', 'the reservation token from acquire')
 	.option('--unit <ref>', 'the unit to bind (default: this session)')
-	.action((projectRef, name, opts) => {
+	.action((first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		const unitId = unitOrSelf(ctx, opts.unit)
 		const v = orFail(() =>
@@ -569,12 +578,13 @@ withGlobals(service.command('bind'))
 
 withGlobals(service.command('release'))
 	.description('abandon a reservation (--token) or step down as owner (default: this session)')
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
 	.requiredOption('--generation <n>', 'the current generation', generationOf)
 	.option('--token <token>', 'release a reservation instead of an active ownership')
 	.option('--unit <ref>', 'the owning unit (default: this session)')
-	.action((projectRef, name, opts) => {
+	.action((first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		const input = opts.token
 			? { generation: opts.generation, token: opts.token }
@@ -584,12 +594,13 @@ withGlobals(service.command('release'))
 
 withGlobals(service.command('handoff'))
 	.description('transfer ownership to another live unit under a new generation')
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
 	.requiredOption('--generation <n>', 'the current generation', generationOf)
 	.requiredOption('--to <ref>', 'the unit taking over')
 	.option('--from <ref>', 'the current owner (default: this session)')
-	.action((projectRef, name, opts) => {
+	.action((first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		const from = unitOrSelf(ctx, opts.from)
 		const to = orFail(() => resolveAgent(ctx.store, opts.to)).id
@@ -603,11 +614,12 @@ withGlobals(service.command('verify'))
 	.description(
 		'the fencing check: exit 0 only when the unit (default: this session) owns the service at this generation',
 	)
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
 	.requiredOption('--generation <n>', 'the generation the caller believes it owns', generationOf)
 	.option('--unit <ref>', 'the unit to check (default: this session)')
-	.action((projectRef, name, opts) => {
+	.action((first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		const unitId = unitOrSelf(ctx, opts.unit)
 		const v = orFail(() => verifyOwnership(ctx, projectRef, name, { unit: unitId, generation: opts.generation }))
@@ -616,10 +628,11 @@ withGlobals(service.command('verify'))
 
 withSpawnOptions(service.command('start'))
 	.description('resolve the healthy owner, or spawn one peer and bind it — concurrent starts launch once')
-	.argument('<project>', 'project id, path, or unique name')
-	.argument('<name>', 'service name')
+	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
+	.argument('[name]', 'service name')
 	.option('--ttl <ms>', 'how long the reservation holds while the peer launches', generationOf)
-	.action(async (projectRef, name, opts) => {
+	.action(async (first, second, opts) => {
+		const [projectRef, name] = serviceTarget(first, second)
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		let spawnInput: ReturnType<typeof spawnCommandInput>

@@ -38,8 +38,8 @@ beforeEach(() => {
 	project = JSON.parse(legion(['project', 'register', '--dir', dir, '--format', 'json'])).id
 })
 
-function legion(args: string[], env: NodeJS.ProcessEnv = {}): string {
-	return execFileSync('node', [BIN, ...args, '--space', space], { encoding: 'utf8', env: baseEnv(env) })
+function legion(args: string[], env: NodeJS.ProcessEnv = {}, cwd?: string): string {
+	return execFileSync('node', [BIN, ...args, '--space', space], { encoding: 'utf8', env: baseEnv(env), cwd })
 }
 
 function legionJson(args: string[], env: NodeJS.ProcessEnv = {}) {
@@ -150,5 +150,25 @@ describe('spec:cyberlegion/service — CLI', () => {
 		expect(res.status).not.toBe(0)
 		expect(res.stderr).toContain('no longer current')
 		expect(legionJson(['service', 'resolve', project, 'controller']).health).toBe('starting')
+	})
+
+	it('with no project argument, a service resolves the project of the current directory and registers it', () => {
+		const dir = join(base, 'beta')
+		const linked = join(base, 'beta.worktrees', 'w1')
+		mkdirSync(dir)
+		execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir })
+		execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'i'], {
+			cwd: dir,
+		})
+		execFileSync('git', ['worktree', 'add', '-q', '-b', 'w1', linked], { cwd: dir })
+
+		const acquired = JSON.parse(legion(['service', 'acquire', 'controller', '--format', 'json'], {}, linked))
+		expect(acquired.outcome).toBe('reserved')
+
+		const shown = JSON.parse(legion(['project', 'show', 'beta', '--format', 'json']))
+		expect(acquired.project).toBe(shown.id)
+		expect(JSON.parse(legion(['service', 'resolve', 'controller', '--format', 'json'], {}, dir)).health).toBe(
+			'starting',
+		)
 	})
 })

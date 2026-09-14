@@ -94,10 +94,11 @@ function isDirectory(path: string): boolean {
 }
 
 /**
- * Resolve a registered project from anywhere — by id, by a path inside any of its checkouts, or by
- * name when exactly one registered project carries it. Resolution never registers: an unregistered
- * checkout fails loud rather than silently minting a project the caller did not ask for, and an
- * ambiguous name names its candidates rather than picking one.
+ * Resolve a project from anywhere — by id, by a path inside any of its checkouts, or by name when
+ * exactly one registered project carries it. A path registers its project on first use: git has
+ * already confirmed it is a repository, and registering is idempotent, so there is nothing a typo
+ * could mint. A name never registers — nothing can be found by a name no checkout has reported —
+ * and an ambiguous name names its candidates rather than picking one.
  */
 export function resolveProject(ctx: ProjectContext, ref: string): ProjectRecord {
 	const byId = ctx.store.getProject(ref)
@@ -112,15 +113,13 @@ export function resolveProject(ctx: ProjectContext, ref: string): ProjectRecord 
 		)
 	}
 	if (isDirectory(asPath)) return byPath(ctx, asPath)
-	throw new Error(`no registered project "${ref}" (tried id, path, and name) — run 'cyberlegion project register'`)
+	throw new Error(
+		`no registered project "${ref}" (tried id, path, and name) — pass a path inside the repository to register it`,
+	)
 }
 
 function byPath(ctx: ProjectContext, dir: string): ProjectRecord {
 	const commonDir = commonDirOf(ctx.exec ?? realExec, dir)
 	if (!commonDir) throw new Error(`"${dir}" is not inside a git repository`)
-	const rec = ctx.store.getProject(projectIdOf(commonDir))
-	if (!rec) {
-		throw new Error(`the project at "${dir}" is not registered — run 'cyberlegion project register --dir ${dir}'`)
-	}
-	return rec
+	return ctx.store.getProject(projectIdOf(commonDir)) ?? registerProject(ctx, { dir })
 }

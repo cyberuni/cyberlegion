@@ -67,9 +67,28 @@ describe('spec:cyberlegion/project — a stable project reference', () => {
 		expect(() => resolveProject({ store }, 'app')).toThrow(new RegExp(`${a.id}.*${b.id}|${b.id}.*${a.id}`))
 	})
 
-	it('an unregistered checkout does not resolve — resolution never registers', () => {
-		const dir = repo(join(base, 'loose'))
-		expect(() => resolveProject({ store }, dir)).toThrow(/not registered/)
+	it('a path inside an unregistered checkout registers it, from a worktree too', () => {
+		const primary = repo(join(base, 'alpha'))
+		const linked = join(base, 'alpha.worktrees', 'w1')
+		git(primary, 'worktree', 'add', '-q', '-b', 'w1', linked)
+
+		const rec = resolveProject({ store }, linked)
+
+		expect(rec.name).toBe('alpha')
+		expect(listProjects(store).map((p) => p.id)).toEqual([rec.id])
+		expect(resolveProject({ store }, primary).id).toBe(rec.id)
+	})
+
+	it('an unregistered name does not resolve — only a path can register', () => {
+		repo(join(base, 'loose'))
+		expect(() => resolveProject({ store }, 'loose')).toThrow(/no registered project/)
+		expect(listProjects(store)).toHaveLength(0)
+	})
+
+	it('a path outside any git repository fails loud and registers nothing', () => {
+		const dir = join(base, 'plain')
+		mkdirSync(dir)
+		expect(() => resolveProject({ store }, dir)).toThrow(/not inside a git repository/)
 		expect(listProjects(store)).toHaveLength(0)
 	})
 
