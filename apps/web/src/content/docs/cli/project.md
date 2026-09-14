@@ -23,6 +23,11 @@ Registering again is idempotent and keeps the original registration time. Fails 
 repository. Output: `id`, `name` (the default checkout's directory name), `root` (the default
 checkout).
 
+The default checkout records its own root. A linked worktree of a repository whose git dir lives
+elsewhere (`git init --separate-git-dir`) cannot see that checkout, so registering from it keeps a
+root already on record. Before the default checkout has registered, it records the git dir's parent
+as a best guess.
+
 ## list
 
 ```sh
@@ -37,10 +42,10 @@ List the registered projects, with a definitive count line even when there are n
 npx cyberlegion project show <ref>
 ```
 
-Resolve a registered project from anywhere. `<ref>` is tried as an id, then as a path inside any of
-its checkouts, then as a name. Resolution never registers: an unregistered checkout fails with the
-`project register` command to run. A name that more than one registered project carries fails and
-lists the candidate ids.
+Resolve a project from anywhere. `<ref>` is tried as an id, then as a path inside any of its
+checkouts, then as a name. A path registers its project on first use, so `project register` is
+optional. A name only resolves a project that is already registered, and a name that more than one
+registered project carries fails and lists the candidate ids.
 
 ## Related
 

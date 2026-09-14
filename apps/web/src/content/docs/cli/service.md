@@ -4,12 +4,13 @@ description: 'CLI reference for cyberlegion service: resolve-or-start one author
 ---
 
 ```sh
-npx cyberlegion service <resolve|acquire|bind|release|handoff|verify|start> <project> <name> ...
+npx cyberlegion service <resolve|acquire|bind|release|handoff|verify|start> [project] <name> ...
 ```
 
 A service is a named role in a [registered project](/cyberlegion/cli/project/) that exactly one
-unit owns at a time. `<project>` accepts anything `project show` accepts. `<name>` is a lowercase
-token (letters, digits, `-`, `_`).
+unit owns at a time. `[project]` accepts anything `project show` accepts, and defaults to the
+project containing the current directory. A path registers its project on first use. `<name>` is a
+lowercase token (letters, digits, `-`, `_`).
 
 A service has two parts:
 
@@ -42,7 +43,7 @@ implies control.
 ## start
 
 ```sh
-npx cyberlegion service start <project> <name> [spawn options] [--ttl <ms>]
+npx cyberlegion service start [project] <name> [spawn options] [--ttl <ms>]
 ```
 
 Resolve-or-start in one command. It takes every [`unit spawn`](/cyberlegion/cli/unit/) option. If the
@@ -55,7 +56,7 @@ peer.
 ## acquire
 
 ```sh
-npx cyberlegion service acquire <project> <name> [--ttl <ms>] [--force-generation <n>]
+npx cyberlegion service acquire [project] <name> [--ttl <ms>] [--force-generation <n>]
 ```
 
 The first half of a start you drive yourself. Reports `outcome`:
@@ -74,7 +75,7 @@ name the current generation, so a force based on a stale read fails.
 ## bind
 
 ```sh
-npx cyberlegion service bind <project> <name> --generation <n> --token <token> [--unit <ref>]
+npx cyberlegion service bind [project] <name> --generation <n> --token <token> [--unit <ref>]
 ```
 
 Make a live unit the owner at the reserved generation (default: this session). Fails as stale when
@@ -84,7 +85,7 @@ In that case the runtime you started is not the owner and should be stopped.
 ## release
 
 ```sh
-npx cyberlegion service release <project> <name> --generation <n> [--token <token> | --unit <ref>]
+npx cyberlegion service release [project] <name> --generation <n> [--token <token> | --unit <ref>]
 ```
 
 With `--token`, abandon a reservation after a failed start. Without it, step down as the owner
@@ -93,7 +94,7 @@ With `--token`, abandon a reservation after a failed start. Without it, step dow
 ## handoff
 
 ```sh
-npx cyberlegion service handoff <project> <name> --generation <n> --to <ref> [--from <ref>]
+npx cyberlegion service handoff [project] <name> --generation <n> --to <ref> [--from <ref>]
 ```
 
 Transfer ownership from the current owner (default: this session) to another live unit, under a new
@@ -103,7 +104,7 @@ fails `verify`.
 ## verify
 
 ```sh
-npx cyberlegion service verify <project> <name> --generation <n> [--unit <ref>]
+npx cyberlegion service verify [project] <name> --generation <n> [--unit <ref>]
 ```
 
 The fencing check. Exits `0` only when the unit (default: this session) owns the service at exactly
@@ -114,7 +115,7 @@ recovered past exits non-zero. A runtime learns its generation from `service res
 ## resolve
 
 ```sh
-npx cyberlegion service resolve <project> <name>
+npx cyberlegion service resolve [project] <name>
 ```
 
 Read the service state without changing anything. Fails for a service that was never acquired.

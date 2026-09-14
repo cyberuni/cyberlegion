@@ -28,6 +28,15 @@ share a directory name have different common dirs and different ids. The id is d
 concurrent registrations from two worktrees converge without a lock. The directory basename is kept
 only as a display name; resolving by name fails loud when it is ambiguous.
 
+Resolving a **path** registers its project on first use, and the CLI's service verbs default the
+project to the current directory. Git has already confirmed the path is a repository, and
+registering is idempotent, so a typo cannot create a project. A **name** never registers.
+
+The root is the default checkout. Asked from the default checkout, `--show-toplevel` is exact. Asked
+from a linked worktree of a `--separate-git-dir` repository, git has no pointer back to the default
+checkout (`git worktree list` reports the git dir), so the common dir's parent is only a guess, and a
+guess never overwrites a root already on record.
+
 *Revisitable cheaply:* moving a repository changes its common dir and so its id. Registering it again
 creates a new project. A move-stable id (for example, one minted and stored inside the common dir)
 can replace the derivation later without changing the service model.
