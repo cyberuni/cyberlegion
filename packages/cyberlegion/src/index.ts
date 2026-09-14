@@ -49,6 +49,28 @@ export { listProjects, registerProject, resolveProject } from './project.ts'
 // ── Surfacing + install (hooks) ────────────────────────────────────────────────────────────────
 export type { HookEvent } from './runtime/inject-inbox.ts'
 export { injectInbox } from './runtime/inject-inbox.ts'
+// ── Project services (ownership, resolve-or-start, fencing) ────────────────────────────────────
+export type {
+	AcquireInput,
+	AcquireResult,
+	OwnershipErrorCode,
+	ServiceContext,
+	ServiceHealth,
+	ServiceLease,
+	ServiceView,
+} from './service.ts'
+export {
+	acquireService,
+	bindService,
+	DEFAULT_RESERVATION_TTL_MS,
+	handoffService,
+	releaseService,
+	resolveService,
+	ServiceOwnershipError,
+	serviceEndpointId,
+	verifyOwnership,
+	withOwnership,
+} from './service.ts'
 // ── Session lifecycle (channel) ────────────────────────────────────────────────────────────────
 export type { SpawnInput, SpawnResult } from './session.ts'
 export { spawn, spawnAndWake } from './session.ts'

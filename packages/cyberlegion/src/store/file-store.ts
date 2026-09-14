@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { ensureMarker, InvalidIdError, paths } from '../paths.ts'
 import { CorruptRecordError } from './errors.ts'
 import { withLock } from './lock.ts'
-import type { AgentRecord, InboxSnapshot, Message, ProjectRecord, Store } from './store.ts'
+import type { AgentRecord, InboxSnapshot, Message, ProjectRecord, ServiceLease, Store } from './store.ts'
 
 /** Parse a record file's content, wrapping a `JSON.parse` failure in a typed, file-named
  * `CorruptRecordError` instead of letting a bare `SyntaxError` bubble up from deep inside
@@ -172,6 +172,16 @@ export class FileStore implements Store {
 			.filter((f) => f.endsWith('.json'))
 			.map((f) => readJsonRecord<ProjectRecord>(join(dir, f)))
 			.sort((a, b) => a.registeredAt.localeCompare(b.registeredAt))
+	}
+
+	putServiceLease(lease: ServiceLease): void {
+		writeJson(paths.serviceLeaseFile(this.root, lease.project, lease.service), lease)
+	}
+
+	getServiceLease(project: string, service: string): ServiceLease | undefined {
+		const file = readPathOrUndefined(() => paths.serviceLeaseFile(this.root, project, service))
+		if (!file || !existsSync(file)) return undefined
+		return readJsonRecord<ServiceLease>(file)
 	}
 
 	putPaneIndex(pane: string, agentId: string): void {

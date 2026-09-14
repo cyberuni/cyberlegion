@@ -51,8 +51,12 @@ export interface AgentRecord {
 	brief?: string
 	spawnedBy?: string
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,
-	 * prune-exempt owner inbox minted by `unit register --standing`. */
-	kind?: 'session' | 'standing'
+	 * prune-exempt owner inbox minted by `unit register --standing`. 'service' = a project service's
+	 * endpoint (`service.ts`): session-independent and prune-exempt like a standing record, but never
+	 * surfaced as owner mail — its mailbox belongs to whichever unit currently owns the service. */
+	kind?: 'session' | 'standing' | 'service'
+	/** Only meaningful on a `kind: 'service'` record — which project service this endpoint is. */
+	service?: { project: string; name: string }
 	/** Only meaningful on a `kind: 'standing'` record — the id of the unit currently standing in for
 	 * it (`unit claim`), a per-record singleton pointer that moves as the principal moves between
 	 * units (last claim wins). Resolved live, never trusted: a presence unit that has exited reads as
@@ -73,6 +77,24 @@ export interface ProjectRecord {
 	/** The canonical (realpath) git common dir the id is derived from. */
 	commonDir: string
 	registeredAt: string
+}
+
+/** A project service's ownership lease (`service.ts`) — who authoritatively owns the service now,
+ * persisted independently of any runtime so ownership survives the runtime that held it. */
+export interface ServiceLease {
+	project: string
+	service: string
+	/** The service endpoint's record id — the durable mailbox and the stable reference. */
+	endpoint: string
+	/** Fencing generation: bumped on every change of authority (a new reservation or a handoff), so a
+	 * runtime holding an older generation is provably stale. */
+	generation: number
+	/** `vacant` — no owner, no start in progress. `reserved` — a start is in progress (or failed and
+	 * not yet expired). `active` — `holder` owns the service at `generation`. */
+	state: 'vacant' | 'reserved' | 'active'
+	holder?: string
+	reservation?: { token: string; by?: string; at: string; expiresAt: string; forced?: boolean }
+	updatedAt: string
 }
 
 export interface InboxSnapshot {
@@ -112,6 +134,12 @@ export interface Store {
 	putProject(rec: ProjectRecord): void
 	getProject(id: string): ProjectRecord | undefined
 	listProjects(): ProjectRecord[]
+
+	// -- service leases --
+	/** Upsert a service lease (keyed by `lease.project` + `lease.service`). Callers mutate a lease only
+	 * while holding that service's named lock (`service.ts`). */
+	putServiceLease(lease: ServiceLease): void
+	getServiceLease(project: string, service: string): ServiceLease | undefined
 
 	// -- pane index (multiplexer pane id -> agent id) --
 	putPaneIndex(pane: string, agentId: string): void
