@@ -58,6 +58,8 @@ export type {
 	ServiceHealth,
 	ServiceLease,
 	ServiceView,
+	StartInput,
+	StartResult,
 } from './service.ts'
 export {
 	acquireService,
@@ -68,6 +70,7 @@ export {
 	resolveService,
 	ServiceOwnershipError,
 	serviceEndpointId,
+	startService,
 	verifyOwnership,
 	withOwnership,
 } from './service.ts'
