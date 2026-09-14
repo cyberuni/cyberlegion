@@ -234,6 +234,25 @@ export function resolveStandingOwner(store: Store, handle: string): string {
 }
 
 /**
+ * Resolve an `--owner` mailbox reference: a standing owner by handle, or a service endpoint by id or
+ * by its handle when exactly one carries it. Never a session's own inbox.
+ */
+export function resolveOwnerMailbox(store: Store, ref: string): string {
+	const byId = loadAgent(store, ref)
+	if (byId?.kind === 'service' || byId?.kind === 'standing') return byId.id
+	const agents = listAgents(store)
+	if (agents.some((a) => a.handle === ref && a.kind === 'standing')) return resolveStandingOwner(store, ref)
+	const services = agents.filter((a) => a.handle === ref && a.kind === 'service')
+	if (services.length === 1) return (services[0] as AgentRecord).id
+	if (services.length > 1) {
+		throw new Error(
+			`"${ref}" names ${services.length} service endpoints — pass an endpoint id (${services.map((a) => a.id).join(', ')})`,
+		)
+	}
+	return resolveStandingOwner(store, ref)
+}
+
+/**
  * Bind the caller's own unit as a standing owner's presence — the live unit standing in for a
  * durable record that has no session of its own. Order matters: resolve the standing record first
  * (an unknown handle throws via `resolveStandingOwner` — fail-loud, never auto-mints), THEN gate on

@@ -372,3 +372,54 @@ export function withOwnership<T>(
 	const project = resolveProject(ctx, projectRef)
 	return ctx.store.withLock(lockName(project.id, name), () => fn(verifyOwnership(ctx, project.id, name, input)))
 }
+
+export interface StartInput<T extends { unit: string }> extends AcquireInput {
+	/** Launch the runtime that will own the service, returning its unit id. Called only by the one
+	 * caller holding the reservation; `generation` is the generation that runtime will own at. */
+	launch: (reservation: { generation: number; endpoint: string }) => Promise<T>
+}
+
+export type StartResult<T> =
+	| { outcome: 'resolved' | 'starting'; view: ServiceView }
+	| { outcome: 'started'; view: ServiceView; launched: T }
+
+/**
+ * Resolve-or-start end to end: acquire, and only when this caller wins the reservation, launch a
+ * runtime and bind it. A launch that throws releases the reservation (best-effort — an expiry covers
+ * a release that itself fails) so the start is retryable at once. A launch that finishes after its
+ * reservation was superseded is refused at bind: the launched unit is not the owner, and the error
+ * names it so the caller can stop it.
+ */
+export async function startService<T extends { unit: string }>(
+	ctx: ServiceContext,
+	projectRef: string,
+	name: string,
+	input: StartInput<T>,
+): Promise<StartResult<T>> {
+	const acquired = acquireService(ctx, projectRef, name, input)
+	if (acquired.outcome !== 'reserved') return { outcome: acquired.outcome, view: acquired.view }
+	const { generation, endpoint } = acquired.lease
+	let launched: T
+	try {
+		launched = await input.launch({ generation, endpoint })
+	} catch (err) {
+		try {
+			releaseService(ctx, projectRef, name, { generation, token: acquired.token })
+		} catch {
+			// superseded already — nothing of ours left to release
+		}
+		throw err
+	}
+	try {
+		const view = bindService(ctx, projectRef, name, { generation, token: acquired.token, unit: launched.unit })
+		return { outcome: 'started', view, launched }
+	} catch (err) {
+		if (err instanceof ServiceOwnershipError) {
+			throw new ServiceOwnershipError(
+				err.code,
+				`launched unit "${launched.unit}" could not become the owner — ${err.message}; stop it`,
+			)
+		}
+		throw err
+	}
+}

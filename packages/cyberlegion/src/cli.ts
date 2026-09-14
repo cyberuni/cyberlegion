@@ -23,9 +23,9 @@ import {
 	register,
 	registerStanding,
 	resolveAgent,
+	resolveOwnerMailbox,
 	resolvePresence,
 	resolveSelfId,
-	resolveStandingOwner,
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
@@ -36,6 +36,16 @@ import { emit, type Format, fail, nextStep, toonList, toonObject } from './outpu
 import { resolveRoot } from './paths.ts'
 import { listProjects, type ProjectRecord, registerProject, resolveProject } from './project.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
+import {
+	acquireService,
+	bindService,
+	handoffService,
+	releaseService,
+	resolveService,
+	type ServiceView,
+	startService,
+	verifyOwnership,
+} from './service.ts'
 import { clearUnit, focusUnit, nudgeUnit, readUnit, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
@@ -253,9 +263,9 @@ withGlobals(unit.command('prune'))
 		})
 	})
 
-function defineSpawn(cmd: Command): Command {
+/** The launch options `unit spawn` and `service start` share. */
+function withSpawnOptions(cmd: Command): Command {
 	return withGlobals(cmd)
-		.description('launch a new peer session in its own git worktree (tmux or herdr)')
 		.option('--harness <h>', 'claude | cursor | codex (required unless --agent/--agent-file resolves one)')
 		.option('--agent <name>', 'resolve an agent def (.agents/agents/<name>.md) for harness/model/instructions')
 		.option('--agent-file <path>', 'read an exact agent def file instead of resolving by name')
@@ -277,6 +287,11 @@ function defineSpawn(cmd: Command): Command {
 			).choices(['pane:right', 'pane:down', 'tab', 'workspace']),
 		)
 		.option('--no-wake', 'suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself)')
+}
+
+function defineSpawn(cmd: Command): Command {
+	return withSpawnOptions(cmd)
+		.description('launch a new peer session in its own git worktree (tmux or herdr)')
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
@@ -450,6 +465,192 @@ withGlobals(project.command('show'))
 	})
 
 // -------------------------------------------------------------------------------------------
+// service — one owner per project service: resolve-or-start, handoff, and the fencing check
+// -------------------------------------------------------------------------------------------
+const service = program
+	.command('service')
+	.description('project services — one authoritative owner each, fenced by generation')
+
+function serviceFields(v: ServiceView) {
+	return {
+		project: v.project.id,
+		service: v.lease.service,
+		endpoint: v.endpoint.id,
+		generation: v.lease.generation,
+		state: v.lease.state,
+		holder: v.lease.holder ?? null,
+		health: v.health,
+		control: v.control,
+		...(v.note ? { note: v.note } : {}),
+	}
+}
+
+function toonFields(fields: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, v ?? '-']))
+}
+
+function emitService(opts: GlobalOpts, fields: Record<string, unknown>): void {
+	emit(formatOf(opts), { toon: toonObject(toonFields(fields)), json: fields })
+}
+
+/** Run a service operation, rendering any refusal through `fail` (stderr + non-zero exit). */
+function orFail<T>(fn: () => T): T {
+	try {
+		return fn()
+	} catch (err) {
+		fail(err instanceof Error ? err.message : String(err))
+	}
+}
+
+const generationOf = (v: string) => Number.parseInt(v, 10)
+
+/** A unit reference option, defaulting to the calling session's own identity. */
+function unitOrSelf(ctx: IdContext, ref: string | undefined): string {
+	return ref ? orFail(() => resolveAgent(ctx.store, ref)).id : requireSelf(ctx)
+}
+
+withGlobals(service.command('resolve'))
+	.description("show a service's owner, generation, health, and whether its session is controllable")
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.action((projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		emitService(opts, serviceFields(orFail(() => resolveService(ctx, projectRef, name))))
+	})
+
+withGlobals(service.command('acquire'))
+	.description('resolve the healthy owner, or reserve the right to start one (exactly one caller wins)')
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.option('--ttl <ms>', 'how long the reservation holds before another caller may take over', generationOf)
+	.option(
+		'--force-generation <n>',
+		'reserve even over a healthy owner — must name the current generation',
+		generationOf,
+	)
+	.action((projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		const res = orFail(() =>
+			acquireService(ctx, projectRef, name, {
+				by: resolveSelfId(ctx),
+				ttlMs: opts.ttl,
+				...(opts.forceGeneration !== undefined ? { force: { generation: opts.forceGeneration } } : {}),
+			}),
+		)
+		emitService(opts, {
+			outcome: res.outcome,
+			...serviceFields(res.view),
+			...(res.outcome === 'reserved' ? { token: res.token, expiresAt: res.lease.reservation?.expiresAt } : {}),
+		})
+		if (res.outcome === 'reserved') {
+			nextStep(
+				`start the runtime, then: cyberlegion service bind ${projectRef} ${name} --generation ${res.lease.generation} --token ${res.token}`,
+			)
+		} else if (res.outcome === 'starting') {
+			nextStep(`another caller is starting it — re-run to resolve: cyberlegion service resolve ${projectRef} ${name}`)
+		}
+	})
+
+withGlobals(service.command('bind'))
+	.description('complete a reservation: make a live unit (default: this session) the owner')
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.requiredOption('--generation <n>', 'the reserved generation', generationOf)
+	.requiredOption('--token <token>', 'the reservation token from acquire')
+	.option('--unit <ref>', 'the unit to bind (default: this session)')
+	.action((projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		const unitId = unitOrSelf(ctx, opts.unit)
+		const v = orFail(() =>
+			bindService(ctx, projectRef, name, { generation: opts.generation, token: opts.token, unit: unitId }),
+		)
+		emitService(opts, serviceFields(v))
+	})
+
+withGlobals(service.command('release'))
+	.description('abandon a reservation (--token) or step down as owner (default: this session)')
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.requiredOption('--generation <n>', 'the current generation', generationOf)
+	.option('--token <token>', 'release a reservation instead of an active ownership')
+	.option('--unit <ref>', 'the owning unit (default: this session)')
+	.action((projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		const input = opts.token
+			? { generation: opts.generation, token: opts.token }
+			: { generation: opts.generation, unit: unitOrSelf(ctx, opts.unit) }
+		emitService(opts, serviceFields(orFail(() => releaseService(ctx, projectRef, name, input))))
+	})
+
+withGlobals(service.command('handoff'))
+	.description('transfer ownership to another live unit under a new generation')
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.requiredOption('--generation <n>', 'the current generation', generationOf)
+	.requiredOption('--to <ref>', 'the unit taking over')
+	.option('--from <ref>', 'the current owner (default: this session)')
+	.action((projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		const from = unitOrSelf(ctx, opts.from)
+		const to = orFail(() => resolveAgent(ctx.store, opts.to)).id
+		emitService(
+			opts,
+			serviceFields(orFail(() => handoffService(ctx, projectRef, name, { generation: opts.generation, from, to }))),
+		)
+	})
+
+withGlobals(service.command('verify'))
+	.description(
+		'the fencing check: exit 0 only when the unit (default: this session) owns the service at this generation',
+	)
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.requiredOption('--generation <n>', 'the generation the caller believes it owns', generationOf)
+	.option('--unit <ref>', 'the unit to check (default: this session)')
+	.action((projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		const unitId = unitOrSelf(ctx, opts.unit)
+		const v = orFail(() => verifyOwnership(ctx, projectRef, name, { unit: unitId, generation: opts.generation }))
+		emitService(opts, serviceFields(v))
+	})
+
+withSpawnOptions(service.command('start'))
+	.description('resolve the healthy owner, or spawn one peer and bind it — concurrent starts launch once')
+	.argument('<project>', 'project id, path, or unique name')
+	.argument('<name>', 'service name')
+	.option('--ttl <ms>', 'how long the reservation holds while the peer launches', generationOf)
+	.action(async (projectRef, name, opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		let spawnInput: ReturnType<typeof spawnCommandInput>
+		try {
+			spawnInput = spawnCommandInput(opts)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		let warning: string | undefined
+		let res: Awaited<ReturnType<typeof startService>>
+		try {
+			res = await startService(ctx, projectRef, name, {
+				by: resolveSelfId(ctx),
+				ttlMs: opts.ttl,
+				launch: async () => {
+					const spawned = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake })
+					warning = spawned.warning
+					return { unit: spawned.agent.id, pane: spawned.pane }
+				},
+			})
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+		if (warning) console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${warning}`)
+		emitService(opts, { outcome: res.outcome, ...serviceFields(res.view) })
+		if (res.outcome === 'starting') {
+			nextStep(`another caller is starting it — re-run to resolve: cyberlegion service resolve ${projectRef} ${name}`)
+		}
+	})
+
+// -------------------------------------------------------------------------------------------
 // mail — durable inter-agent messaging
 // -------------------------------------------------------------------------------------------
 const mail = program.command('mail').description('durable inter-agent messaging')
@@ -518,7 +719,7 @@ function emitInbox(ctx: IdContext, opts: InboxOpts, meId: string, readCmd: strin
 function runInbox(opts: InboxOpts): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
-	const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
+	const meId = opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx)
 	emitInbox(ctx, opts, meId, 'cyberlegion mail read')
 }
 
@@ -537,7 +738,7 @@ withGlobals(mail.command('read'))
 	.option('--owner <handle>', "read a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
-		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
+		const meId = opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx)
 		if (opts.ack) {
 			const { msg, acked } = readAck({ store: ctx.store }, meId, msgId)
 			emit(formatOf(opts), {
@@ -561,7 +762,7 @@ withGlobals(mail.command('ack'))
 	.option('--owner <handle>', "ack a standing owner's mailbox instead of this session's own")
 	.action((msgId, opts) => {
 		const ctx = ctxOf(opts)
-		const meId = opts.owner ? resolveStandingOwner(ctx.store, opts.owner) : requireSelf(ctx)
+		const meId = opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx)
 		const msg = ack({ store: ctx.store }, meId, msgId)
 		emit(formatOf(opts), { toon: toonObject({ acked: msg.id, from: msg.fromHandle, subject: msg.subject }), json: msg })
 	})

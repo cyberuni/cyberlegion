@@ -14,6 +14,7 @@ import {
 	resolveService,
 	type ServiceContext,
 	ServiceOwnershipError,
+	startService,
 	verifyOwnership,
 } from './service.ts'
 import { FileStore } from './store/file-store.ts'
@@ -274,5 +275,82 @@ describe('spec:cyberlegion/service — the endpoint outlives its runtimes', () =
 		unit('u1')
 		start('u1')
 		expect(resolveService(ctx(), projectId, 'controller').control).toBe('pane')
+	})
+})
+
+describe('spec:cyberlegion/service — startService composes acquire, launch, and bind', () => {
+	it('a vacant service is launched once and bound to the launched unit', async () => {
+		const launched: number[] = []
+		const res = await startService(ctx(), projectId, 'controller', {
+			launch: async ({ generation }) => {
+				launched.push(generation)
+				unit('fresh')
+				return { unit: 'fresh' }
+			},
+		})
+		expect(res.outcome).toBe('started')
+		expect(launched).toEqual([1])
+		expect(resolveService(ctx(), projectId, 'controller').lease.holder).toBe('fresh')
+	})
+
+	it('a healthy owner is resolved without launching anything', async () => {
+		unit('u1')
+		start('u1')
+		let launches = 0
+		const res = await startService(ctx(), projectId, 'controller', {
+			launch: async () => {
+				launches++
+				return { unit: 'never' }
+			},
+		})
+		expect(res.outcome).toBe('resolved')
+		expect(launches).toBe(0)
+	})
+
+	it('two simultaneous starts launch one runtime; the other reports starting', async () => {
+		let launches = 0
+		let finish: () => void = () => {}
+		const gate = new Promise<void>((r) => {
+			finish = r
+		})
+		const launch = async () => {
+			launches++
+			await gate
+			unit('only')
+			return { unit: 'only' }
+		}
+		const first = startService(ctx(), projectId, 'controller', { launch })
+		const second = await startService(ctx(), projectId, 'controller', { launch })
+		finish()
+
+		expect(second.outcome).toBe('starting')
+		expect((await first).outcome).toBe('started')
+		expect(launches).toBe(1)
+	})
+
+	it('a launch that throws releases its reservation, so the start can be retried at once', async () => {
+		await expect(
+			startService(ctx(), projectId, 'controller', {
+				launch: async () => {
+					throw new Error('boom')
+				},
+			}),
+		).rejects.toThrow(/boom/)
+		expect(resolveService(ctx(), projectId, 'controller').health).toBe('vacant')
+		expect(acquireService(ctx(), projectId, 'controller').outcome).toBe('reserved')
+	})
+
+	it('a launch that outlives its reservation is refused, naming the unit that is not the owner', async () => {
+		await expect(
+			startService(ctx(), projectId, 'controller', {
+				ttlMs: 1000,
+				launch: async () => {
+					clock += 5000
+					acquireService(ctx(), projectId, 'controller')
+					unit('slow')
+					return { unit: 'slow' }
+				},
+			}),
+		).rejects.toThrow(/slow/)
 	})
 })

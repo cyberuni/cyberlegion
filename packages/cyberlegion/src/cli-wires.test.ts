@@ -1,8 +1,10 @@
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DELIVERY_DOORBELL } from './console/doorbell.ts'
+import { registerProject } from './project.ts'
 import { FileStore } from './store/file-store.ts'
 
 // The CLI option wires, driven through the real Commander program in-process. Round 12 moved the
@@ -226,5 +228,54 @@ describe('spec:cyberlegion/unit/lifecycle an agent def composes the spawn input'
 			// the override reaches the composed launch too — the codex binary, not claude's
 			expect(input.command?.startsWith('codex ')).toBe(true)
 		})
+	})
+})
+
+// `service start` composes resolve-or-start around the same spawn wire: it spawns only when this
+// caller wins the reservation, binds what it spawned, and hands a failed spawn's reservation back.
+describe('spec:cyberlegion/service `service start` spawns at most once and binds the peer', () => {
+	function project(): string {
+		const dir = mkdtempSync(join(tmpdir(), 'cl-svc-wires-'))
+		execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir })
+		return registerProject({ store: new FileStore(space) }, { dir }).id
+	}
+
+	/** The spawned peer: pane-less, so its liveness is not probed against a real multiplexer. */
+	function spawnsPeer() {
+		spawnAndWake.mockImplementation(async () => {
+			new FileStore(space).putAgent({
+				id: 'p1',
+				handle: 'p1',
+				harness: 'claude',
+				cwd: '/tmp',
+				pane: null,
+				status: 'active',
+				createdAt: 'x',
+				lastSeen: 'x',
+			})
+			return { agent: { id: 'p1', handle: 'p1' }, pane: '%9', launch: 'claude', rung: true }
+		})
+	}
+
+	it('a vacant service spawns one peer with the spawn flags and binds it; a second start spawns nothing', async () => {
+		const prj = project()
+		spawnsPeer()
+		await cli(['service', 'start', prj, 'controller', '--harness', 'claude', '--task', 'own it', '--no-wake'])
+		expect(spawnAndWake).toHaveBeenCalledTimes(1)
+		expect(spawnAndWake.mock.calls[0]?.[1]).toMatchObject({ harness: 'claude', task: 'own it' })
+		expect(spawnAndWake.mock.calls[0]?.[2]).toMatchObject({ noWake: true })
+		expect(new FileStore(space).getServiceLease(prj, 'controller')).toMatchObject({ state: 'active', holder: 'p1' })
+
+		await cli(['service', 'start', prj, 'controller', '--harness', 'claude', '--task', 'own it'])
+		expect(spawnAndWake).toHaveBeenCalledTimes(1)
+	})
+
+	it('a spawn that throws leaves the service vacant for an immediate retry', async () => {
+		const prj = project()
+		spawnAndWake.mockRejectedValue(new Error('no multiplexer'))
+		await expect(cli(['service', 'start', prj, 'controller', '--harness', 'claude', '--task', 't'])).rejects.toThrow(
+			/process\.exit/,
+		)
+		expect(new FileStore(space).getServiceLease(prj, 'controller')?.state).toBe('vacant')
 	})
 })
