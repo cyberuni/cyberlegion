@@ -1,5 +1,34 @@
 # cyberlegion
 
+## 0.4.0
+
+### Minor Changes
+
+- 72a0511: `unit close --keep-worktree` reaps a unit's record, mailbox, pane and brief while leaving its
+  worktree on disk, and reports the retained path (`retained` in TOON, `retainedWorktree` in JSON) so
+  a pool can detach the checkout and spawn the next unit into it with `--cwd`.
+  
+  Because nothing is deleted, the flag skips the dirty-worktree refusal — that check only ever
+  protected uncommitted work from `git worktree remove`. The primary-checkout refusal is unchanged:
+  neither `--force` nor `--keep-worktree` overrides it.
+- 33a64da: Add project references and project services with fenced, resolve-or-start ownership.
+  
+  - `project register|list|show` give a repository one stable id shared by its default checkout and every linked worktree, resolvable by id, path, or unique name from anywhere.
+  - `service resolve|acquire|bind|release|handoff|verify|start` give each named project service exactly one authoritative owner. Concurrent starts converge on one reservation; failed starts are retryable; a healthy owner is only displaced by an explicit, generation-checked force; handoff and recovery bump a fencing generation that `service verify` checks.
+  - A service endpoint is a durable mailbox independent of its owners (`mail inbox --owner <endpoint>`), exempt from prune and refused by `unit close`, so pending mail survives owner replacement. A pane-less owner reports that its session control is not recoverable.
+
+### Patch Changes
+
+- 9f2fe15: Ship the agent plugin inside the npm package, and bundle the CLI's dependencies into `dist/cli.mjs`.
+  
+  `plugin.json`, the generated `.claude-plugin/` and `.codex-plugin/` manifests, `.plugin/pins.json`,
+  `skills/`, and `agents/` now live in the package and are published with it.
+  
+  An installed agent plugin is a copy of a source checkout, not an npm install, so its directory has
+  no reliable `node_modules`. `dist/cli.mjs` now inlines `commander` and `cyber-mux` and runs with no
+  `node_modules` present. The library entry keeps both external, so a consumer that also uses
+  cyber-mux shares one copy.
+
 ## 0.3.2
 
 ### Patch Changes
