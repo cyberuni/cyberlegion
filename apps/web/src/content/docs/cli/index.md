@@ -3,8 +3,8 @@ title: CLI Overview
 description: The cyberlegion command groups, output format, and when to reach for the CLI directly instead of the skills.
 ---
 
-`cyberlegion` provides seven command groups (`unit`, `mail`, `agent`, `mux`, `attach`, `init`,
-`admin`), plus hot-path top-level aliases for the most common verbs: `spawn`, `send`, `inbox`,
+`cyberlegion` provides nine command groups (`unit`, `project`, `service`, `mail`, `agent`, `mux`,
+`attach`, `init`, `admin`), plus hot-path top-level aliases for the most common verbs: `spawn`, `send`, `inbox`,
 `who`. A bare `cyberlegion` (no subcommand) prints a compact status line: this session's own
 identity, its unread count, and how many units are live. It always exits `0` and works even when
 the session isn't registered yet.
@@ -40,6 +40,8 @@ Every command also accepts `--space <path>` to isolate the hub root, overriding 
 | Group | Owns | Reference |
 |---|---|---|
 | `unit` | register/discover units, spawn/reap warm sessions | [CLI: unit](/cyberlegion/cli/unit/) |
+| `project` | a stable reference shared by every checkout of a repository | [CLI: project](/cyberlegion/cli/project/) |
+| `service` | one authoritative owner per project service, fenced by generation | [CLI: service](/cyberlegion/cli/service/) |
 | `mail` | durable inter-agent messaging | [CLI: mail](/cyberlegion/cli/mail/) |
 | `agent` | resolve reusable agent definitions | [CLI: agent](/cyberlegion/cli/agent/) |
 | `mux` | multiplexer detection and diagnostics | [CLI: mux](/cyberlegion/cli/mux/) |

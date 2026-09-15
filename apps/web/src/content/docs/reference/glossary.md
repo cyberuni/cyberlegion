@@ -12,6 +12,9 @@ description: Terms used across the cyberlegion docs, including agent, unit, pane
 | **hub** | The shared root state lives under (`$CYBERLEGION_ROOT`, else the global hub): agents, mail, briefs. |
 | **owner** | A standing, session-independent identity that holds the durable owner mailbox frameless agents report into. |
 | **standing** | A unit kind minted with `unit register --standing`: an identity independent of any one session. |
+| **project** | One git repository, identified by its git common dir, so its default checkout and every worktree share one id. See [CLI: project](/cyberlegion/cli/project/). |
+| **service** | A named role in a project that exactly one unit owns at a time. Its endpoint is a durable mailbox that outlives every owner. See [CLI: service](/cyberlegion/cli/service/). |
+| **generation** | A service's fencing number. It increases on every change of ownership, so a runtime holding an older one is stale. |
 | **Legate** | The routing brain built on top of the CLI. Decides *how* to reach a peer. Shipped as the plugin and its `legate` skill. |
 | **dispatch** | Fulfilling a role with a brief and expecting a verdict back. The judgment `dispatch-governance` carries, never the CLI. |
 | **channel / run-inline / subagent** | The three dispatch strategies `dispatch-governance` picks between: a warm interactive peer, doing the work in-session, or a cold one-shot unit via the Task tool. |

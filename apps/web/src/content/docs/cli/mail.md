@@ -38,7 +38,7 @@ the send. A failed wake prints a warning instead. Output: `sent` (message id), `
 ## inbox
 
 ```sh
-npx cyberlegion mail inbox [--unread] [--from <id>] [--thread <id>] [--owner <handle>]
+npx cyberlegion mail inbox [--unread] [--from <id>] [--thread <id>] [--owner <ref>]
 ```
 
 List your mail. Also available as the top-level alias `cyberlegion inbox` (without `--owner`).
@@ -48,7 +48,7 @@ List your mail. Also available as the top-level alias `cyberlegion inbox` (witho
 | `--unread` | only un-acked mail |
 | `--from <id>` | filter by sender |
 | `--thread <id>` | filter to messages carrying this thread id |
-| `--owner <handle>` | target a standing owner's mailbox instead of this session's own |
+| `--owner <ref>` | target a standing owner's mailbox (by handle) or a service endpoint's (by id or unique handle) instead of this session's own |
 
 Output: a `messages` table (`id`, `from`, `subject`, `read`) with an aggregate `<N> messages (<U>
 unread)`. Suggests `mail read <id>` on the first unread message as a next step.
@@ -56,7 +56,7 @@ unread)`. Suggests `mail read <id>` on the first unread message as a next step.
 ## read
 
 ```sh
-npx cyberlegion mail read <msg-id> [--ack] [--owner <handle>]
+npx cyberlegion mail read <msg-id> [--ack] [--owner <ref>]
 ```
 
 Read a message. Peeking alone does not consume it; `--ack` acknowledges it in the same step.
@@ -64,7 +64,7 @@ Read a message. Peeking alone does not consume it; `--ack` acknowledges it in th
 | Option | Meaning |
 |---|---|
 | `--ack` | acknowledge the message in the same step (idempotent, so no error if already acked) |
-| `--owner <handle>` | read a standing owner's mailbox instead of this session's own |
+| `--owner <ref>` | read a standing owner's or a service endpoint's mailbox instead of this session's own |
 
 Errors if the message id isn't in the resolved inbox. Without `--ack`, suggests `mail ack <id>` as
 a next step.
@@ -72,10 +72,10 @@ a next step.
 ## ack
 
 ```sh
-npx cyberlegion mail ack <msg-id> [--owner <handle>]
+npx cyberlegion mail ack <msg-id> [--owner <ref>]
 ```
 
-Acknowledge a message, moving it out of the unread set. `--owner <handle>` acks a standing owner's
+Acknowledge a message, moving it out of the unread set. `--owner <ref>` acks a standing owner's or a service endpoint's
 mailbox instead of this session's own.
 
 ## delete

@@ -420,3 +420,27 @@ describe('teardown precedes reap — a genuine failure is not tolerated', () => 
 		expect(calls.tmuxKill).toHaveLength(0)
 	})
 })
+
+describe('spec:cyberlegion/unit/lifecycle — a service endpoint is not a unit to close', () => {
+	it('refuses a service endpoint, leaving its record and pending mail intact', () => {
+		const rec: AgentRecord = {
+			id: 'svc-prj-1-controller',
+			handle: 'controller@alpha',
+			kind: 'service',
+			service: { project: 'prj-1', name: 'controller' },
+			cwd: '/repo',
+			pane: null,
+			status: 'active',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			lastSeen: '2026-01-01T00:00:00.000Z',
+		}
+		saveAgent(store, rec)
+		store.writeBrief(rec.id, 'kept')
+
+		expect(() => decommission({ store, exec: makeExec().exec, env: {} }, { id: rec.id, force: true })).toThrow(
+			/service endpoint/,
+		)
+		expect(store.getAgent(rec.id)).toBeDefined()
+		expect(store.readBrief(rec.id)).toBe('kept')
+	})
+})
