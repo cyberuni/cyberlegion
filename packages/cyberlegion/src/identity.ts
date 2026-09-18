@@ -225,12 +225,31 @@ function unaddressable(ref: string, exited: AgentRecord[], tried: string): Error
 
 /** Resolve a handle to its standing owner record's id — never falls back to a live session agent
  * sharing that handle, so `--owner` can never be pointed at a session's inbox by mistake. */
-export function resolveStandingOwner(store: Store, handle: string): string {
+function resolveStandingOwner(store: Store, handle: string): string {
 	const match = listAgents(store).find((a) => a.handle === handle && a.kind === 'standing')
 	if (!match) {
 		throw new Error(`no standing owner "${handle}" — run 'cyberlegion unit register --standing --handle ${handle}'`)
 	}
 	return match.id
+}
+
+/**
+ * Resolve an `--owner` mailbox reference: a standing owner by handle, or a service endpoint by id or
+ * by its handle when exactly one carries it. Never a session's own inbox.
+ */
+export function resolveOwnerMailbox(store: Store, ref: string): string {
+	const byId = loadAgent(store, ref)
+	if (byId?.kind === 'service' || byId?.kind === 'standing') return byId.id
+	const agents = listAgents(store)
+	if (agents.some((a) => a.handle === ref && a.kind === 'standing')) return resolveStandingOwner(store, ref)
+	const services = agents.filter((a) => a.handle === ref && a.kind === 'service')
+	if (services.length === 1) return (services[0] as AgentRecord).id
+	if (services.length > 1) {
+		throw new Error(
+			`"${ref}" names ${services.length} service endpoints — pass an endpoint id (${services.map((a) => a.id).join(', ')})`,
+		)
+	}
+	return resolveStandingOwner(store, ref)
 }
 
 /**
@@ -378,6 +397,30 @@ export function touch(ctx: IdContext): void {
 
 const STALE_MS = 15 * 60 * 1000
 
+/** Standing and service records have no session of their own, so nothing about a pane or a timer
+ * can declare them dead. */
+function isSessionIndependent(rec: AgentRecord): boolean {
+	return rec.kind === 'standing' || rec.kind === 'service'
+}
+
+/**
+ * Whether a unit's session is still there, as far as its backend can tell. "Cannot rule out alive"
+ * must never become grounds to replace an owner — the same fail-closed policy `store/lock.ts` takes
+ * on an ambiguous holder — so a session reads as gone only on positive evidence: its multiplexer
+ * answered with a pane list and the pane is not in it. A record with no pane cannot be probed, and a
+ * backend the caller cannot reach (a different server, no client, a failed query) answers with
+ * nothing; both read as live. `paneExists` is not used here because it collapses "unreachable" into
+ * "gone". An exited record is never live.
+ */
+export function sessionLive(ctx: IdContext, rec: AgentRecord): boolean {
+	if (rec.status === 'exited') return false
+	if (!rec.pane) return true
+	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec)
+	if (panes.length === 0) return true
+	const id = rec.pane.id
+	return panes.some((p) => p.id === id)
+}
+
 /** The per-mux session adapters `prune` consults for pane liveness — each answers with its own
  * backend primitive so a herdr pane is never probed with a tmux query, and vice versa. */
 const PANE_ADAPTERS = { tmux: tmuxMuxAdapter, herdr: herdrMuxAdapter } as const
@@ -450,7 +493,7 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
 	const live = new Set(panes.map((p) => p.id))
 	const changed: AgentRecord[] = []
 	for (const rec of listAgents(ctx.store)) {
-		if (rec.kind === 'standing') continue
+		if (isSessionIndependent(rec)) continue
 		if (rec.status === 'exited') continue
 		if (!rec.pane) continue
 		if (rec.pane.mux !== cur.mux) continue
@@ -472,7 +515,7 @@ export function prune(ctx: IdContext): AgentRecord[] {
 	const now = ctx.now?.() ?? Date.now()
 	const changed: AgentRecord[] = reconcile(ctx)
 	for (const rec of listAgents(ctx.store)) {
-		if (rec.kind === 'standing') continue
+		if (isSessionIndependent(rec)) continue
 		if (rec.status === 'exited') continue
 		const paneGone = rec.pane ? !PANE_ADAPTERS[rec.pane.mux].paneExists(exec, { id: rec.pane.id }) : false
 		const stale = now - new Date(rec.lastSeen).getTime() > STALE_MS

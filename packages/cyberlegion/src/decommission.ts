@@ -41,6 +41,11 @@ export interface DecommissionResult {
 export function decommission(ctx: IdContext, input: DecommissionInput): DecommissionResult {
 	const rec = loadAgent(ctx.store, input.id)
 	if (!rec) throw new Error(`no unit registered as agents/${input.id}.json — nothing to decommission`)
+	// A service endpoint is the durable address of a project service, not a runtime: reaping it would
+	// delete the service's pending mail out from under whichever unit owns it next.
+	if (rec.kind === 'service') {
+		throw new Error(`refusing to decommission "${input.id}" — it is a service endpoint, not a unit`)
+	}
 
 	const exec = ctx.exec ?? realExec
 	const env = ctx.env ?? process.env

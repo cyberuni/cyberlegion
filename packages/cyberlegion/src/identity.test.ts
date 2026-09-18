@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+	type AgentRecord,
 	claimPresence,
 	clearPresence,
 	detectHarness,
@@ -19,6 +20,7 @@ import {
 	resolveRecipient,
 	resolveSelfId,
 	saveAgent,
+	sessionLive,
 	standingId,
 	touch,
 } from './identity.ts'
@@ -707,5 +709,38 @@ describe('spec:cyberlegion/identity', () => {
 			expect(rec.presence).toBeDefined()
 			expect(store.getMainPane()).toBeUndefined()
 		})
+	})
+})
+
+describe('spec:cyberlegion/service — owner liveness fails closed', () => {
+	const owner = (): AgentRecord => ({
+		id: 'owner',
+		handle: 'owner',
+		harness: 'claude',
+		cwd: '/x',
+		pane: { mux: 'tmux', id: '%7' },
+		status: 'active',
+		createdAt: 'x',
+		lastSeen: 'x',
+	})
+	const listing =
+		(panes: string | null): Exec =>
+		(cmd, args) =>
+			cmd === 'tmux' && args[0] === 'list-panes' ? panes : null
+
+	it('a backend the caller cannot reach cannot declare the owner gone', () => {
+		expect(sessionLive(ctx({}, listing(null)), owner())).toBe(true)
+	})
+
+	it('a reachable backend that lists other panes but not the owner declares it gone', () => {
+		expect(sessionLive(ctx({}, listing('%1\tclaude\t/x\t\th\t0')), owner())).toBe(false)
+	})
+
+	it('a reachable backend listing the owner pane keeps it live', () => {
+		expect(sessionLive(ctx({}, listing('%7\tclaude\t/x\t\th\t0')), owner())).toBe(true)
+	})
+
+	it('an exited owner is never live', () => {
+		expect(sessionLive(ctx({}, listing(null)), { ...owner(), status: 'exited' })).toBe(false)
 	})
 })

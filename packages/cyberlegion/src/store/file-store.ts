@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { ensureMarker, InvalidIdError, paths } from '../paths.ts'
 import { CorruptRecordError } from './errors.ts'
 import { withLock } from './lock.ts'
-import type { AgentRecord, InboxSnapshot, Message, Store } from './store.ts'
+import type { AgentRecord, InboxSnapshot, Message, ProjectRecord, ServiceLease, Store } from './store.ts'
 
 /** Parse a record file's content, wrapping a `JSON.parse` failure in a typed, file-named
  * `CorruptRecordError` instead of letting a bare `SyntaxError` bubble up from deep inside
@@ -153,6 +153,35 @@ export class FileStore implements Store {
 
 	removeAgentData(id: string): void {
 		rmSync(paths.dataDir(this.root, id), { recursive: true, force: true })
+	}
+
+	putProject(rec: ProjectRecord): void {
+		writeJson(paths.projectFile(this.root, rec.id), rec)
+	}
+
+	getProject(id: string): ProjectRecord | undefined {
+		const file = readPathOrUndefined(() => paths.projectFile(this.root, id))
+		if (!file || !existsSync(file)) return undefined
+		return readJsonRecord<ProjectRecord>(file)
+	}
+
+	listProjects(): ProjectRecord[] {
+		const dir = paths.projectsDir(this.root)
+		if (!existsSync(dir)) return []
+		return readdirSync(dir)
+			.filter((f) => f.endsWith('.json'))
+			.map((f) => readJsonRecord<ProjectRecord>(join(dir, f)))
+			.sort((a, b) => a.registeredAt.localeCompare(b.registeredAt))
+	}
+
+	putServiceLease(lease: ServiceLease): void {
+		writeJson(paths.serviceLeaseFile(this.root, lease.project, lease.service), lease)
+	}
+
+	getServiceLease(project: string, service: string): ServiceLease | undefined {
+		const file = readPathOrUndefined(() => paths.serviceLeaseFile(this.root, project, service))
+		if (!file || !existsSync(file)) return undefined
+		return readJsonRecord<ServiceLease>(file)
 	}
 
 	putPaneIndex(pane: string, agentId: string): void {

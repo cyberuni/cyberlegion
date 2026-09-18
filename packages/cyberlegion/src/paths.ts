@@ -132,6 +132,10 @@ export const paths = {
 	dataDir: (root: string, id: string) => join(root, 'data', assertSafeId(id, 'agent id')),
 	briefFile: (root: string, id: string) => join(root, 'data', assertSafeId(id, 'agent id'), 'brief.md'),
 	mainPaneFile: (root: string) => join(root, 'main-pane.id'),
+	projectsDir: (root: string) => join(root, 'projects'),
+	serviceLeaseFile: (root: string, project: string, service: string) =>
+		join(root, 'services', assertSafeId(project, 'project id'), `${assertSafeId(service, 'service name')}.json`),
+	projectFile: (root: string, id: string) => join(root, 'projects', `${assertSafeId(id, 'project id')}.json`),
 	/** A message's file path within `toId`'s unread/read inbox dir, keyed by its own collision-free
 	 * id — validated the same as an agent id (it's the same class of risk: a peer- or CLI-controlled
 	 * string becoming a filename). */
