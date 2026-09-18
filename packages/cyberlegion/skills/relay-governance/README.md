@@ -22,8 +22,14 @@ can verify against its own loaded contract — a ratification it fetched from a 
 receiver's **own owner** **and** arriving on a **turn** in its own session — carrying the Council's
 verbatim words, where they were said, the relaying unit, and its scope (one action on one target) —
 is adoptable within that named scope and nothing adjacent, spent once acted on, attenuating at every
-hop. Either half alone leaves it a peer steer. Not forgery-proof: `unit nudge --message` records no
-caller identity, so position is a structural fact, not a proof.
+hop. Either half alone leaves it a peer steer. The four parts are a **well-formedness** requirement:
+presence is checkable on its face, so a missing part gates adoption, and truth is not, so the parts
+buy **audit** after the fact, never verification in the moment. Not forgery-proof: `unit nudge
+--message` records no caller identity, so position is a structural fact, not a proof.
+
+This is the **single home** of that rule. `subagent-backend-governance` references it for the
+owner's mid-turn channel rather than restating it, and the revision part of the scope is a named
+**open cross-repo seam** — a sibling corpus states a three-part scope; this one states two.
 
 The frameless→owner branch composes the `cyberlegion` CLI's standing owner identity (`identity
 owner`), owner mail (`mail send` / `mail --owner`), and owner-mail surfacing (the `surfacing` hook).

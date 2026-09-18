@@ -139,10 +139,32 @@ then adoptable **within its named scope and nothing adjacent**, provided it carr
    quoted, not summarized;
 2. **where they were said** — the session, thread, or artifact the words came from;
 3. the **relaying unit** — who is passing it down;
-4. its **scope** — one action on one target. (`dispatch` has no revision concept; a sibling corpus
-   that versions its targets adds its own revision part, and this one does not carry it.)
+4. its **scope** — one action on one target (the **two-part** form; see *The revision part* below).
 
-A decision missing **any** of the four is not adoptable; it drops back to escalate-for-ratification.
+**What the four parts do — and what they do not.** Both halves hold, and the rule needs both.
+
+- **They are a well-formedness requirement, and well-formedness is checkable on its face.** A
+  receiver can see **in the moment** whether all four are present, without being able to verify that
+  any one of them is **true**. So presence **gates adoption**: a decision missing **any** of the four
+  is not adoptable and drops back to **escalate-for-ratification**. The message itself is then the
+  relaying owner's **own order**, bounded by what that owner holds, with the remainder escalated
+  rather than acted on.
+- **They are not a verification of the decision's truth.** A present, well-formed decision can still
+  be **fabricated** or **over-attenuated**, and the receiver cannot tell the difference from the
+  decision alone. Their value after the fact is **audit** — the record a later reader can check the
+  claim against — never verification in the moment. And they **widen nothing**: the scope stays
+  capped by what the relaying unit itself holds.
+
+Never phrase this as the four parts making a decision *verifiable*. Well-formed is what a receiver
+can check; true is what it cannot.
+
+**The revision part — an open cross-repo seam, not a settled drop.** This governance states the
+**two-part** scope (one action on one target) because `dispatch` has no revision concept of its own.
+That is true of this contract's vocabulary and **not** settled across the corpus: a sibling corpus
+that versions its targets states a **three-part** scope, where the revision does real work — a
+decision naming a revision does not survive that target moving on. A unit loading both meets a
+**more permissive** scope rule here than there. State the gap; do not close it by widening this
+contract on your own.
 
 **Attenuation, and spending.** Authority attenuates at every hop: **no link passes on more than it
 holds**, so a decision narrowed at one hop stays narrowed at every hop below it. A decision is
@@ -160,6 +182,11 @@ message proved anything about who sent it.
 
 ## Boundaries
 
+- Relay is the **single home** of the four parts, the attenuation and spending clauses, and the two
+  limits. `subagent-backend-governance` owns only *which role has an order channel at all* and
+  **references** this section for what a decision carried on that channel must have — an owner's
+  mid-turn message into a unit it is running **is** the ownership-chain case, not a second rule.
+  Restating any of it there would be the duplication this split exists to prevent.
 - Relay owns **report/ask transport**, the **receive-side triage** of a relayed steer, and the
   **ownership-chain** exception to it; `dispatch-governance` still owns **strategy** choice
   (channel / run-inline / subagent). A dispatch picks a strategy; relay decides how the result or an
