@@ -26,6 +26,10 @@ strategy.
 
 Scoped by **role**, not by the subagent backend. A cold one-shot takes no mid-run message. An
 **owned** unit realized as a subagent may be messaged mid-turn by **its owner**, and those messages
-land as turns — so they are orders. Authority attenuates: the owner passes on no more than it holds,
-and a relayed Council decision is actionable only with the decision verbatim, where it was said, the
-relaying unit, and a scope covering the action and its target.
+land as turns — so they are orders. That is the whole of this skill's rule: **which role has an order
+channel at all**.
+
+What a message on that channel may **carry** is `relay-governance`'s ownership-chain rule — the four
+parts, what their presence does and does not buy, attenuation, spent-once, and the two limits. An
+owner's mid-turn message into a unit it is running *is* that case, so this skill **references** that
+rule and restates none of it.
