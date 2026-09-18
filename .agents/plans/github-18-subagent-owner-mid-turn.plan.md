@@ -4,15 +4,15 @@ project: cyberlegion-plugin
 status: active
 todos:
   - content: "explore: draft the role-scoped mid-turn rule on dispatch/ (README + additive feature scenarios)"
-    status: pending
+    status: completed
   - content: "spec gate: cold spec-judge, freeze check (additive-only), ledger gate line"
-    status: pending
+    status: completed
   - content: "deliver: amend subagent-backend-governance SKILL.md + README to the frozen contract"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over the frozen scenarios; pnpm verify"
-    status: pending
+    status: completed
   - content: "handoff: PR against main, report to operator"
-    status: pending
+    status: completed
 ---
 
 # github-18 — scope the mid-run-nudge ban by role
@@ -31,4 +31,7 @@ requirement for a relayed decision. Keep wording self-contained here; do not edi
 
 ## NEXT
 
-Run explore: draft the additive scenarios on `.agents/specs/cyberlegion-plugin/dispatch/`.
+Landed. The `dispatch/` node carries six additive frozen scenarios for the role-scoped mid-turn
+order channel, and `subagent-backend-governance` carries the matching rule in its SKILL.md and
+README. Both gates self-asserted `by: agent` within the auto-all leash — the positional human
+ratification is still outstanding at the PR. No resume action remains in this brief.
