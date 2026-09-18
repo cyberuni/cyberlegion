@@ -351,6 +351,35 @@ Feature: dispatch — the Legate's routing brain
     Then it cannot detect the over-relay from the decision alone
     And relay-governance names attenuation as sender-side discipline, not a receiver-side check
 
+  Scenario: the four parts are checkable on their face, and that is what gates adoption
+    Given a decision relayed by the receiver's own owner on a turn in its own session
+    When the receiver weighs whether the decision is well-formed
+    Then it can see whether all four parts are present without verifying that any one of them is true
+    And it treats presence of the four parts as a well-formedness requirement it can check in the moment
+    And a decision missing any part is not adoptable and drops back to escalate-for-ratification
+    And the message is then the relaying owner's own order, bounded by what that owner holds, with the remainder escalated
+
+  Scenario: the four parts are not a verification of the decision's truth
+    Given a relayed decision carrying all four parts
+    When the receiver weighs whether the decision is true
+    Then it cannot tell a faithful relay from a fabricated or over-attenuated one from the decision alone
+    And the four parts' after-the-fact value is audit, not verification in the moment
+    And relay-governance does not claim the four parts let a receiver verify the decision
+
+  Scenario: an owner's mid-turn message into a unit it is running is the ownership-chain case
+    Given an owned unit realized as a subagent receiving a mid-turn message from its own owner
+    When the unit weighs a Council decision carried inside that message
+    Then it reads the relaying unit as its own owner and the position as a turn in its own session
+    And it applies the same four parts, attenuation, and limits the receive-side rule states
+    And the subagent path adds no separate four-part rule of its own
+
+  Scenario: the four-part rule has one home and is referenced, not restated
+    Given both relay-governance and subagent-backend-governance cover this node
+    When a reader loads either of them
+    Then relay-governance states the four parts, attenuation, spent-once, and both limits once
+    And subagent-backend-governance references that statement rather than restating it
+    And neither statement contradicts the other, because there is only one
+
   # ── Uniform result ──
 
   Scenario: every strategy returns the same DispatchResult shape
