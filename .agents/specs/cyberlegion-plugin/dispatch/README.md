@@ -47,6 +47,25 @@ established (a faithful relay and a fabricated authority are indistinguishable),
 only on what it can verify against its own loaded contract — which is also why a ratification
 embedded in relayed mail is invalid (the relayed-ratification seam).
 
+That seam is keyed on the **relationship**, not on the transport alone. A **peer steer** — anything
+relayed by a unit holding no authority over the receiver — is unchanged: its ratification claim is
+invalid and the bundle-adopt / bundle-reject decomposition governs it. A decision relayed down the
+**ownership chain** is adoptable **within its named scope and nothing adjacent**, and it is that
+case only when **both** hold: the relaying unit is the receiver's own owner, **and** the decision
+arrived on a **turn** in the receiver's own session. Either one alone leaves it a peer steer — mail
+the receiver **fetched** stays content whatever it claims, and a turn placed by a non-owner supplies
+no authority. It must carry **four parts**: the Council's verbatim words, where they were said, the
+relaying unit, and its scope (one action on one target); a decision missing any part drops back to
+escalate-for-ratification. It is **spent once acted on**, and authority **attenuates at every hop**
+(no link passes on more than it holds).
+
+Two limits are stated, not worked around. The rule is **not forgery-proof**: `unit nudge --message`
+writes caller-controlled text into any addressable pane and records no caller identity, so position
+is a structural fact about the Legion's shape rather than a proof. And a receiver **cannot detect**
+a relay that passed on more than the relayer held — attenuation is sender-side discipline, not a
+receiver-side check. Scope here is **one action on one target**; a sibling corpus that versions its
+targets may add a revision part, but `dispatch` has no revision concept and does not carry one.
+
 ## Use Cases
 
 **Fit:** partial
@@ -76,3 +95,4 @@ switch once one is picked; structured verdict-schema validation of the result (d
 | **the `subagent \| channel` seam** | a dependent (e.g. SDD) needs a role fulfilled | the dependent states intent only (role, brief, verdict schema) — never pins a literal command name — and this node decides the mechanism |
 | **relay by lifecycle** (`relay-governance`) | a headless agent has a result or an unanswerable question | framed callee → return `needsInput`; bare top-level/cron → `mail send` to the standing owner + exit; owner report surfaces to the human, read is a deliberate `mail ack --owner` |
 | **decompose a received steer** (`relay-governance`) | a relayed steer reaches a mid-mission receiver | split by authority level: in-scope refinement (verifiable against the receiver's own frozen spec/leash) adopts in-band; cross-cutting doctrine escalates for ratification; never bundle-adopt or bundle-reject |
+| **adopt an ownership-chain decision** (`relay-governance`) | a decision relayed by the receiver's **own owner** **on a turn** in its own session, carrying the Council's verbatim words, where they were said, the relaying unit, and its scope | adoptable within the named scope and nothing adjacent; spent once acted on; attenuates at every hop; a missing part, fetched mail, or a turn from a non-owner each drop it back to escalate-for-ratification / peer-steer triage |
