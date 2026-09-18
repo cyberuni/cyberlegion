@@ -4,15 +4,15 @@ project: cyberlegion-plugin
 status: active
 todos:
   - content: "explore: merge the two four-part statements in dispatch/README.md into one home; draft additive scenarios"
-    status: pending
+    status: completed
   - content: "spec gate: cold spec-judge, structural diff (expect addOnly), ledger gate line"
-    status: pending
+    status: completed
   - content: "deliver: relay-governance carries the single statement; subagent-backend-governance references it"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over the new frozen scenarios; pnpm verify + check:metaphor-free"
-    status: pending
+    status: completed
   - content: "handoff: PR against main, file the three carried-over follow-ups, report to operator"
-    status: pending
+    status: completed
 ---
 
 # github-23 — one home for the four-part rule
@@ -50,6 +50,11 @@ shard (filed as issues at handoff, not fixed).
 
 ## NEXT
 
-Start explore: rewrite the two four-part paragraphs in `.agents/specs/cyberlegion-plugin/dispatch/README.md`
-into one canonical statement in the receive-side section, with the subagent mid-turn paragraph
-deferring to it, then append the additive scenarios to `dispatch.feature`.
+Landed. `relay-governance` is the single home of the four parts, the attenuation and spent-once
+clauses and the two limits, carrying both halves explicitly — well-formedness is checkable on its
+face and gates adoption; truth is not checkable and the parts buy audit, not verification.
+`subagent-backend-governance` references that rule and keeps only which role has an order channel.
+The `dispatch/` node states it once and carries four additive frozen scenarios. Both gates
+self-asserted `by: agent` within the auto-all leash — the positional human ratification is still
+outstanding at the PR. The revision part is named as an open cross-repo seam, deliberately not
+restored. No resume action remains in this brief.
