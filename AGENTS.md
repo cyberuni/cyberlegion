@@ -106,13 +106,30 @@ vendor manifests.
 ```
 pnpm test                        # all package tests
 pnpm cl test src/message.test.ts  # run one test file
-pnpm verify                      # lint + build + typecheck + test + knip
+pnpm check:suite                 # SDD spec-gate .feature form check over both spec trees
+pnpm verify                      # lint + suite check + build + typecheck + test + knip
 pnpm build                       # compile to dist/
 pnpm cl dev --help                # run the CLI from source (tsx)
 pnpm web dev                     # run the docs site locally
 ```
 
 `pnpm cl <script>` is the root shortcut for `pnpm run --filter=./packages/cyberlegion <script>`.
+
+### The spec gate's suite check
+
+The SDD spec gate's `.feature` form check (Gherkin validity, boolean-`Then` form, scenario
+ordering) is the `check-suite.mts` engine shipped inside the `cyber-sdd` skill. It imports the
+`gherkin-cli` parser, so a skill copy installed with no `node_modules` beside it cannot run it —
+and the gate's fallback was to hand-check and say nothing, which let a gate read as fully checked
+when one of its checks had never executed.
+
+This repo therefore pins `cyber-sdd` as a devDependency and runs the engine itself through
+`scripts/check-suite.mjs`, wired into `pnpm verify`. **A spec gate in this repo does not run the
+engine out of the installed skill; it runs `pnpm check:suite`.** Every way the check can fail to
+run — the package unresolvable, the parser unresolvable, a spec root moved or emptied, the engine
+exiting clean without its success marker — is a non-zero exit with a `suite check did not run`
+line, never a silent pass. The wrapper sweeps both spec trees (`.agents/specs` and
+`packages/cyberlegion/.agents/spec`); a new spec root must be added to its `SPEC_ROOTS`.
 
 ## Layout
 
