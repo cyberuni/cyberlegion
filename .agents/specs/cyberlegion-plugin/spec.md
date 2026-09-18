@@ -36,7 +36,7 @@ published CLI's contract.
 | Folder | Type | What |
 |---|---|---|
 | [`gateway/`](./gateway/README.md) | behavioral | the `legate` skill — thin classifier front door; loads no governance, writes no state |
-| [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `headless-legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent, and the `subagent-backend-governance` procedure for the subagent path |
+| [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `headless-legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent; the `subagent-backend-governance` procedure for the subagent path; and the `relay-governance` report/ask contract — how a result or an unanswerable question gets home (keyed on the reporting agent's own lifecycle, not on the strategy that dispatched it) and how a receiver triages a relayed steer or a relayed decision by authority |
 | [`init/`](./init/README.md) | behavioral | the `init-cyberlegion` onboarding skill — a thin CLI wrapper that probes the environment, registers the surfacing hook, and (root-only, on an explicit yes) binds this pane as the durable `legate` owner inbox |
 | [`inbox/`](./inbox/README.md) | behavioral | the `manage-inbox` skill — the human's on-demand surface for the standing owner mailbox (list/read/ack/reply) |
 | [`session-adapter/`](./session-adapter/README.md) | behavioral | the `session-adapter-governance` skill — the ratified verify-observable-effect-or-fail-loud rule for SessionAdapter mutating ops, its unconditional/attach-relative effect-class split, and the per-op conformance ledger |
@@ -69,12 +69,14 @@ Where a new concept lives — slot here, do not invent placement:
 ## Owed
 
 This spec skeleton was authored alongside the plugin build (CR `legion-gateway-legate`) without full
-`.feature` suites. The `init/` node was specced and its `init-cyberlegion.feature` **frozen** by CR
-`cyberlegion-plugin-init-skill` (spec gate passed, ALIGNED). `gateway/gateway.feature`,
-`dispatch/dispatch.feature`, and the `inbox/` node backfilled below remain owed follow-up work before
-their nodes can pass a spec gate. Root `status: draft` reflects the project rollup — it advances to
-`approved` only once every node is gated; per-`.feature` freeze is independent (only
-`init-cyberlegion.feature` is `@frozen` today).
+`.feature` suites. Three of the five nodes have been specced and their suites **frozen** since:
+`init/init-cyberlegion.feature` (CR `cyberlegion-plugin-init-skill`, re-frozen by `pin-init-skill`),
+`dispatch/dispatch.feature` (CR `legion-gateway-legate`), and
+`session-adapter/session-adapter-governance.feature` (CR `162-session-adapter-governance`).
+`gateway/gateway.feature` and a suite for the `inbox/` node backfilled below are still owed before
+those two nodes can pass a spec gate. Root `status: draft` reflects the project rollup — it advances
+to `approved` only once every node is gated; per-`.feature` freeze is independent (three suites carry
+a file-level `@frozen` tag today).
 
 **Formation-pass note (post `cyberlegion-plugin-init-skill`).** Two structural observations from the
 post-mission formation pass: (1) `inbox/` was backfilled above — the shipped `manage-inbox` skill had
