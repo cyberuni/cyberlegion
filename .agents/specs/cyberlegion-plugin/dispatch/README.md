@@ -37,6 +37,20 @@ and relay" behavior lives now — `dispatch-governance` and `headless-legate` lo
 restating it. `relay-governance` states transport only; the standing owner identity, owner mail, and
 surfacing are the sibling `cyberlegion` CLI's mechanism.
 
+The subagent path's **mid-turn messaging rule is scoped by role, not by backend**. A **cold
+one-shot dispatch** (a judge, a grader) takes no mid-run message — nothing reaches it between its
+brief and its Task-result, which is what makes its verdict its own. An **owned unit realized as a
+subagent** — a unit an owner is running, which happens to have no pane of its own — may be messaged
+mid-turn by **its owner**, and those messages land as turns in the unit's own session, so they are
+**orders**. Authority still **attenuates**: the owner passes on no more than it holds, and a Council
+decision carried inside such a message is actionable only with all four of the decision verbatim,
+where it was said, the relaying unit, and a scope covering the action and its target. This is the
+owner's **positional** order channel down into a unit it is running — not the **lateral** peer mail
+whose embedded ratification `relay-governance` holds invalid; the four parts make the claim
+**well-formed and auditable after the fact**, they do not verify it in the moment and they widen
+nothing — the decision's scope is still capped by what the owner itself holds. Depth-1 is unchanged: the existing depth-1
+scenario already binds every unit realized via the subagent path, owned or cold.
+
 `relay-governance` also carries the **receive side**: how a mid-mission receiver triages a relayed
 steer whose parts sit at different authority levels. The receiver **decomposes by authority level**
 — an in-scope refinement (testable against the receiver's **own** frozen spec / CR acceptance /
@@ -92,6 +106,9 @@ switch once one is picked; structured verdict-schema validation of the result (d
 | **choose the channel wake sub-mode** | channel was picked | bounded await (A-loop) by default; A-prime when a Claude-Code background task is observable; doorbell (B, `unit nudge` + `mail await`) only behind a **verified** mux; never a doorbell when mux is `none` |
 | **fan out N briefs (headless only)** | `headless-legate` receives a batch of briefs | resolves and runs each independently; subagent dispatches may run concurrently, channel dispatches are capped by the environment's multiplexer |
 | **report the result uniformly** | any strategy completes | returns a `DispatchResult` (`strategy`, `id`, `verdict`, `result`, `needsInput`) the caller handles the same way regardless of strategy |
+| **cold one-shot takes no mid-run message** | a judge or grader is realized via the subagent path | nothing reaches it between brief and Task-result — its independence is the reason the ban holds here |
+| **an owner may message its own unit mid-turn** | an owned unit is realized as a subagent and its owner needs to change its course | the owner's mid-turn message lands as a turn in the unit's session and is an **order**; a non-owner acquires no such channel |
+| **authority attenuates across the hop** | a mid-turn message from the owner carries a Council decision | actionable only with all four of the decision verbatim, where it was said, the relaying unit, and a scope covering action + target; otherwise it is the owner's own order, bounded by what the owner holds, and the remainder escalates |
 | **the `subagent \| channel` seam** | a dependent (e.g. SDD) needs a role fulfilled | the dependent states intent only (role, brief, verdict schema) — never pins a literal command name — and this node decides the mechanism |
 | **relay by lifecycle** (`relay-governance`) | a headless agent has a result or an unanswerable question | framed callee → return `needsInput`; bare top-level/cron → `mail send` to the standing owner + exit; owner report surfaces to the human, read is a deliberate `mail ack --owner` |
 | **decompose a received steer** (`relay-governance`) | a relayed steer reaches a mid-mission receiver | split by authority level: in-scope refinement (verifiable against the receiver's own frozen spec/leash) adopts in-band; cross-cutting doctrine escalates for ratification; never bundle-adopt or bundle-reject |

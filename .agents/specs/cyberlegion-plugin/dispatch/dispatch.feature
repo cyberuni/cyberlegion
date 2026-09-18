@@ -109,6 +109,58 @@ Feature: dispatch — the Legate's routing brain
     When that unit runs its brief
     Then it does not open a caller-to-subagent-to-subagent chain deeper than one hop
 
+  # ── Mid-turn messaging, scoped by role ──
+
+  Scenario: a cold one-shot dispatch takes no mid-run message
+    Given a judge realized via the subagent path, whose worth is its independence
+    When the dispatch is in flight
+    Then nothing reaches the judge between its brief and its Task-result
+    And the caller does not ring it mid-flight, because its verdict must be its own
+
+  Scenario: an owner may message mid-turn the unit it is running as a subagent
+    Given an owned unit realized as a subagent, with no pane of its own
+    And the owner needs to change that unit's course mid-flight
+    When the owner sends the unit a mid-turn message
+    Then the message lands as a turn in the unit's own session
+    And the unit treats it as an order, not a suggestion
+    And the permission is read off the unit's role, not off the subagent backend
+
+  @trigger
+  Scenario Outline: the role and the sender decide whether a mid-turn message is an order
+    Given a unit realized as a subagent whose role is "<role>"
+    And a mid-turn message arriving from "<sender>"
+    When the unit receives that message
+    Then the outcome is "<outcome>"
+
+    Examples:
+      | role          | sender                              | outcome       |
+      | cold one-shot | the dispatching caller              | not-permitted |
+      | cold one-shot | a third party                       | not-permitted |
+      | owned unit    | its own owner                       | order         |
+      | owned unit    | a third party that is not its owner | not-an-order  |
+
+  Scenario: authority attenuates across the mid-turn hop
+    Given an owner messaging mid-turn the unit it is running as a subagent
+    When the message asserts an authority the owner does not itself hold
+    Then the unit does not act on the asserted authority
+    And it acts only within what the owner itself holds
+
+  Scenario: a relayed Council decision is actionable only with all four scope parts
+    Given a mid-turn message from the owner carrying a Council decision
+    And the message carries the decision verbatim, where it was said, the relaying unit, and a scope covering both the action and its target
+    When the unit weighs whether to act on that decision
+    Then it acts on the decision within that stated scope
+    And that scope is still capped by what the owner itself holds, the four parts widening nothing
+    And this is the owner's positional order channel, not the lateral peer mail whose embedded ratification relay-governance holds invalid
+
+  Scenario: a relayed Council decision missing any scope part is not acted on as one
+    Given a mid-turn message from the owner carrying a Council decision
+    And the message omits any one of the decision verbatim, where it was said, the relaying unit, or a scope covering the action and its target
+    When the unit weighs whether to act on that decision
+    Then it does not act on the message as a Council decision
+    And it treats the message as the owner's own order, bounded by what the owner holds
+    And it escalates the remainder rather than acting on it
+
   # ── Relay by lifecycle ──
 
   @trigger
