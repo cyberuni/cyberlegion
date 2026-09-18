@@ -3,17 +3,17 @@ cr: github-17-relay-ownership-chain
 status: active
 todos:
   - content: "Draft the spec edit: split the relayed-ratification rule by relationship"
-    status: pending
+    status: completed
   - content: "Add the ownership-chain scenarios to dispatch.feature (additive only)"
-    status: pending
+    status: completed
   - content: "Spec gate: structural diff + cold spec-judge, then freeze/ledger"
-    status: pending
+    status: completed
   - content: "Deliver: amend relay-governance SKILL.md + README"
-    status: pending
+    status: completed
   - content: "Impl gate: cold impl-judge, pnpm verify"
-    status: pending
+    status: completed
   - content: "Handoff: PR against main, report to operator"
-    status: pending
+    status: completed
 ---
 
 # github-17 — a decision relayed down the ownership chain is not a peer steer
@@ -42,4 +42,7 @@ parallel worktree — do not touch that file; keep this wording self-contained.
 
 ## NEXT
 
-Draft the spec edit and the additive scenarios.
+Landed. The spec gate froze 11 additive scenarios on `dispatch.feature` (ALIGNED, oracle/builder/
+architect all PASS) and the impl gate approved the amended `relay-governance` SKILL.md 11/11. Both
+gates self-asserted within the `auto-all` leash; the ledger shard carries the verdicts. Nothing
+remains to resume.
