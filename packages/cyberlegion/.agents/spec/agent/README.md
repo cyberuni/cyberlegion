@@ -36,8 +36,8 @@ surface that inspects a def before that:
   and a launch/realize step applies its own harness default rather than the resolver inventing one.
 - **realizeLaunch turns a def into a CHANNEL launch invocation** — applies the def's `model` +
   `instructions` (and any `harness`) into the harness's own launch command (`claude`/`cursor-agent`/
-  `codex`), for the warm-peer / channel family. An explicit `model`/`harness` override (passed by the
-  caller) wins over the def's own tags, which win over the harness default (`claude`). A def's
+  `codex`), for the warm-peer / channel family. An explicit `model`/`effort`/`harness` override (passed
+  by the caller) wins over the def's own tags, which win over the harness default (`claude`). A def's
   `effort` travels through each harness's own effort control, since no two spell it alike: `claude
   --effort <level>`; codex's config override `-c model_reasoning_effort="<level>"` (it has no
   dedicated flag); cursor's bracket parameter on the model, `--model '<model>[effort=<level>]'`,
@@ -72,5 +72,5 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `--agent-file`/`file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |

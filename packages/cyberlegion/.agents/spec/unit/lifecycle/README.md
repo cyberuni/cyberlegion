@@ -162,6 +162,22 @@ cleanly — the deterministic inverse pair:
     `--agent-file <path>` is given, the resolved def's harness/model/instructions compose the launch
     command in place of the harness's bare default binary; an explicit `--harness` still overrides the
     def's own harness tag.
+  - **--model/--effort override one launch** — `--model <name>` and `--effort <level>` set the model
+    and effort for this spawn only. Precedence is **flag > agent def > harness default**: a flag beats
+    the def's own tag, and a def's tag beats the harness's own default. A flag never writes back to the
+    def, which stays the one source of what an agent *is*. The flags also work without a def, on a
+    bare `--harness`: they compose a launch from that harness's binary, where a spawn with neither flag
+    keeps the harness's unadorned default. `--effort` goes through `agent/`'s per-harness effort
+    control, so a cursor `--effort` with no model from either source **refuses before anything is
+    created** — cursor carries effort only as a parameter on the model. The spawn output reports the
+    `model` and `effort` it launched with, from whichever source won, and `(harness default)` when no
+    source set one — so a caller can check the launch it asked for is the launch it got.
+    - *Actors.* A dispatcher launching one brief on a different model or effort than the def's
+      default, without writing a second def that differs in one line; and whoever reads the spawn
+      result afterwards to confirm what actually launched.
+    - *Surface.* `--model` and `--effort` each combine with `--harness`, `--agent` and
+      `--agent-file`; no combination is forbidden. `service start` shares the spawn options and so
+      accepts them too, but reports nothing new.
 - **close tears down the worktree + session and reaps the state — spawn's deterministic inverse** —
   `unit close <ref>` removes the peer's git worktree, tears down its session pane, and reaps its
   registry record, pane pointer, and stored data (brief).
@@ -318,9 +334,14 @@ selection, owned by `mux/`) throws ahead of both the launch-map and brief refusa
 ```mermaid
 graph TD
   SP0["unit spawn"] --> SPA{"--agent/--agent-file given?"}
-  SPA -- yes --> SPA1["compose the launch from the def: harness, model, instructions — an explicit --harness overrides the def's own"]
-  SPA -- no --> SPA2["launch := the harness's own default command, unadorned"]
-  SPA1 --> SPH
+  SPA -- yes --> SPA1["compose the launch from the def: harness, model, effort, instructions — an explicit --harness/--model/--effort overrides the def's own"]
+  SPA -- no --> SPMF{"--model or --effort given?"}
+  SPMF -- no --> SPA2["launch := the harness's own default command, unadorned"]
+  SPMF -- yes --> SPA3["compose the launch from --harness with that model/effort (no --harness: nothing to compose, SPH refuses)"]
+  SPA1 --> SPEF{"the effort realizable on the harness? cursor carries it only on a model"}
+  SPA3 --> SPEF
+  SPEF -- no --> SPEF1["throw naming cursor and the missing model — no worktree, session or record"]
+  SPEF -- yes --> SPH
   SPA2 --> SPH{"a harness resolved, from either source?"}
   SPH -- no --> SPH1["throw: needs --harness, or --agent/--agent-file resolving one"]
   SPH -- yes --> SPM["ensureMarker — the HUB's own marker, created ahead of every guard below"]
@@ -526,9 +547,16 @@ column records. They are not gaps.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `SPH -- no` | neither --harness nor a def-resolving --agent | `spawn with neither --harness nor a def-resolving --agent errors naming both routes` |
-| `SPA -- no` → `SPA2` | a plain --harness spawn, no def | `a spawn with no --agent launches the harness's own default command, unadorned` |
+| `SPA -- no` → `SPMF -- no` → `SPA2` | a plain --harness spawn, no def | `a spawn with no --agent launches the harness's own default command, unadorned` |
 | `SPA -- yes` → `SPA1` | an agent def carrying a harness, model and instructions | `--agent resolves a def whose harness/model/instructions compose the launch` |
 | `SPA1` override wins | the same def, plus an explicit --harness | `an explicit --harness overrides the resolved def's own harness` |
+| `SPMF -- yes` → `SPA3` | a bare --harness spawn with --model and --effort | `--model and --effort on a bare --harness spawn launch with those settings` |
+| `SPA1` model override wins | a def with its own model and instructions, plus --model | `--model overrides the resolved def's own model and keeps its instructions` |
+| `SPA1` effort override wins | a def with its own effort, plus --effort | `--effort overrides the resolved def's own effort` |
+| `SPA1` → reported launch | a def with its own model and effort, no flag | `a def's own model and effort are reported when no flag overrides them` |
+| `SPA2` → reported launch | a plain --harness spawn, no def, no flag | `a spawn with no model or effort from any source reports the harness default for both` |
+| `SPEF -- no` | a cursor spawn with --effort and no model from any source | `--effort on a cursor spawn with no model refuses before anything is created` |
+| `SPEF -- yes` | a cursor spawn with --effort and --model | `--effort on a cursor spawn with a model launches with the effort on that model` |
 
 ### spawn registers the peer it opened
 
