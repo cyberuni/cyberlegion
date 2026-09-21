@@ -7,7 +7,7 @@ Feature: metaphor-free — the vocabulary-boundary guard
   segment), so it catches a persona name hidden in an identifier without colliding with lowercase
   generic English. Scope covers the CLI's src and spec doc tree, the plugin layer's skills and agents,
   and the plugin's project spec, with two whole-file exclusions: the ledgers (provenance, which record
-  past leaks verbatim) and the guard's own definition files (the
+  past leaks verbatim, excluded by position at each spec tree's root) and the guard's own definition files (the
   allow-list and this node's own README and .feature); a small allow-list carries the legitimate
   boundary references.
 
@@ -77,6 +77,20 @@ Feature: metaphor-free — the vocabulary-boundary guard
     When check:metaphor-free runs over its roots
     Then the guard exits zero
     And it reports no violation for that ledger entry
+
+  Scenario: a banned term recorded in another project spec's provenance passes the guard
+    Given a second project spec sits beside the plugin's project spec in the plural project-spec tree
+    And a ledger entry in the ledger directly under that second project's folder quotes a banned persona name while recording a past decision
+    When check:metaphor-free runs over its roots
+    Then the guard exits zero
+    And it reports no violation for that ledger entry
+
+  Scenario: a persona name under a nested ledger-named folder fails the guard
+    Given a spec document in a folder named ledger that sits inside a node of a project spec, below the project folder rather than directly under it, carries a capitalized cyberfleet persona name in its prose
+    And that occurrence is not on the sanctioned allow-list
+    When check:metaphor-free runs over its roots
+    Then the guard exits non-zero
+    And it reports that spec document's file, line, and term as a metaphor-leak violation
 
   Scenario: the guard's own defining document passes the guard
     Given the metaphor-free node's own README names the banned persona terms in order to define the guard

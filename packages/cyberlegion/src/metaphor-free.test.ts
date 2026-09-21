@@ -1,6 +1,6 @@
 // Tests for the check:metaphor-free vocabulary-boundary guard.
 //
-// One test per frozen scenario in .agents/spec/metaphor-free/metaphor-free.feature (12 total), bound
+// One test per frozen scenario in .agents/spec/metaphor-free/metaphor-free.feature (14 total), bound
 // to it by the scenario bridge: the `spec:<node>` describe names the node and each title is the
 // verbatim scenario name. A combinatorial truth table over the matcher is the pyramid base,
 // separate from the per-scenario duty. Fixtures use fresh domains/names the spec's own worked
@@ -133,6 +133,27 @@ describe('spec:cyberlegion/metaphor-free', () => {
 		expect(violations).toEqual([])
 	})
 
+	it("a banned term recorded in another project spec's provenance passes the guard", () => {
+		writeFile(
+			'.agents/specs/orchard-plugin/ledger/some-past-decision.a1b2c3.jsonl',
+			'{"why":"the Bunker rename landed"}\n',
+		)
+
+		const violations = findMetaphorViolations(root, { allowList: [] })
+
+		expect(violations).toEqual([])
+	})
+
+	it('a persona name under a nested ledger-named folder fails the guard', () => {
+		writeFile('.agents/specs/orchard-plugin/harvest/ledger/README.md', 'Harvest totals go to the Council weekly.\n')
+
+		const violations = findMetaphorViolations(root, { allowList: [] })
+
+		expect(violations).toEqual([
+			{ file: '.agents/specs/orchard-plugin/harvest/ledger/README.md', line: 1, term: 'Council' },
+		])
+	})
+
 	it("the guard's own defining document passes the guard", () => {
 		writeFile(
 			`${PKG}/.agents/spec/metaphor-free/README.md`,
@@ -188,7 +209,7 @@ describe('matchBannedTerms — matcher truth table (pyramid base)', () => {
 // CI enforcement: run the guard over the REAL repo tree (every in-scope root) on every test run,
 // so a future unsanctioned persona leak fails `pnpm test` -> `pnpm verify` -> CI. This realizes the
 // charter — the boundary is enforced by a script on every run, not re-discovered by a judge each
-// mission. Distinct from the 12 synthetic per-scenario tests above: this one asserts the live tree,
+// mission. Distinct from the 14 synthetic per-scenario tests above: this one asserts the live tree,
 // not a fixture.
 describe('the live cyberlegion package stays metaphor-free', () => {
 	it('has no unsanctioned capitalized persona name in any in-scope file', () => {
