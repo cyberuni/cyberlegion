@@ -41,16 +41,16 @@ surface that inspects a def before that:
   `resolveAgentDef`) searches `.agents/agents/<name>.md` under the project root, parses the leading
   `---`-delimited frontmatter block, and treats everything after it as the def's `instructions`
   body verbatim.
-- **Resolve an exact file, bypassing name search entirely** — `--agent-file <path>` (or
-  `resolveAgentDef({ file })`) reads that path directly. This is the only way a plugin-scoped def
-  (`plugins/<plugin>/agents/*.md`) is ever resolved — cyberlegion never walks a plugin's own
-  directory convention itself.
+- **Resolve an exact file, bypassing name search entirely** — `agent resolve --file <path>` (and
+  `unit spawn --agent-file <path>`, or `resolveAgentDef({ file })`) reads that path directly. This
+  is the only way a plugin-scoped def (`plugins/<plugin>/agents/*.md`) is ever resolved —
+  cyberlegion never walks a plugin's own directory convention itself.
 - **Frontmatter tags parse into typed fields** — `name`, `description`, `model`, `effort` (ordinary
   agent-def tags) and `harness` (`claude`|`cursor`|`codex`), `warm`, `interactive` (cyberlegion-only
-  routing tags, booleans) are each read off the top-level frontmatter block. A folded `>`/`|` block
-  scalar (as `article-writer.md`'s `description` uses) is supported. A tag the def omits resolves to
-  `undefined` (or `false` for warm/interactive when unset — a def opts in explicitly) rather than
-  raising an error; only a wholly unresolvable name/file raises.
+  routing tags, booleans) are each read off the top-level frontmatter block. A folded `>` or literal
+  `|` block scalar is supported. A tag the def omits resolves to `undefined` — `warm` and
+  `interactive` included, so a def opts in to either explicitly — rather than raising an error or
+  taking a guessed default; only a wholly unresolvable name/file raises.
 - **A def missing `model` is not an error** — resolution still succeeds; the model field is absent
   and a launch/realize step applies its own harness default rather than the resolver inventing one.
 - **realizeLaunch turns a def into a CHANNEL launch invocation** — applies the def's `model` +
@@ -88,7 +88,7 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | Behavior | What it covers |
 |---|---|
 | **resolve by name** | `.agents/agents/<name>.md` lookup; body becomes instructions |
-| **resolve an exact file** | `--agent-file`/`file` bypasses name search; plugin-scoped defs |
+| **resolve an exact file** | `agent resolve --file` / `unit spawn --agent-file` / `file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
 | **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override |
