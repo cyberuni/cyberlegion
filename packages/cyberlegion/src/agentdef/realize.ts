@@ -30,10 +30,14 @@ export interface RealizedLaunch {
 /** Cursor carries effort as a bracket parameter on the model (`<model>[effort=<level>]`): merge it into
  * any bracket list the model already has, replacing an `effort=` already there. */
 function withCursorEffort(model: string, effort: string): string {
-	const m = /^(.*)\[(.*)\]$/.exec(model)
-	if (!m) return `${model}[effort=${effort}]`
-	const params = m[2].split(',').filter((p) => p !== '' && !p.startsWith('effort='))
-	return `${m[1]}[${[...params, `effort=${effort}`].join(',')}]`
+	// String ops, not a regex: `/^(.*)\[(.*)\]$/` backtracks polynomially on a crafted model string.
+	const open = model.lastIndexOf('[')
+	if (open === -1 || !model.endsWith(']')) return `${model}[effort=${effort}]`
+	const params = model
+		.slice(open + 1, -1)
+		.split(',')
+		.filter((p) => p !== '' && !p.startsWith('effort='))
+	return `${model.slice(0, open)}[${[...params, `effort=${effort}`].join(',')}]`
 }
 
 /** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
