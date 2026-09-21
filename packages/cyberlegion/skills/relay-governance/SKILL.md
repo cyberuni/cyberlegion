@@ -135,7 +135,7 @@ the receiver's **own owner** — the unit that dispatched it — **and** the dec
 session by whoever is already in position to do so). Either one alone leaves it a peer steer. It is
 then adoptable **within its named scope and nothing adjacent**, provided it carries **four parts**:
 
-1. the **Council's verbatim words** — what the position holding the user channel actually said,
+1. the **user-channel holder's verbatim words** — what the position holding the user channel actually said,
    quoted, not summarized;
 2. **where they were said** — the session, thread, or artifact the words came from;
 3. the **relaying unit** — who is passing it down;

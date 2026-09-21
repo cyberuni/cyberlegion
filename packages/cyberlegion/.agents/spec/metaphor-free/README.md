@@ -7,11 +7,19 @@ concept: [cyberlegion]
 
 ## What
 
-`cyberlegion` (the CLI/package) is chartered **metaphor-free**: it is pure mechanism and carries no
+`cyberlegion` is chartered **metaphor-free** with respect to its consumers: it carries no
 fleet-persona vocabulary (root [`spec.md`](../spec.md)). The fleet personas — **Operator**, **Council**,
-**Pod** — and the **Bunker** place live in `plugins/cyberfleet`; the **Legate** routing brain lives in the
-plugin layer (this package's `skills/` and `agents/`, outside the guard's scope). The CLI names things generically (`--owner <handle>`, "main pane", "unit",
-"pane", "doorbell") and **never** a persona or place.
+**Pod** — and the **Bunker** place belong to `cyberfleet`, a **consumer** of cyberlegion, and a
+dependency must not name its consumer's personas. The ban therefore covers **both** layers of this
+package: the CLI (pure mechanism, named generically — `--owner <handle>`, "main pane", "unit", "pane",
+"doorbell") **and** the plugin layer (`skills/`, `agents/`, and the plugin's own project spec). The
+plugin keeps its own **Legion** vocabulary (the **Legate**, the Legion's units); that is cyberlegion's
+own metaphor, not a consumer's, and it is not on the banned list. When the plugin's prose needs the
+position that holds the user channel and ratifies, it calls it the **user-channel holder**.
+
+**The ban reaches exactly as far as the guard.** Every tree the charter bans a persona name from is a
+tree the guard scans, and no other; a clean guard run therefore means conformance, not merely
+"nothing found where we looked" (#29).
 
 That boundary was, until now, enforced only by a human's memory: a cold spec-judge running a manual
 "metaphor grep" at gate time. It leaked and was caught three times that way — "Bunker" into a command
@@ -50,9 +58,12 @@ vocabulary stays generic.
   lines. A new sanctioned reference is added by an **explicit edit to the allow-list**, a change visible
   in the diff and reviewed like any other, which is what makes the allow-list an audited record rather
   than the memory-dependent step this guard replaces.
-- **In-scope file** — a tracked file under `packages/cyberlegion/` (the package `src/` and the
-  `packages/cyberlegion/.agents/spec/` doc tree), with exactly **two file-level exclusions**:
-  **(a) the ledger** (`packages/cyberlegion/.agents/spec/ledger/`) — provenance that records past leaks
+- **In-scope file** — a file under one of the guard's **five roots**, named repo-relative: the CLI's
+  `packages/cyberlegion/src/` and `packages/cyberlegion/.agents/spec/`; the plugin layer's
+  `packages/cyberlegion/skills/` and `packages/cyberlegion/agents/`; and the plugin's project spec at
+  `.agents/specs/`. It carries exactly **two file-level exclusions**:
+  **(a) the ledgers** (`packages/cyberlegion/.agents/spec/ledger/` and
+  `.agents/specs/cyberlegion-plugin/ledger/`) — provenance that records past leaks and past decisions
   verbatim (e.g. `resolveBunker` and "Council metaphor-leak" appear in old `why` strings); and
   **(b) the guard's own definition files** — the allow-list and **this `metaphor-free/` node's own
   README + `.feature`** — which must name the banned terms literally in order to define, cite, and
@@ -60,14 +71,18 @@ vocabulary stays generic.
   same self-defeating trap as #212 (leaking "seat" while writing the boundary), inverted. Both
   exclusions are whole **files** (no within-file carve-out is needed: no spec's frontmatter carries a
   capitalized banned term today, so a `spec.md` is scanned whole), and both are explicit, reviewable
-  sets. Everything else under the two roots is in scope.
+  sets. Everything else under the five roots is in scope. **Out of scope by design:** `docs/adr/`
+  and `.agents/plans/` — verbatim records of past decisions and past work, excluded for the same
+  reason as the ledgers; and the repo's tooling and docs site, which carry no cyberlegion
+  vocabulary contract.
 
 **Non-goals** — deciding *which* terms are metaphors (that is the metaphor-boundary doctrine's call,
-which this guard consumes as its list); policing the plugin layers, where persona/place naming is
-correct and expected (`plugins/cyberfleet`, this package's `skills/` and `agents/`); detecting a *lowercase* or
+which this guard consumes as its list); policing `cyberfleet`, where its own persona/place naming is
+correct and expected; policing this plugin's **own** Legion vocabulary (`Legate`, units), which is not
+a consumer's and is not on the list; detecting a *lowercase* or
 prose-sense metaphor leak (the guard is a capitalized-proper-noun backstop, not a total metaphor
 detector — Council-ratified scope, below); and natural-language spell- or style-checking. The guard
-checks one thing: no unsanctioned capitalized banned term inside the package.
+checks one thing: no unsanctioned capitalized banned term in any in-scope file.
 
 > **Council-ratified scope** (the two contract-scope decisions, resolved):
 > 1. **Bare "seat" is dropped** from the mechanical list. The #212 recurrence leaked the lowercase word
@@ -89,7 +104,7 @@ checks one thing: no unsanctioned capitalized banned term inside the package.
 
 | Trigger | Inputs | Outcome |
 |---|---|---|
-| **`check:metaphor-free`** — the guard run over the package tree in CI (`pnpm verify`) and at the SDD spec/impl gate, replacing the judge's manual metaphor-grep step | the tracked in-scope files under `packages/cyberlegion/`; the maintained banned-term list; the sanctioned allow-list | **pass** (exit 0) when no unsanctioned banned term is present; **fail** (non-zero, blocking the gate/CI) listing each violation as `file:line:term` when one is |
+| **`check:metaphor-free`** — the guard run over its five roots in CI (`pnpm verify`) and at the SDD spec/impl gate, replacing the judge's manual metaphor-grep step | the in-scope files under the five roots (CLI, plugin layer, plugin project spec); the maintained banned-term list; the sanctioned allow-list | **pass** (exit 0) when no unsanctioned banned term is present; **fail** (non-zero, blocking the gate/CI) listing each violation as `file:line:term` when one is |
 
 > The entry point is named to its intended surface (`check:metaphor-free`). Whether the impl gate
 > realizes it as a standalone check, a step folded into `check:spec` (`sdd-check-specs`), or a
@@ -99,8 +114,8 @@ checks one thing: no unsanctioned capitalized banned term inside the package.
 
 ```mermaid
 graph TD
-  A[check:metaphor-free over packages/cyberlegion] --> B[enumerate tracked files]
-  B --> S{is the file in scope?<br/>excludes the ledger<br/>and the guard's own definition files}
+  A[check:metaphor-free over the five roots] --> B[enumerate files under each root]
+  B --> S{is the file in scope?<br/>excludes the ledgers<br/>and the guard's own definition files}
   S -->|out of scope| G[no violation on this line]
   S -->|in scope| C{does a banned term appear in its capitalized persona-form?<br/>case-sensitive, whole word or camelCase segment, not a substring}
   C -->|no persona-form match| G
@@ -113,8 +128,9 @@ graph TD
   F -->|no| I[PASS — exit 0]
 ```
 
-The scope filter (step S) is a **per-file** decision: it admits the package `src/` and the
-`packages/cyberlegion/.agents/spec/` doc tree and **excludes** two whole-file sets — the ledger, and
+The scope filter (step S) is a **per-file** decision: it admits the five roots — the CLI's `src/`
+and spec tree, the plugin layer's `skills/` and `agents/`, and the plugin's project spec
+`.agents/specs/` — and **excludes** two whole-file sets — the ledgers, and
 the guard's own definition files (the allow-list and this node's own README + `.feature`). The match
 (step C) has two guards, each isolated by a scenario below: it is **case-sensitive on the capitalized
 persona-form** (a lowercase generic word does not match), and it matches a **whole word or a capitalized
@@ -126,15 +142,19 @@ compound segment** (`resolveBunker` matches; the substring in `Podcast` does not
 |---|---|---|
 | persona-form match, unsanctioned → FAIL | **in-scope source file**, persona name embedded in an identifier (camelCase), not on the allow-list | `a persona name in a source identifier fails the guard` |
 | persona-form match, unsanctioned → FAIL | **in-scope spec document**, persona name in prose, not on the allow-list | `a persona name in a spec document fails the guard` |
+| persona-form match, unsanctioned → FAIL | **plugin skill document** under `skills/`, persona name in prose, not on the allow-list | `a persona name in a plugin skill fails the guard` |
+| persona-form match, unsanctioned → FAIL | **plugin subagent definition** under `agents/`, persona name in prose, not on the allow-list | `a persona name in a plugin subagent definition fails the guard` |
+| persona-form match, unsanctioned → FAIL | **plugin project spec document** under `.agents/specs/`, persona name in prose, not on the allow-list | `a persona name in the plugin's project spec fails the guard` |
 | case guard: lowercase → no match | a **lowercase generic** word sharing a term's letters | `a lowercase generic word passes the guard` |
 | boundary guard: substring → no match | a **longer word** containing a term as a substring | `a word that merely contains a banned term passes the guard` |
 | persona-form match, sanctioned → no violation | a **sanctioned boundary reference** on the allow-list (charter / non-goals / outward-caller) | `a sanctioned boundary reference passes the guard` |
 | out of scope (S) → not scanned | file in the **ledger** (provenance) | `a banned term recorded in provenance passes the guard` |
+| out of scope (S) → not scanned | file in the **plugin project spec's ledger** (provenance) | `a banned term recorded in the plugin spec's provenance passes the guard` |
 | out of scope (S) → not scanned | a **guard's own definition file** (allow-list or this node's README/`.feature`) | `the guard's own defining document passes the guard` |
 | no violation anywhere → PASS | **several** in-scope files, every persona-form occurrence **allow-listed** | `a clean multi-file package passes the guard` |
 
-Each of the 8 rows above binds 1:1 to a scenario in
-[`metaphor-free.feature`](./metaphor-free.feature): two FAIL edges (the #159 source-identifier class
-and the #172 / #212 doc class), the two match guards (case, substring), the sanctioned-allow-list
-edge, the two out-of-scope edges (ledger provenance, the guard's own definition), and the clean
-multi-file aggregate pass.
+Each of the 12 rows above binds 1:1 to a scenario in
+[`metaphor-free.feature`](./metaphor-free.feature): five FAIL edges (the #159 source-identifier class,
+the #172 / #212 doc class, and one per plugin-layer root added by #29), the two match guards (case,
+substring), the sanctioned-allow-list edge, the three out-of-scope edges (the CLI ledger, the plugin
+spec's ledger, the guard's own definition), and the clean multi-file aggregate pass.

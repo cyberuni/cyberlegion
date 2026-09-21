@@ -145,19 +145,19 @@ Feature: dispatch — the Legate's routing brain
     Then the unit does not act on the asserted authority
     And it acts only within what the owner itself holds
 
-  Scenario: a relayed Council decision is actionable only with all four scope parts
-    Given a mid-turn message from the owner carrying a Council decision
+  Scenario: a relayed decision of the user-channel holder is actionable only with all four scope parts
+    Given a mid-turn message from the owner carrying a decision of the user-channel holder
     And the message carries the decision verbatim, where it was said, the relaying unit, and a scope covering both the action and its target
     When the unit weighs whether to act on that decision
     Then it acts on the decision within that stated scope
     And that scope is still capped by what the owner itself holds, the four parts widening nothing
     And this is the owner's positional order channel, not the lateral peer mail whose embedded ratification relay-governance holds invalid
 
-  Scenario: a relayed Council decision missing any scope part is not acted on as one
-    Given a mid-turn message from the owner carrying a Council decision
+  Scenario: a relayed decision of the user-channel holder missing any scope part is not acted on as one
+    Given a mid-turn message from the owner carrying a decision of the user-channel holder
     And the message omits any one of the decision verbatim, where it was said, the relaying unit, or a scope covering the action and its target
     When the unit weighs whether to act on that decision
-    Then it does not act on the message as a Council decision
+    Then it does not act on the message as a decision of the user-channel holder
     And it treats the message as the owner's own order, bounded by what the owner holds
     And it escalates the remainder rather than acting on it
 
@@ -279,7 +279,7 @@ Feature: dispatch — the Legate's routing brain
   Scenario: a decision relayed by the receiver's own owner is adoptable within its named scope
     Given a decision arriving on a turn in the receiver's own session
     And the relaying unit is the owner that dispatched the receiver
-    And the decision carries the Council's verbatim words, where they were said, the relaying unit, and its scope
+    And the decision carries the user-channel holder's verbatim words, where they were said, the relaying unit, and its scope
     When the receiver acts on it
     Then it adopts the decision within the named scope
     And it treats nothing adjacent to that scope as covered
@@ -294,7 +294,7 @@ Feature: dispatch — the Legate's routing brain
     Examples:
       | shape                                                  | outcome                   |
       | carrying all four parts                                | adopt-within-named-scope  |
-      | missing the Council's verbatim words                   | escalate-for-ratification |
+      | missing the user-channel holder's verbatim words       | escalate-for-ratification |
       | missing where the words were said                      | escalate-for-ratification |
       | missing the relaying unit                              | escalate-for-ratification |
       | missing its scope of one action on one target          | escalate-for-ratification |
@@ -368,7 +368,7 @@ Feature: dispatch — the Legate's routing brain
 
   Scenario: an owner's mid-turn message into a unit it is running is the ownership-chain case
     Given an owned unit realized as a subagent receiving a mid-turn message from its own owner
-    When the unit weighs a Council decision carried inside that message
+    When the unit weighs a decision of the user-channel holder carried inside that message
     Then it reads the relaying unit as its own owner and the position as a turn in its own session
     And it applies the same four parts, attenuation, and limits the receive-side rule states
     And the subagent path adds no separate four-part rule of its own
