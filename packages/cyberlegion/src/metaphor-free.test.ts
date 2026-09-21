@@ -194,4 +194,16 @@ describe('the live cyberlegion package stays metaphor-free', () => {
 		const violations = findMetaphorViolations()
 		expect(violations, JSON.stringify(violations, null, 2)).toEqual([])
 	})
+
+	// A scan that reaches no file passes vacuously: a default root resolved one directory off finds
+	// nothing and reports clean. Probe with the plugin's own `Legate` — present in every in-scope
+	// root — so the live check above proves it looked, not only that it found nothing.
+	it('reaches every in-scope root', () => {
+		const hits = findMetaphorViolations(undefined, { bannedTerms: ['Legate'], allowList: [] })
+		const reached = (root: string) => hits.some((v) => v.file.startsWith(`${root}/`))
+
+		for (const root of [`${PKG}/src`, `${PKG}/.agents/spec`, `${PKG}/skills`, `${PKG}/agents`, '.agents/specs']) {
+			expect(reached(root), root).toBe(true)
+		}
+	})
 })
