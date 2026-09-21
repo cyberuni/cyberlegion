@@ -106,6 +106,47 @@ Feature: agent — resolve reusable agent definitions
     When realizeLaunch runs
     Then the command escapes the instructions so they are inert as shell syntax
 
+  # ── realizeLaunch applies effort through each harness's own effort control ──
+
+  Scenario Outline: realizeLaunch carries the def's effort in the harness's own effort control
+    Given a resolved def with harness "<harness>", model "<model>" and effort "high"
+    When realizeLaunch runs with no overrides
+    Then the command contains <effort control>
+
+    Examples:
+      | harness | model  | effort control                        |
+      | claude  | sonnet | --effort 'high'                       |
+      | codex   | gpt-5  | -c 'model_reasoning_effort="high"'    |
+      | cursor  | gpt-5  | --model 'gpt-5[effort=high]'          |
+
+  Scenario Outline: a def with no effort launches with no effort control on any harness
+    Given a resolved def whose frontmatter carries exactly two tags, harness "<harness>" and model "gpt-5"
+    When realizeLaunch runs with no overrides
+    Then the command contains no "--effort", no "model_reasoning_effort", and no "effort=" text
+
+    Examples:
+      | harness |
+      | claude  |
+      | codex   |
+      | cursor  |
+
+  Scenario Outline: a cursor effort merges into a model that already carries bracket parameters
+    Given a resolved def with harness "cursor", model "<model>" and effort "high"
+    When realizeLaunch runs with no overrides
+    Then the command's model argument is '<realized>'
+
+    Examples:
+      | model                         | realized                                  |
+      | claude-opus-4-8[context=1m]   | claude-opus-4-8[context=1m,effort=high]   |
+      | claude-opus-4-8[effort=low]   | claude-opus-4-8[effort=high]              |
+      | gpt-5[context=1m,effort=low]  | gpt-5[context=1m,effort=high]             |
+
+  Scenario: a cursor effort with no model refuses rather than launching at the default effort
+    Given a resolved def whose frontmatter carries exactly two tags, harness "cursor" and effort "high"
+    When realizeLaunch runs with no overrides
+    Then it throws an error naming cursor and the missing model
+    And it returns no launch command, so no session starts at the harness default effort
+
   # ── agent list / show / resolve / path ──
 
   Scenario: agent list reports a definitive empty state when no defs exist

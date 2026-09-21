@@ -37,7 +37,15 @@ surface that inspects a def before that:
 - **realizeLaunch turns a def into a CHANNEL launch invocation** — applies the def's `model` +
   `instructions` (and any `harness`) into the harness's own launch command (`claude`/`cursor-agent`/
   `codex`), for the warm-peer / channel family. An explicit `model`/`harness` override (passed by the
-  caller) wins over the def's own tags, which win over the harness default (`claude`). This realizes
+  caller) wins over the def's own tags, which win over the harness default (`claude`). A def's
+  `effort` travels through each harness's own effort control, since no two spell it alike: `claude
+  --effort <level>`; codex's config override `-c model_reasoning_effort="<level>"` (it has no
+  dedicated flag); cursor's bracket parameter on the model, `--model '<model>[effort=<level>]'`,
+  merged into any bracket list the model already carries and replacing an `effort=` already there.
+  Cursor has no effort control apart from the model, so a cursor def with an `effort` but no `model`
+  **throws** rather than launching — a warn-and-ignore would start a session that looks configured
+  and runs at the harness default effort, the silent drop this rule exists to prevent. A def with no
+  `effort` carries no effort control at all; the harness default applies. This realizes
   the **channel** (warm-peer) launch only; a caller composing a cold Task subagent builds that
   instruction itself from the `resolve` payload (there is no CLI subagent-instruction realizer — the
   result-slot and its instruction builder were dropped in CR-4).
@@ -64,5 +72,5 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `--agent-file`/`file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness channel launch command; explicit override precedence |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |
