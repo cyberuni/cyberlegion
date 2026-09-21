@@ -51,10 +51,11 @@ surface that inspects a def before that:
   cyberlegion never walks a plugin's own directory convention itself.
 - **Frontmatter tags parse into typed fields** — `name`, `description`, `model`, `effort` (ordinary
   agent-def tags) and `harness` (`claude`|`cursor`|`codex`), `warm`, `interactive` (cyberlegion-only
-  routing tags, booleans) are each read off the top-level frontmatter block. A folded `>` or literal
-  `|` block scalar is supported. A tag the def omits resolves to `undefined` — `warm` and
-  `interactive` included, so a def opts in to either explicitly — rather than raising an error or
-  taking a guessed default; only a wholly unresolvable name/file raises.
+  routing tags, booleans) are each read off the top-level frontmatter block. A `harness` outside
+  those three throws, naming the value and the valid set — a typo has no binary to launch. A folded
+  `>` or literal `|` block scalar is supported. A tag the def omits resolves to `undefined` — `warm`
+  and `interactive` included, so a def opts in to either explicitly — rather than raising an error or
+  taking a guessed default; only a wholly unresolvable name/file, or an unknown `harness`, raises.
 - **A def missing `model` is not an error** — resolution still succeeds; the model field is absent
   and a launch/realize step applies its own harness default rather than the resolver inventing one.
 - **realizeLaunch turns a def into a CHANNEL launch invocation** — applies the def's `model` +
@@ -90,7 +91,8 @@ surface that inspects a def before that:
   `resolve` emits the full machine `AgentDef` payload (TOON default, full JSON under
   `--format json`) for a routing caller to compose a launch/spawn from; `path` prints just the
   resolved file path. A bad name/file fails loud (nonzero exit, structured stderr error) rather than
-  falling back to a default def.
+  falling back to a default def, and so does `list` when any def it finds carries an unknown
+  `harness`.
 
 **Non-goals** — the gateway/Legate routing brain that decides warm-peer vs run-inline vs subagent
 from a def's `warm`/`interactive` tags and mux availability (`legion-gateway-legate`, CR-5); actually
@@ -148,6 +150,7 @@ graph TD
   TAG -->|scalar value| SCALAR[typed field: string, or true/false for warm and interactive]
   TAG -->|folded or literal block scalar| BLOCK[indented lines joined into one string]
   TAG -->|tag absent| ABSENT[field left undefined, never a guessed default]
+  TAG -->|harness outside claude, cursor, codex| BADHARNESS[throw naming the value and the valid set]
   SCALAR --> DEF[AgentDef]
   BLOCK --> DEF
   ABSENT --> DEF
@@ -157,7 +160,9 @@ graph TD
 
 An absent tag is not an error for any field, `model` included: the def still resolves, and the
 launch step (sub-graph 3) applies the harness default. A missing `name` falls back to the file
-stem. Only sub-graph 1's three throws fail a resolve.
+stem. An unknown `harness` value is the one tag that fails a resolve: it has no launch binary, so
+it throws here rather than reaching a launch command. Every other failure is one of sub-graph 1's
+three throws.
 
 ### 3 — Realize a channel launch command
 
@@ -218,8 +223,9 @@ graph TD
   VERB{agent verb} -->|list| LIST{any def under .agents/agents/?}
   LIST -->|none| EMPTY[0 agent definitions, plus a next step]
   LIST -->|some| ROWS[one row per def: name, model, harness]
+  LIST -->|a def carries an unknown harness| FAIL[non-zero exit, structured stderr error]
   VERB -->|show, resolve, path| LOCATE[sub-graphs 1 and 2]
-  LOCATE -->|throws| FAIL[non-zero exit, structured stderr error]
+  LOCATE -->|throws| FAIL
   LOCATE -->|show| SHOW{--full?}
   SHOW -->|no| TRUNC[routing fields, instructions truncated with a --full note]
   SHOW -->|yes| FULL[routing fields, whole instructions]
@@ -228,7 +234,8 @@ graph TD
   LOCATE -->|path| PATH[the resolved file path only]
 ```
 
-`resolve` alone takes an exact-file option, so it can reach a plugin-scoped def; `show` and `path`
+`list` parses every def it finds, so a single def with an unknown `harness` fails the whole
+listing rather than being dropped from it silently. `resolve` alone takes an exact-file option, so it can reach a plugin-scoped def; `show` and `path`
 resolve by name only.
 
 ## Scenario map
@@ -260,6 +267,7 @@ different path class.
 | `TAG → SCALAR` | each scalar tag in turn: model, effort, harness, warm, interactive | `a scalar frontmatter tag parses into its typed field` |
 | `TAG → BLOCK` | a folded `>` description over several indented lines | `a folded > block-scalar description spanning multiple lines parses into one string` |
 | `TAG → ABSENT` | the routing tags harness, warm, and interactive absent | `a tag the def omits resolves to undefined rather than a guessed default` |
+| `TAG → BADHARNESS` | a `harness` value outside the known three | `an unknown harness tag fails resolution naming the tag and the valid harnesses` |
 
 ### a def missing model is not an error
 
@@ -296,6 +304,7 @@ different path class.
 |---|---|---|
 | `LIST → EMPTY` | no `.agents/agents/` directory, or an empty one | `agent list reports a definitive empty state when no defs exist` |
 | `LIST → ROWS` | two defs under `.agents/agents/` | `agent list rows show name, model, and harness for every resolvable def` |
+| `LIST → FAIL` | two defs, one with a `harness` value outside the known three | `agent list fails loud when any def carries an unknown harness` |
 | `SHOW → TRUNC` | a def with a long instructions body | `agent show prints the resolved routing fields and a truncated instructions body` |
 | `SHOW → FULL` | a def with a long instructions body, `--full` | `agent show --full prints the entire instructions body` |
 | `TRUNC → PLACEHOLDER` | a def with no model tag | `agent show reflects a missing model as the harness-default note, not an error` |
