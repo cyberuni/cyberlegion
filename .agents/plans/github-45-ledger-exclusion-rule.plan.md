@@ -4,15 +4,15 @@ project: cyberlegion
 status: active
 todos:
   - content: "explore: ledger exclusion by position (.agents/specs/<project>/ledger/), not folder name; additive scenarios"
-    status: in_progress
+    status: completed
   - content: "spec gate: cold spec-judge; structural diff on metaphor-free.feature (expect addOnly); ledger gate line"
-    status: pending
+    status: completed
   - content: "deliver: rule-based exclusion in metaphor-free.ts; test-first, red under the old folder-name prefix"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over frozen scenarios; pnpm verify"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #45), report to operator, do not merge"
-    status: pending
+    status: completed
 ---
 
 # github-45 — exclude every project spec's ledger by rule
@@ -29,4 +29,6 @@ Out of scope: the allow-list's outward-caller references (held, decided elsewher
 
 ## NEXT
 
-Explore: draft the two additive scenarios and the README rule, then the spec gate.
+Landed on the PR (Closes #45): the contract states the positional ledger rule with two additive
+frozen scenarios, and the guard excludes `.agents/specs/<project>/ledger/` for every project. Both
+gates self-asserted by agent; merging is a human call. Nothing left to resume.
