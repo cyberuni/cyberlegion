@@ -1,7 +1,8 @@
 // Tests for the check:metaphor-free vocabulary-boundary guard.
 //
-// One test per frozen scenario in .agents/spec/metaphor-free/metaphor-free.feature (12 total, named
-// to echo the scenario title), plus a combinatorial truth table over the matcher — the pyramid base,
+// One test per frozen scenario in .agents/spec/metaphor-free/metaphor-free.feature (12 total), bound
+// to it by the scenario bridge: the `spec:<node>` describe names the node and each title is the
+// verbatim scenario name. A combinatorial truth table over the matcher is the pyramid base,
 // separate from the per-scenario duty. Fixtures use fresh domains/names the spec's own worked
 // examples (`resolveBunker`, `Podcast`, `pod`, `operator`) don't use, per the swap test: a Given is a
 // test vector, not literal apparatus to special-case.
@@ -34,7 +35,7 @@ function writeFile(relPath: string, content: string): void {
 	writeFileSync(abs, content)
 }
 
-describe('check:metaphor-free — per-scenario verification', () => {
+describe('spec:cyberlegion/metaphor-free', () => {
 	it('a persona name in a source identifier fails the guard', () => {
 		writeFile(`${PKG}/src/queue.ts`, 'export function lockBunkerDoor() {}\n')
 
