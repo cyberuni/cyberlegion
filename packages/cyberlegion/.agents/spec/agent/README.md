@@ -155,10 +155,10 @@ graph TD
   OVH --> BINARY[that harness's launch binary]
   DEFH --> BINARY
   DEFAULT --> BINARY
-  BINARY --> MODEL{model: override, else def tag}
+  BINARY --> MODEL{model and effort: each its override, else the def tag}
   MODEL --> KIND{harness kind}
   KIND -->|claude or codex| FLAGMODEL[--model when a model is set]
-  FLAGMODEL --> EFFORT{def carries effort?}
+  FLAGMODEL --> EFFORT{an effort is set?}
   EFFORT -->|no| NOEFFORT[no effort control at all]
   EFFORT -->|yes, claude| CLAUDE[--effort level]
   EFFORT -->|yes, codex| CODEX[-c model_reasoning_effort=level]
@@ -175,8 +175,14 @@ graph TD
   INSTR --> COMMAND[launch command string]
 ```
 
-The override precedence is one rule for both `harness` and `model`: an explicit override beats the
-def's tag, which beats the harness default. Effort has no override; it comes from the def alone.
+The override precedence is one rule for `harness`, `model`, and `effort`: an explicit override
+beats the def's tag, which beats the harness default. The command reports the model and effort it
+launched with, whichever source won.
+
+`unit spawn` enters this sub-graph through `resolveSpawnLaunch`, which passes its `--harness`,
+`--model`, and `--effort` flags as the overrides. With no def, a `--model` or `--effort` on a bare
+`--harness` realizes against an empty def; with neither, no command is built and the harness's own
+default launch stands. Those `unit spawn` paths are bound in the `unit/lifecycle` node's suite.
 
 ### 4 — The agent CLI verbs
 
@@ -243,6 +249,7 @@ different path class.
 | `DEFH → BINARY` | each harness tag in turn, no override | `realizeLaunch maps a harness tag to its own launch binary` |
 | `HARNESS → DEFAULT` | no harness tag and no harness override | `realizeLaunch defaults to claude when neither the def nor an override sets a harness` |
 | `MODEL → KIND` | the def's own model, no override | `realizeLaunch applies the def's own model and instructions` |
+| `MODEL → KIND` | an effort override over the def's own effort | `an explicit effort override wins over the def's own effort` |
 | `HARNESS → OVH` | a harness and model override over the def's own tags | `an explicit model/harness override wins over the def's own tags` |
 | `NOEFFORT → INSTR` | instructions carrying quotes and a `$()` sequence | `instructions containing shell-special characters are safely quoted` |
 | `EFFORT → {CLAUDE, CODEX}`, `CURSOR → BRACKET` | each harness in turn, a model and an effort | `realizeLaunch carries the def's effort in the harness's own effort control` |
