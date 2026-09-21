@@ -76,6 +76,9 @@ export interface SpawnInput {
 	 * (avoids a session.ts ↔ agentdef/realize.ts import cycle, since `realizeLaunch` already reads
 	 * `LAUNCH_MAP` from here). */
 	command?: string
+	/** A def's instructions its harness cannot take on the command line (an agent-def's
+	 * `realizeLaunch` output, for cursor): written in front of the brief under their own heading. */
+	briefInstructions?: string
 	/** Branch to create the unit's worktree on; defaults to `cyberlegion/unit-<id>`. */
 	branch?: string
 	/** Where to check out the unit's worktree; defaults to a sibling of the primary checkout
@@ -215,7 +218,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	}
 	saveAgent(ctx.store, rec)
 	ctx.store.putPaneIndex(target.id, id)
-	ctx.store.writeBrief(id, brief)
+	ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions))
 
 	return { agent: rec, pane: target.id, launch }
 }
@@ -382,6 +385,14 @@ export function clearUnit(ctx: IdContext, ref: string): ClearResult {
 	// primitive here, not `sendText`.
 	selectSessionAdapter(env, exec).submit(exec, { id: pane }, command)
 	return { agent, pane, command }
+}
+
+/** The brief file's text: the task alone, or — when the harness took no instructions on its command
+ * line — the def's instructions under their own heading ahead of it, so the peer can see they reach
+ * it as a user turn rather than a system prompt. */
+function composeBrief(brief: string, instructions?: string): string {
+	if (!instructions) return brief
+	return `## Agent instructions\n\n${instructions}\n\n## Brief\n\n${brief}`
 }
 
 /** Resolve a spawn brief from --brief-file, --task -, or --task <text>; null if no source given. */

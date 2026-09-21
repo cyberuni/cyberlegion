@@ -161,7 +161,14 @@ cleanly — the deterministic inverse pair:
   - **--agent/--agent-file realizes a resolved def's launch** — when `--agent <name>` or
     `--agent-file <path>` is given, the resolved def's harness/model/instructions compose the launch
     command in place of the harness's bare default binary; an explicit `--harness` still overrides the
-    def's own harness tag.
+    def's own harness tag. Cursor is the one harness whose CLI cannot take the def's instructions
+    (`agent/`), so for a cursor def the realized launch hands them to the brief instead: the brief
+    file opens with an `## Agent instructions` heading carrying the def's instructions, then a
+    `## Brief` heading carrying the task. The headings make it visible that the instructions arrive
+    as the peer's first user turn rather than a system prompt. On claude and codex the brief file
+    holds the task alone. With `--no-wake`, a cursor peer sees its instructions only once something
+    has it read the brief. The workspace label still draws its code and subject from the task, never
+    from the prepended instructions heading.
   - **--model/--effort override one launch** — `--model <name>` and `--effort <level>` set the model
     and effort for this spawn only. Precedence is **flag > agent def > harness default**: a flag beats
     the def's own tag, and a def's tag beats the harness's own default. A flag never writes back to the
@@ -370,8 +377,12 @@ graph TD
   SPBK -- yes --> SPBK1["throw — fires AFTER creation; nothing rolls it back"]
   SPBK -- no --> SPL["stamp the new worktree's own .agents/cyberlegion marker"]
   SPO --> SPN
-  SPL --> SPN["register: status active, handle, harness, cwd, worktree, pane locator, brief path, spawnedBy when the caller has an id — then write the brief FILE"]
-  SPN --> SPR["ring the first turn — the ring graph below"]
+  SPL --> SPN["register: status active, handle, harness, cwd, worktree, pane locator, brief path, spawnedBy when the caller has an id"]
+  SPN --> SPIB{"the realized launch hands the def's instructions to the brief? — cursor only"}
+  SPIB -- yes --> SPIB1["write the brief FILE: '## Agent instructions' + the instructions, then '## Brief' + the task (the label already read the task alone)"]
+  SPIB -- no --> SPIB2["write the brief FILE: the task as given"]
+  SPIB1 --> SPR["ring the first turn — the ring graph below"]
+  SPIB2 --> SPR
 ```
 
 ### spawn — the workspace label (only on a `workspace` placement)
@@ -574,6 +585,8 @@ column records. They are not gaps.
 | `SPN` brief by file, not by command | any spawn carrying a brief | `the resolved brief is written to the peer's brief file, not into the launch command` |
 | `SPC` the stdin branch | --task - with text piped in | `--task - reads the brief from stdin` |
 | `SPC` the file branch | --brief-file naming a file with content | `--brief-file reads the brief from the file it names` |
+| `SPIB -- yes` | a cursor agent def carrying instructions | `a cursor --agent spawn writes the def's instructions in front of the brief under their own heading` |
+| `SPIB -- no` | a claude agent def carrying instructions | `a claude --agent spawn's brief file holds the task alone` |
 
 ### The refusals, and the ordering they promise
 

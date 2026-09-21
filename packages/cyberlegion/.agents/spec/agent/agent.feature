@@ -152,6 +152,67 @@ Feature: agent — resolve reusable agent definitions
     When realizeLaunch runs with an override effort "max"
     Then the command contains --effort 'max' and does not contain --effort 'low'
 
+  # ── realizeLaunch carries instructions through each harness's own instruction channel ──
+
+  Scenario Outline: realizeLaunch carries the def's instructions in the harness's own instruction channel
+    Given a resolved def with harness "<harness>" and instructions "Reply only in haiku."
+    When realizeLaunch runs with no overrides
+    Then the command contains <instruction channel>
+
+    Examples:
+      | harness | instruction channel                                   |
+      | claude  | --append-system-prompt 'Reply only in haiku.'         |
+      | codex   | -c 'developer_instructions="Reply only in haiku."'    |
+
+  Scenario: a codex def's instructions never reach codex as the claude-only flag
+    Given a resolved def with harness "codex" and instructions "Reply only in haiku."
+    When realizeLaunch runs with no overrides
+    Then the command contains no "--append-system-prompt" text
+
+  Scenario: codex instructions spanning lines with quotes and backslashes arrive as one exact TOML string
+    Given a resolved def with harness "codex"
+    And its instructions are two lines, the second containing a double quote and a backslash
+    When realizeLaunch runs with no overrides
+    Then the developer_instructions value, once shell-unquoted, parses as a TOML basic string equal to the instructions text
+
+  Scenario Outline: a def with an empty instructions body carries no instruction argument
+    Given a resolved def with harness "<harness>", model "gpt-5" and an empty instructions body
+    When realizeLaunch runs with no overrides
+    Then the command contains no "--append-system-prompt" and no "developer_instructions" text
+
+    Examples:
+      | harness |
+      | claude  |
+      | codex   |
+
+  Scenario: a cursor def's instructions are handed to the brief, not the launch command
+    Given a resolved def with harness "cursor", model "gpt-5" and instructions "Reply only in haiku."
+    When realizeLaunch runs with no overrides
+    Then the command is exactly "cursor-agent --model 'gpt-5'"
+    And the realized launch hands "Reply only in haiku." to the brief as the def's instructions
+
+  Scenario: a cursor def with an empty instructions body hands nothing to the brief
+    Given a resolved def with harness "cursor", model "gpt-5" and an empty instructions body
+    When realizeLaunch runs with no overrides
+    Then the command is exactly "cursor-agent --model 'gpt-5'"
+    And the realized launch hands no instructions to the brief
+
+  Scenario Outline: a claude or codex def's instructions stay in the launch command and never reach the brief
+    Given a resolved def with harness "<harness>" and instructions "Reply only in haiku."
+    When realizeLaunch runs with no overrides
+    Then the realized launch hands no instructions to the brief
+
+    Examples:
+      | harness |
+      | claude  |
+      | codex   |
+
+  Scenario: an override to cursor moves a claude def's instructions from the command to the brief
+    Given a resolved def with harness "claude" and instructions "Reply only in haiku."
+    When realizeLaunch runs with an override harness "cursor"
+    Then the command contains no "--append-system-prompt" text
+    And the realized launch hands "Reply only in haiku." to the brief as the def's instructions
+
   # ── agent list / show / resolve / path ──
 
   Scenario: agent list reports a definitive empty state when no defs exist

@@ -12,7 +12,9 @@ it into something a caller can act on: a typed record of its tags and instructio
 command that launches a harness session carrying them. Callers are routing layers and the
 `unit spawn` verb; a person reaches it through `agent list`, `show`, `resolve`, and `path` to look at
 a def before anything is launched. The problem it solves is that a def is plain text, while every
-harness wants its model, effort, and system prompt spelled its own way on its own command line.
+harness wants its model, effort, and system prompt spelled its own way on its own command line —
+and one harness, cursor, has no command-line place for a system prompt at all, so its def's
+instructions are handed back for the brief instead.
 
 **Non-goals** — deciding *how* a def should run (warm peer, inline, or cold subagent); launching
 anything (the launch command is a string, never executed here); building a cold subagent's
@@ -22,7 +24,9 @@ instruction; and finding defs by any plugin's directory convention.
 of `key: value` tags at the top of a def; the text after it is the def's **instructions**.
 **Routing tags**: `harness`, `warm`, and `interactive`, which only cyberlegion reads. **Harness**:
 the agent CLI a session runs in (`claude`, `cursor`, `codex`). **Effort control**: the harness's
-own way of setting reasoning effort, which differs per harness.
+own way of setting reasoning effort, which differs per harness. **Instruction channel**: the
+harness's own way of taking a def's instructions — a flag on claude, a config override on codex, and
+none on cursor, whose instructions travel in the brief.
 
 Resolve a universal agent-definition `.md` file (YAML frontmatter + Markdown body, as used under
 `.agents/agents/*.md` and `plugins/*/agents/*.md`) into a machine payload or a channel launch command.
@@ -64,7 +68,19 @@ surface that inspects a def before that:
   Cursor has no effort control apart from the model, so a cursor def with an `effort` but no `model`
   **throws** rather than launching — a warn-and-ignore would start a session that looks configured
   and runs at the harness default effort, the silent drop this rule exists to prevent. A def with no
-  `effort` carries no effort control at all; the harness default applies. This realizes
+  `effort` carries no effort control at all; the harness default applies. A def's `instructions`
+  body likewise travels through each harness's own instruction channel, since only claude has an
+  append-to-system-prompt flag: `claude --append-system-prompt '<body>'`; codex's config override
+  `-c developer_instructions="<body>"` (no dedicated flag; the value is a TOML basic string, so a
+  multi-line body or one carrying quotes and backslashes arrives intact, and it adds to codex's own
+  base instructions rather than replacing them). Cursor's CLI has **no** instruction channel —
+  no flag, no config override — so for cursor the realized launch carries no instruction argument
+  and instead **hands the body to the brief** (a returned `briefInstructions` field), which
+  `unit spawn` writes in front of the task under its own heading (`unit/lifecycle`). That demotes
+  the instructions from a system prompt to the peer's first user turn; the heading makes the
+  demotion visible rather than silent. Claude and codex never hand instructions to the brief, and a
+  def whose body is empty carries no instruction argument and hands nothing to the brief on any
+  harness. This realizes
   the **channel** (warm-peer) launch only; a caller composing a cold Task subagent builds that
   instruction itself from the `resolve` payload (there is no CLI subagent-instruction realizer — the
   result-slot and its instruction builder were dropped in CR-4).
@@ -78,8 +94,9 @@ surface that inspects a def before that:
 
 **Non-goals** — the gateway/Legate routing brain that decides warm-peer vs run-inline vs subagent
 from a def's `warm`/`interactive` tags and mux availability (`legion-gateway-legate`, CR-5); actually
-spawning anything (`realizeLaunch` is a pure string builder — the CLI never invokes a Task tool or
-opens a session itself); building the cold-subagent instruction (a caller composes that from the
+spawning anything (`realizeLaunch` is a pure builder — it returns a launch command, plus a
+`briefInstructions` string for cursor, and the CLI never invokes a Task tool or opens a session
+itself); building the cold-subagent instruction (a caller composes that from the
 `resolve` payload — the CLI has no subagent-instruction realizer since CR-4); plugin/SDD def
 discovery conventions (an upward dependency cyberlegion never takes on).
 
@@ -91,7 +108,7 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `agent resolve --file` / `unit spawn --agent-file` / `file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override; per-harness instruction channel, cursor's instructions handed to the brief |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |
 
 ## Control Flow
@@ -167,17 +184,25 @@ graph TD
   CURSOR -->|no effort| NOEFFORT
   CURSOR -->|effort and a bare model| BRACKET[--model model with effort=level]
   CURSOR -->|effort and a bracketed model| MERGE[effort merged into the bracket list, replacing any effort= there]
-  NOEFFORT --> INSTR[instructions appended, single-quoted so shell syntax is inert]
+  NOEFFORT --> INSTR{instructions: body and harness}
   CLAUDE --> INSTR
   CODEX --> INSTR
   BRACKET --> INSTR
   MERGE --> INSTR
-  INSTR --> COMMAND[launch command string]
+  INSTR -->|empty body, any harness| NOINSTR[no instruction argument, nothing handed to the brief]
+  INSTR -->|claude| APPEND[--append-system-prompt body, single-quoted so shell syntax is inert]
+  INSTR -->|codex| DEVINSTR[-c developer_instructions=body as one TOML basic string, single-quoted]
+  INSTR -->|cursor| TOBRIEF[no instruction argument; body returned as briefInstructions]
+  NOINSTR --> COMMAND[launch command string]
+  APPEND --> COMMAND
+  DEVINSTR --> COMMAND
+  TOBRIEF --> COMMAND
 ```
 
 The override precedence is one rule for `harness`, `model`, and `effort`: an explicit override
 beats the def's tag, which beats the harness default. The command reports the model and effort it
-launched with, whichever source won.
+launched with, whichever source won. Only a cursor launch returns `briefInstructions`; `unit spawn`
+writes them in front of the brief (the `unit/lifecycle` node owns that brief file).
 
 `unit spawn` enters this sub-graph through `resolveSpawnLaunch`, which passes its `--harness`,
 `--model`, and `--effort` flags as the overrides. With no def, a `--model` or `--effort` on a bare
@@ -251,11 +276,19 @@ different path class.
 | `MODEL → KIND` | the def's own model, no override | `realizeLaunch applies the def's own model and instructions` |
 | `MODEL → KIND` | an effort override over the def's own effort | `an explicit effort override wins over the def's own effort` |
 | `HARNESS → OVH` | a harness and model override over the def's own tags | `an explicit model/harness override wins over the def's own tags` |
-| `NOEFFORT → INSTR` | instructions carrying quotes and a `$()` sequence | `instructions containing shell-special characters are safely quoted` |
+| `INSTR → APPEND` | instructions carrying quotes and a `$()` sequence | `instructions containing shell-special characters are safely quoted` |
 | `EFFORT → {CLAUDE, CODEX}`, `CURSOR → BRACKET` | each harness in turn, a model and an effort | `realizeLaunch carries the def's effort in the harness's own effort control` |
 | `EFFORT → NOEFFORT`, `CURSOR → NOEFFORT` | each harness in turn, a model and no effort | `a def with no effort launches with no effort control on any harness` |
 | `CURSOR → MERGE` | cursor, an effort, and a model already carrying a bracket list | `a cursor effort merges into a model that already carries bracket parameters` |
 | `CURSOR → REFUSE` | cursor, an effort, and no model | `a cursor effort with no model refuses rather than launching at the default effort` |
+| `INSTR → {APPEND, DEVINSTR}` | each of claude and codex, a one-line body | `realizeLaunch carries the def's instructions in the harness's own instruction channel` |
+| `INSTR → DEVINSTR`, barred `INSTR → APPEND` | codex, a one-line body | `a codex def's instructions never reach codex as the claude-only flag` |
+| `INSTR → DEVINSTR` | codex, a two-line body with a double quote and a backslash | `codex instructions spanning lines with quotes and backslashes arrive as one exact TOML string` |
+| `INSTR → NOINSTR` | each of claude and codex, an empty body | `a def with an empty instructions body carries no instruction argument` |
+| `INSTR → TOBRIEF` | cursor, a one-line body | `a cursor def's instructions are handed to the brief, not the launch command` |
+| `INSTR → NOINSTR` | cursor, an empty body | `a cursor def with an empty instructions body hands nothing to the brief` |
+| barred `{APPEND, DEVINSTR} → brief` | each of claude and codex, a one-line body, checked for a brief hand-off | `a claude or codex def's instructions stay in the launch command and never reach the brief` |
+| `HARNESS → OVH` then `INSTR → TOBRIEF` | a claude def with a one-line body and a cursor harness override | `an override to cursor moves a claude def's instructions from the command to the brief` |
 
 ### agent list / show / resolve / path
 

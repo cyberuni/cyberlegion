@@ -116,6 +116,19 @@ default. A flag never writes back to the def. The flags also work without a def,
 Cursor has no effort control apart from the model. A cursor spawn with an effort but no model, from
 either the flag or the def, therefore fails before anything is created.
 
+An agent def's body (its instructions) also reaches each harness in a different way:
+
+| Harness | Instructions reach the session as |
+|---|---|
+| `claude` | `--append-system-prompt '<body>'` |
+| `codex` | `-c developer_instructions="<body>"`, added to codex's own instructions |
+| `cursor` | the brief: `cursor-agent` has no flag or config setting for them |
+
+On cursor, spawn writes the instructions in front of the task in the peer's brief file, under an
+`## Agent instructions` heading, followed by the task under a `## Brief` heading. The peer
+therefore gets them as its first user turn, not as a system prompt. With `--no-wake`, a cursor peer
+sees its instructions only once something makes it read the brief.
+
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
 act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `model`, `effort`,
 `worktree`, `pane`, `rung`. The `model` and `effort` fields report what the session launched with,
