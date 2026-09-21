@@ -64,13 +64,17 @@ const IN_SCOPE_ROOTS = [
 ]
 
 /** Whole-directory exclusions: a file under any of these prefixes is not scanned at all.
- * (a) the ledgers of both spec trees — provenance that records past leaks and decisions verbatim.
+ * (a) the CLI spec tree's ledger — provenance that records past leaks and decisions verbatim.
  * (b) this node's own README + .feature — they must name the banned terms literally to define them. */
 const EXCLUDED_PATH_PREFIXES = [
 	'packages/cyberlegion/.agents/spec/ledger/',
-	'.agents/specs/cyberlegion-plugin/ledger/',
 	'packages/cyberlegion/.agents/spec/metaphor-free/',
 ]
+
+/** Positional exclusions: the ledger at the root of every project in the plural spec tree
+ * (`.agents/specs/<project>/ledger/`), whatever the project is named. A `ledger` folder any deeper
+ * inside a project spec is not a ledger and stays in scope. */
+const EXCLUDED_PATH_PATTERNS = [/^\.agents\/specs\/[^/]+\/ledger\//]
 
 /** Whole-file exclusions: the guard's own implementation + test, which must name the banned terms
  * literally as string constants and fixtures. An explicit, reviewable set — grow it here, not by
@@ -118,9 +122,11 @@ function toPosix(p: string): string {
 function isExcludedPath(
 	relPath: string,
 	excludedPrefixes: readonly string[],
+	excludedPatterns: readonly RegExp[],
 	excludedFiles: readonly string[],
 ): boolean {
 	if (excludedFiles.includes(relPath)) return true
+	if (excludedPatterns.some((pattern) => pattern.test(relPath))) return true
 	return excludedPrefixes.some((prefix) => relPath.startsWith(prefix))
 }
 
@@ -153,6 +159,7 @@ export interface ScanOptions {
 	bannedTerms?: readonly string[]
 	allowList?: readonly AllowListEntry[]
 	excludedPrefixes?: readonly string[]
+	excludedPatterns?: readonly RegExp[]
 	excludedFiles?: readonly string[]
 	inScopeRoots?: readonly string[]
 }
@@ -168,13 +175,14 @@ export function findMetaphorViolations(root: string = defaultRoot, options: Scan
 	const bannedTerms = options.bannedTerms ?? BANNED_TERMS
 	const allowList = options.allowList ?? ALLOW_LIST
 	const excludedPrefixes = options.excludedPrefixes ?? EXCLUDED_PATH_PREFIXES
+	const excludedPatterns = options.excludedPatterns ?? EXCLUDED_PATH_PATTERNS
 	const excludedFiles = options.excludedFiles ?? EXCLUDED_FILES
 	const inScopeRoots = options.inScopeRoots ?? IN_SCOPE_ROOTS
 
 	const violations: Violation[] = []
 	for (const rawRelPath of collectFiles(root, inScopeRoots)) {
 		const relPath = toPosix(rawRelPath)
-		if (isExcludedPath(relPath, excludedPrefixes, excludedFiles)) continue
+		if (isExcludedPath(relPath, excludedPrefixes, excludedPatterns, excludedFiles)) continue
 
 		let content: string
 		try {
