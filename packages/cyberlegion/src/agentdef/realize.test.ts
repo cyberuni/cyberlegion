@@ -154,24 +154,28 @@ describe('spec:cyberlegion/agent instructions', () => {
 		}
 	})
 
-	it('a cursor def with instructions refuses rather than launching without them', () => {
-		let result: unknown
-		expect(() => {
-			result = realizeLaunch(def({ harness: 'cursor', model: 'gpt-5', instructions: body }))
-		}).toThrow(/cursor.*instruction/)
-		expect(result).toBeUndefined()
+	it("a cursor def's instructions are handed to the brief, not the launch command", () => {
+		const res = realizeLaunch(def({ harness: 'cursor', model: 'gpt-5', instructions: body }))
+		expect(res.command).toBe("cursor-agent --model 'gpt-5'")
+		expect(res.briefInstructions).toBe(body)
 	})
 
-	it('a cursor def with an empty instructions body launches with no instruction argument', () => {
-		expect(realizeLaunch(def({ harness: 'cursor', model: 'gpt-5', instructions: '' })).command).toBe(
-			"cursor-agent --model 'gpt-5'",
-		)
+	it('a cursor def with an empty instructions body hands nothing to the brief', () => {
+		const res = realizeLaunch(def({ harness: 'cursor', model: 'gpt-5', instructions: '' }))
+		expect(res.command).toBe("cursor-agent --model 'gpt-5'")
+		expect(res.briefInstructions).toBeUndefined()
 	})
 
-	it('an override to cursor refuses a def whose own harness could carry its instructions', () => {
-		expect(() => realizeLaunch(def({ harness: 'claude', instructions: body }), { harness: 'cursor' })).toThrow(
-			/cursor.*instruction/,
-		)
+	it("a claude or codex def's instructions stay in the launch command and never reach the brief", () => {
+		for (const harness of ['claude', 'codex'] as const) {
+			expect(realizeLaunch(def({ harness, instructions: body })).briefInstructions).toBeUndefined()
+		}
+	})
+
+	it("an override to cursor moves a claude def's instructions from the command to the brief", () => {
+		const res = realizeLaunch(def({ harness: 'claude', instructions: body }), { harness: 'cursor' })
+		expect(res.command).not.toContain('--append-system-prompt')
+		expect(res.briefInstructions).toBe(body)
 	})
 })
 

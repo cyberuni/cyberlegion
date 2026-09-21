@@ -70,10 +70,12 @@ surface that inspects a def before that:
   `-c developer_instructions="<body>"` (no dedicated flag; the value is a TOML basic string, so a
   multi-line body or one carrying quotes and backslashes arrives intact, and it adds to codex's own
   base instructions rather than replacing them). Cursor's CLI has **no** instruction channel —
-  no flag, no config override — so a cursor def with a non-empty body **throws**, naming cursor,
-  rather than launching: a session started without the def's instructions looks configured and
-  runs as a generic agent, the same silent drop the effort rule refuses. A cursor def with an empty
-  body launches normally, and a def whose body is empty carries no instruction argument on any
+  no flag, no config override — so for cursor the realized launch carries no instruction argument
+  and instead **hands the body to the brief** (a returned `briefInstructions` field), which
+  `unit spawn` writes in front of the task under its own heading (`unit/lifecycle`). That demotes
+  the instructions from a system prompt to the peer's first user turn; the heading makes the
+  demotion visible rather than silent. Claude and codex never hand instructions to the brief, and a
+  def whose body is empty carries no instruction argument and hands nothing to the brief on any
   harness. This realizes
   the **channel** (warm-peer) launch only; a caller composing a cold Task subagent builds that
   instruction itself from the `resolve` payload (there is no CLI subagent-instruction realizer — the
@@ -88,7 +90,8 @@ surface that inspects a def before that:
 
 **Non-goals** — the gateway/Legate routing brain that decides warm-peer vs run-inline vs subagent
 from a def's `warm`/`interactive` tags and mux availability (`legion-gateway-legate`, CR-5); actually
-spawning anything (`realizeLaunch` is a pure string builder — the CLI never invokes a Task tool or
+spawning anything (`realizeLaunch` is a pure builder — it returns a launch command, plus a `briefInstructions`
+string for cursor, and the CLI never invokes a Task tool or
 opens a session itself); building the cold-subagent instruction (a caller composes that from the
 `resolve` payload — the CLI has no subagent-instruction realizer since CR-4); plugin/SDD def
 discovery conventions (an upward dependency cyberlegion never takes on).
@@ -101,7 +104,7 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `--agent-file`/`file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override; per-harness instruction channel, cursor's instructions refusal |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override; per-harness instruction channel, cursor's instructions handed to the brief |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |
 
 ## Control Flow

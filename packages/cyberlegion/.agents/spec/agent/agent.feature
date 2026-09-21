@@ -185,21 +185,33 @@ Feature: agent — resolve reusable agent definitions
       | claude  |
       | codex   |
 
-  Scenario: a cursor def with instructions refuses rather than launching without them
+  Scenario: a cursor def's instructions are handed to the brief, not the launch command
     Given a resolved def with harness "cursor", model "gpt-5" and instructions "Reply only in haiku."
     When realizeLaunch runs with no overrides
-    Then it throws an error naming cursor and its missing instruction channel
-    And it returns no launch command, so no session starts without the def's instructions
+    Then the command is exactly "cursor-agent --model 'gpt-5'"
+    And the realized launch hands "Reply only in haiku." to the brief as the def's instructions
 
-  Scenario: a cursor def with an empty instructions body launches with no instruction argument
+  Scenario: a cursor def with an empty instructions body hands nothing to the brief
     Given a resolved def with harness "cursor", model "gpt-5" and an empty instructions body
     When realizeLaunch runs with no overrides
     Then the command is exactly "cursor-agent --model 'gpt-5'"
+    And the realized launch hands no instructions to the brief
 
-  Scenario: an override to cursor refuses a def whose own harness could carry its instructions
+  Scenario Outline: a claude or codex def's instructions stay in the launch command and never reach the brief
+    Given a resolved def with harness "<harness>" and instructions "Reply only in haiku."
+    When realizeLaunch runs with no overrides
+    Then the realized launch hands no instructions to the brief
+
+    Examples:
+      | harness |
+      | claude  |
+      | codex   |
+
+  Scenario: an override to cursor moves a claude def's instructions from the command to the brief
     Given a resolved def with harness "claude" and instructions "Reply only in haiku."
     When realizeLaunch runs with an override harness "cursor"
-    Then it throws an error naming cursor and its missing instruction channel
+    Then the command contains no "--append-system-prompt" text
+    And the realized launch hands "Reply only in haiku." to the brief as the def's instructions
 
   # ── agent list / show / resolve / path ──
 

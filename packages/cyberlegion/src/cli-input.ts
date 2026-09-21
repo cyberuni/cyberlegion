@@ -35,7 +35,7 @@ export function spawnCommandInput(opts: SpawnCommandOptions): {
 	noWake: boolean
 	launched: { model?: string; effort?: string }
 } {
-	const { harness, command, model, effort } = resolveSpawnLaunch({
+	const { harness, command, model, effort, briefInstructions } = resolveSpawnLaunch({
 		agent: opts.agent,
 		agentFile: opts.agentFile,
 		harness: opts.harness,
@@ -47,6 +47,7 @@ export function spawnCommandInput(opts: SpawnCommandOptions): {
 		input: {
 			harness,
 			command,
+			briefInstructions,
 			task: opts.task,
 			briefFile: opts.briefFile,
 			handle: opts.handle,

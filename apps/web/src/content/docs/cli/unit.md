@@ -122,11 +122,12 @@ An agent def's body (its instructions) also reaches each harness in a different 
 |---|---|
 | `claude` | `--append-system-prompt '<body>'` |
 | `codex` | `-c developer_instructions="<body>"`, added to codex's own instructions |
-| `cursor` | nothing: `cursor-agent` has no flag or config setting for them |
+| `cursor` | the brief: `cursor-agent` has no flag or config setting for them |
 
-A cursor spawn whose def has a non-empty body fails before anything is created. It does not start
-a session without the instructions. Run that def on `claude` or `codex` (`--harness`), or give it
-an empty body.
+On cursor, spawn writes the instructions in front of the task in the peer's brief file, under an
+`## Agent instructions` heading, followed by the task under a `## Brief` heading. The peer
+therefore gets them as its first user turn, not as a system prompt. With `--no-wake`, a cursor peer
+sees its instructions only once something makes it read the brief.
 
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
 act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `model`, `effort`,

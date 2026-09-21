@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { spawnCommandInput } from './cli-input.ts'
 import { DELIVERY_DOORBELL } from './console/doorbell.ts'
 import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
 import {
@@ -347,6 +348,34 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(resolveBrief({ task: 'inline' })).toBe('inline')
 		expect(resolveBrief({ briefFile: bf })).toBe('file brief')
 		expect(resolveBrief({})).toBeNull()
+	})
+})
+
+// spec: unit/lifecycle/lifecycle.feature — cursor cannot take a def's instructions on its command
+// line, so spawn writes them in front of the brief under their own heading; claude and codex keep
+// them in the launch, so their brief is the task alone. Bound end to end: def file → the CLI's
+// spawn input → spawn → the brief file on disk.
+describe('spec:cyberlegion/unit/lifecycle agent instructions in the brief', () => {
+	const INSTRUCTIONS = 'Cite the source of every figure.'
+	const TASK = 'draft the quarterly summary'
+
+	function spawnDef(harness: string): { brief: string | undefined; launch: string } {
+		const dir = mkdtempSync(join(tmpdir(), 'cl-brief-def-'))
+		const file = join(dir, 'writer.md')
+		writeFileSync(file, `---\nname: writer\nharness: ${harness}\n---\n\n${INSTRUCTIONS}\n`)
+		const { input } = spawnCommandInput({ agentFile: file, task: TASK })
+		const res = spawn(ctx(), { ...input, at: 'pane:right' })
+		return { brief: store.readBrief(res.agent.id), launch: res.launch }
+	}
+
+	it("a cursor --agent spawn writes the def's instructions in front of the brief under their own heading", () => {
+		const { brief, launch } = spawnDef('cursor')
+		expect(brief).toBe(`## Agent instructions\n\n${INSTRUCTIONS}\n\n## Brief\n\n${TASK}`)
+		expect(launch).not.toContain(INSTRUCTIONS)
+	})
+
+	it("a claude --agent spawn's brief file holds the task alone", () => {
+		expect(spawnDef('claude').brief).toBe(TASK)
 	})
 })
 

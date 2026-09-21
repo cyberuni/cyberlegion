@@ -132,6 +132,18 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When unit spawn runs
     Then the peer's brief file contains "seal the north greenhouse vents"
 
+  Scenario: a cursor --agent spawn writes the def's instructions in front of the brief under their own heading
+    Given an agent def with harness cursor and instructions "log every soil reading in metric"
+    When a caller runs unit spawn --agent <name> --task "sample the west plots"
+    Then the peer's brief file opens with an "## Agent instructions" heading followed by "log every soil reading in metric"
+    And after that comes a "## Brief" heading followed by "sample the west plots"
+    And the launch command carries no "log every soil reading in metric" text
+
+  Scenario: a claude --agent spawn's brief file holds the task alone
+    Given an agent def with harness claude and instructions "log every soil reading in metric"
+    When a caller runs unit spawn --agent <name> --task "sample the west plots"
+    Then the peer's brief file is exactly "sample the west plots"
+
   # ── An unmapped harness errors before anything launches ──
   # "Before anything launches" is an ORDERING promise, so each refusal below names the artifacts that
   # must not exist afterwards, not merely the throw. One artifact is deliberately NOT claimed: the

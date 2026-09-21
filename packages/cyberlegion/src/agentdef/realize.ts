@@ -1,4 +1,4 @@
-// Pure string builders that turn a resolved AgentDef into what a caller actually does with it —
+// Pure builders that turn a resolved AgentDef into what a caller actually does with it —
 // never spawns anything itself. `realizeLaunch` builds the launch invocation for a CHANNEL (warm
 // peer session, its own harness process). Building a SUBAGENT's Task-tool instruction is the
 // caller's own concern (see the subagent-backend-governance plugin skill) — cyberlegion cannot
@@ -31,6 +31,9 @@ export interface RealizedLaunch {
 	 * harness default applies. */
 	model?: string
 	effort?: string
+	/** The def's instructions, for a harness whose CLI cannot take them (cursor): `unit spawn` writes
+	 * them in front of the brief instead. Absent when the command carries them, or there are none. */
+	briefInstructions?: string
 }
 
 /** Cursor carries effort as a bracket parameter on the model (`<model>[effort=<level>]`): merge it into
@@ -72,15 +75,11 @@ function tomlBasicString(value: string): string {
 
 /** The instruction arguments for one harness. Only claude has an append-to-system-prompt flag;
  * codex takes a `developer_instructions` config override, added on top of its own base
- * instructions. Cursor has no channel at all, so a cursor def with a body throws rather than
- * launching a session that silently runs without it. */
+ * instructions. Cursor has no channel at all — its instructions go to the brief instead. */
 function instructionArgs(harness: Harness, instructions: string): string[] {
-	if (!instructions) return []
+	if (!instructions || harness === 'cursor') return []
 	if (harness === 'claude') return ['--append-system-prompt', shellQuote(instructions)]
-	if (harness === 'codex') return ['-c', shellQuote(`developer_instructions=${tomlBasicString(instructions)}`)]
-	throw new Error(
-		`cursor-agent has no flag or config override that carries a def's instructions; launch this def on claude or codex, or give it an empty body`,
-	)
+	return ['-c', shellQuote(`developer_instructions=${tomlBasicString(instructions)}`)]
 }
 
 /** Build the harness launch invocation for a def — explicit `model`/`effort`/`harness` win over the
@@ -95,7 +94,8 @@ export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): R
 		...modelAndEffortArgs(harness, model, effort),
 		...instructionArgs(harness, def.instructions),
 	]
-	return { harness, command: parts.join(' '), model, effort }
+	const briefInstructions = harness === 'cursor' && def.instructions ? def.instructions : undefined
+	return { harness, command: parts.join(' '), model, effort, ...(briefInstructions ? { briefInstructions } : {}) }
 }
 
 /**
@@ -117,7 +117,7 @@ export function resolveSpawnLaunch(input: {
 	effort?: string
 	cwd?: string
 	searchRoots?: string[]
-}): { harness?: string; command?: string; model?: string; effort?: string } {
+}): { harness?: string; command?: string; model?: string; effort?: string; briefInstructions?: string } {
 	const overrides = { harness: input.harness as Harness | undefined, model: input.model, effort: input.effort }
 	if (!input.agent && !input.agentFile) {
 		if (!input.harness || (!input.model && !input.effort)) return { harness: input.harness }
