@@ -27,16 +27,41 @@ export interface RealizedLaunch {
 	command: string
 }
 
+/** Cursor carries effort as a bracket parameter on the model (`gpt-5[effort=high]`): merge it into
+ * any bracket list the model already has, replacing an `effort=` already there. */
+function withCursorEffort(model: string, effort: string): string {
+	const m = /^(.*)\[(.*)\]$/.exec(model)
+	if (!m) return `${model}[effort=${effort}]`
+	const params = m[2].split(',').filter((p) => p !== '' && !p.startsWith('effort='))
+	return `${m[1]}[${[...params, `effort=${effort}`].join(',')}]`
+}
+
+/** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
+ * `--effort`, codex only a config override, cursor only a parameter on the model — so a cursor
+ * effort with no model has nowhere to go and throws rather than launching at the default effort. */
+function modelAndEffortArgs(harness: Harness, model?: string, effort?: string): string[] {
+	if (harness === 'cursor') {
+		if (effort && !model) {
+			throw new Error(
+				`cursor carries effort only as a parameter on the model; set a model to launch with effort "${effort}"`,
+			)
+		}
+		if (!model) return []
+		return ['--model', shellQuote(effort ? withCursorEffort(model, effort) : model)]
+	}
+	const args = model ? ['--model', shellQuote(model)] : []
+	if (!effort) return args
+	if (harness === 'codex') return [...args, '-c', shellQuote(`model_reasoning_effort="${effort}"`)]
+	return [...args, '--effort', shellQuote(effort)]
+}
+
 /** Build the harness launch invocation for a def — explicit `model`/`harness` win over the def's
- * own tags, which win over the harness default. Every harness gets the same shape (bin,
- * `--model` when known, `--append-system-prompt` carrying the def's instructions body) since the
- * exact per-harness flag surface is realized later by the launching caller, not by cyberlegion. */
+ * own tags, which win over the harness default. The def's effort goes through the harness's own
+ * effort control (see `modelAndEffortArgs`); `--append-system-prompt` carries the instructions. */
 export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): RealizedLaunch {
 	const harness = opts.harness ?? def.harness ?? DEFAULT_HARNESS
 	const model = opts.model ?? def.model
-	const bin = LAUNCH_MAP[harness]
-	const parts = [bin]
-	if (model) parts.push('--model', shellQuote(model))
+	const parts = [LAUNCH_MAP[harness], ...modelAndEffortArgs(harness, model, def.effort)]
 	if (def.instructions) parts.push('--append-system-prompt', shellQuote(def.instructions))
 	return { harness, command: parts.join(' ') }
 }
