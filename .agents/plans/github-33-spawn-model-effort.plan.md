@@ -4,15 +4,15 @@ project: cyberlegion
 status: active
 todos:
   - content: "explore: unit/lifecycle spawn seam + agent/ effort override — additive scenarios, CFG + map rows"
-    status: pending
+    status: completed
   - content: "spec gate: cold spec-judge, structural diff (expect addOnly on both suites), ledger gate line"
-    status: pending
+    status: completed
   - content: "deliver: test-first --model/--effort wiring, spawn output reports model + effort, --help + docs"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over the new frozen scenarios"
-    status: pending
+    status: completed
   - content: "handoff: PR stacked on #34's PR (Closes #33), mail operator"
-    status: pending
+    status: completed
 ---
 
 # github-33 — unit spawn --model / --effort
@@ -32,4 +32,6 @@ unchanged; `--append-system-prompt` on codex/cursor is #36.
 
 ## NEXT
 
-Explore: draft the additive scenarios in `unit/lifecycle/lifecycle.feature` and `agent/agent.feature`.
+Landed on branch `feat/33-spawn-model-effort` as a PR stacked on #34's PR (Closes #33); both gates
+self-asserted by:agent, the owner ratifies and merges at the PR — after #34's PR. Related: #36
+(instructions flag on codex/cursor), #38 (agent/ node backfill), #40 (`pnpm cl dev` prints nothing).
