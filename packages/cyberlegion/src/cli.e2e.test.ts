@@ -893,6 +893,16 @@ describe('agent group', () => {
 		expect(out).toContain(join(dir, '.agents', 'agents', 'reviewer.md'))
 	})
 
+	it('agent list fails loud when any def carries an unknown harness', () => {
+		const dir = agentsProject()
+		writeDef(dir, 'reviewer', '---\nharness: claude\n---\n\nReview it.\n')
+		writeDef(dir, 'typo', '---\nharness: claud\n---\n\nDo it.\n')
+		const { stdout, stderr, status } = legionOut(['agent', 'list', '--dir', dir])
+		expect(status).not.toBe(0)
+		expect(JSON.parse(stderr.trim()).error).toMatch(/unknown harness "claud"/)
+		expect(stdout).not.toContain('reviewer')
+	})
+
 	it('a bad name fails loud with a nonzero exit and a structured stderr error', () => {
 		const dir = agentsProject()
 		expect(() => legion(['agent', 'show', 'ghost', '--dir', dir])).toThrow()

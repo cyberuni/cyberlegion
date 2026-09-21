@@ -8,6 +8,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import type { Harness } from '../identity.ts'
 import { projectRoot } from '../paths.ts'
+import { LAUNCH_MAP } from '../session.ts'
 
 export interface AgentDef {
 	name: string
@@ -93,6 +94,16 @@ function toBool(v: string | undefined): boolean | undefined {
 	return undefined
 }
 
+/** The known harnesses are exactly those with a launch binary — one home for the set. */
+const HARNESSES = Object.keys(LAUNCH_MAP) as Harness[]
+
+/** A `harness` tag outside the known set has no launch binary, so a typo fails here, loudly, rather
+ * than surfacing later as an unlaunchable command. */
+function toHarness(value: string | undefined, path: string): Harness | undefined {
+	if (value === undefined || (HARNESSES as string[]).includes(value)) return value as Harness | undefined
+	throw new Error(`agent def "${path}" has unknown harness "${value}" — expected one of ${HARNESSES.join(', ')}`)
+}
+
 function toAgentDef(path: string, text: string, fallbackName: string): AgentDef {
 	const { fm, instructions } = parseAgentDefFile(text)
 	return {
@@ -100,7 +111,7 @@ function toAgentDef(path: string, text: string, fallbackName: string): AgentDef 
 		description: fm.description,
 		model: fm.model,
 		effort: fm.effort,
-		harness: fm.harness as Harness | undefined,
+		harness: toHarness(fm.harness, path),
 		warm: toBool(fm.warm),
 		interactive: toBool(fm.interactive),
 		instructions,

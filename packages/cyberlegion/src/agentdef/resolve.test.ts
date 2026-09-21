@@ -157,3 +157,10 @@ describe('listAgentDefs', () => {
 		expect(listAgentDefs({ cwd })).toEqual([])
 	})
 })
+
+describe('spec:cyberlegion/agent', () => {
+	it('an unknown harness tag fails resolution naming the tag and the valid harnesses', () => {
+		writeDef('typo', '---\nharness: claud\n---\nbody\n')
+		expect(() => resolveAgentDef({ name: 'typo', cwd })).toThrow(/"claud".*claude, cursor, codex/)
+	})
+})

@@ -66,6 +66,12 @@ Feature: agent — resolve reusable agent definitions
     When the def is resolved
     Then harness, warm, and interactive are all undefined on the result
 
+  Scenario: an unknown harness tag fails resolution naming the tag and the valid harnesses
+    Given a def file with "harness: claud" in its frontmatter
+    When the def is resolved
+    Then it throws an error naming "claud" and the valid harnesses claude, cursor, and codex
+    And it returns no AgentDef, so no launch command is ever built from the tag
+
   # ── A def missing model is not an error ──
 
   Scenario: a def with no model tag still resolves successfully
@@ -224,6 +230,12 @@ Feature: agent — resolve reusable agent definitions
     Given two def files under .agents/agents/
     When it runs agent list
     Then each row shows that def's name, model, and harness
+
+  Scenario: agent list fails loud when any def carries an unknown harness
+    Given two def files under .agents/agents/, one of them with "harness: claud"
+    When it runs agent list
+    Then the command exits non-zero with a structured stderr error naming "claud"
+    And it prints no partial list of the other def
 
   Scenario: agent show prints the resolved routing fields and a truncated instructions body
     Given a def with a long instructions body
