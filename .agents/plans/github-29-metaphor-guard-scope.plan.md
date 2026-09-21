@@ -8,13 +8,13 @@ todos:
   - content: "spec gate: cold spec-judge; structural diff on metaphor-free.feature (expect addOnly); ledger gate line"
     status: completed
   - content: "rename: the banned ratifier term to user-channel holder in plugin skills + plugin spec (ratified re-open)"
-    status: pending
+    status: completed
   - content: "deliver: guard rebased to repo root, roots widened, plugin ledger excluded; test-first"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over frozen scenarios; pnpm verify"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #29), report to operator, do not merge"
-    status: pending
+    status: completed
 ---
 
 # github-29 — the vocabulary ban reaches as far as its guard
@@ -40,5 +40,8 @@ leaves the meaning unchanged, cleared by the route-A ratification above.
 
 ## NEXT
 
-Spec gate passed (cold judge round 2 ALIGNED). Next: commit the rename, then the guard widening,
-then run the cold impl-judge.
+Landed as a PR against main (Closes #29), left unmerged until the owner approves it. The guard scans the CLI's src and
+spec tree, the plugin's skills and agents, and the plugin's project spec, excluding both ledgers. The
+charter states that this reach is the ban's reach. The ratifying position is now the user-channel
+holder throughout the plugin. Both gates self-asserted `by: agent`; the owner ratifies at the PR. Four
+backlog follow-ups are recorded in the CLI ledger shard and not filed. No resume action remains.
