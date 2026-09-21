@@ -27,7 +27,7 @@ export interface RealizedLaunch {
 	command: string
 }
 
-/** Cursor carries effort as a bracket parameter on the model (`gpt-5[effort=high]`): merge it into
+/** Cursor carries effort as a bracket parameter on the model (`<model>[effort=<level>]`): merge it into
  * any bracket list the model already has, replacing an `effort=` already there. */
 function withCursorEffort(model: string, effort: string): string {
 	const m = /^(.*)\[(.*)\]$/.exec(model)

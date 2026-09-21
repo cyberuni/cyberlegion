@@ -58,32 +58,42 @@ describe('realizeLaunch', () => {
 })
 
 // spec: agent/agent.feature — a def's effort travels through each harness's own effort control.
-describe('spec:cyberlegion/agent realizeLaunch effort', () => {
-	it.each([
-		['claude', 'sonnet', `--effort 'high'`],
-		['codex', 'gpt-5', `-c 'model_reasoning_effort="high"'`],
-		['cursor', 'gpt-5', `--model 'gpt-5[effort=high]'`],
-	] as const)('carries a %s def effort in that harness own effort control', (harness, model, control) => {
-		expect(realizeLaunch(def({ harness, model, effort: 'high' })).command).toContain(control)
+// One leaf per frozen scenario, titled with its name so the scenario bridge binds it; an Outline's
+// rows run inside that one leaf.
+describe('spec:cyberlegion/agent', () => {
+	it("realizeLaunch carries the def's effort in the harness's own effort control", () => {
+		const rows = [
+			['claude', 'sonnet', `--effort 'high'`],
+			['codex', 'gpt-5', `-c 'model_reasoning_effort="high"'`],
+			['cursor', 'gpt-5', `--model 'gpt-5[effort=high]'`],
+		] as const
+		for (const [harness, model, control] of rows) {
+			expect(realizeLaunch(def({ harness, model, effort: 'high' })).command).toContain(control)
+		}
 	})
 
-	it.each(['claude', 'codex', 'cursor'] as const)('a %s def with no effort carries no effort control', (harness) => {
-		const { command } = realizeLaunch(def({ harness, model: 'gpt-5' }))
-		expect(command).not.toContain('--effort')
-		expect(command).not.toContain('model_reasoning_effort')
-		expect(command).not.toContain('effort=')
+	it('a def with no effort launches with no effort control on any harness', () => {
+		for (const harness of ['claude', 'codex', 'cursor'] as const) {
+			const { command } = realizeLaunch(def({ harness, model: 'gpt-5' }))
+			expect(command).not.toContain('--effort')
+			expect(command).not.toContain('model_reasoning_effort')
+			expect(command).not.toContain('effort=')
+		}
 	})
 
-	it.each([
-		['claude-opus-4-8[context=1m]', 'claude-opus-4-8[context=1m,effort=high]'],
-		['claude-opus-4-8[effort=low]', 'claude-opus-4-8[effort=high]'],
-		['gpt-5[context=1m,effort=low]', 'gpt-5[context=1m,effort=high]'],
-	])('merges a cursor effort into the bracket parameters of %s', (model, realized) => {
-		const { command } = realizeLaunch(def({ harness: 'cursor', model, effort: 'high' }))
-		expect(command).toContain(`--model ${shellQuote(realized)}`)
+	it('a cursor effort merges into a model that already carries bracket parameters', () => {
+		const rows = [
+			['claude-opus-4-8[context=1m]', 'claude-opus-4-8[context=1m,effort=high]'],
+			['claude-opus-4-8[effort=low]', 'claude-opus-4-8[effort=high]'],
+			['gpt-5[context=1m,effort=low]', 'gpt-5[context=1m,effort=high]'],
+		]
+		for (const [model, realized] of rows) {
+			const { command } = realizeLaunch(def({ harness: 'cursor', model, effort: 'high' }))
+			expect(command).toContain(`--model ${shellQuote(realized)}`)
+		}
 	})
 
-	it('a cursor effort with no model throws naming cursor and the missing model', () => {
+	it('a cursor effort with no model refuses rather than launching at the default effort', () => {
 		let result: unknown
 		expect(() => {
 			result = realizeLaunch(def({ harness: 'cursor', effort: 'high' }))
