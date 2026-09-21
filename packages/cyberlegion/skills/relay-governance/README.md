@@ -19,8 +19,8 @@ ratification. Provenance over peer mail cannot be established, so a receiver act
 can verify against its own loaded contract — a ratification it fetched from a peer is invalid.
 
 **The ownership chain:** keyed on relationship, not on transport alone. A decision relayed by the
-receiver's **own owner** **and** arriving on a **turn** in its own session — carrying the Council's
-verbatim words, where they were said, the relaying unit, and its scope (one action on one target) —
+receiver's **own owner** **and** arriving on a **turn** in its own session — carrying the user-channel
+holder's verbatim words, where they were said, the relaying unit, and its scope (one action on one target) —
 is adoptable within that named scope and nothing adjacent, spent once acted on, attenuating at every
 hop. Either half alone leaves it a peer steer. The four parts are a **well-formedness** requirement:
 presence is checkable on its face, so a missing part gates adoption, and truth is not, so the parts

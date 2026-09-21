@@ -22,7 +22,7 @@ capability map — an untagged orphan. The split from `gateway/`/`init/`/`dispat
 placement (which existing skill's behavior this node covers); no new design decision, no scenario
 authored here, coverage-preserving by construction (there is no scenario to narrow — the skill and
 its own `.feature` already exist unchanged in the plugin). Self-cleared under the Warden's
-reversible/derivable/low-blast class; provisional until the Council ratifies the trail.
+reversible/derivable/low-blast class; provisional until the user-channel holder ratifies the trail.
 
 ## Use Cases
 
