@@ -355,7 +355,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 // line, so spawn writes them in front of the brief under their own heading; claude and codex keep
 // them in the launch, so their brief is the task alone. Bound end to end: def file → the CLI's
 // spawn input → spawn → the brief file on disk.
-describe('spec:cyberlegion/unit/lifecycle agent instructions in the brief', () => {
+describe('spec:cyberlegion/unit/lifecycle', () => {
 	const INSTRUCTIONS = 'Cite the source of every figure.'
 	const TASK = 'draft the quarterly summary'
 

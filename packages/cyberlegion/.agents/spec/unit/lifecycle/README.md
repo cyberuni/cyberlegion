@@ -167,7 +167,8 @@ cleanly — the deterministic inverse pair:
     `## Brief` heading carrying the task. The headings make it visible that the instructions arrive
     as the peer's first user turn rather than a system prompt. On claude and codex the brief file
     holds the task alone. With `--no-wake`, a cursor peer sees its instructions only once something
-    has it read the brief.
+    has it read the brief. The workspace label still draws its code and subject from the task, never
+    from the prepended instructions heading.
   - **--model/--effort override one launch** — `--model <name>` and `--effort <level>` set the model
     and effort for this spawn only. Precedence is **flag > agent def > harness default**: a flag beats
     the def's own tag, and a def's tag beats the harness's own default. A flag never writes back to the
@@ -378,7 +379,7 @@ graph TD
   SPO --> SPN
   SPL --> SPN["register: status active, handle, harness, cwd, worktree, pane locator, brief path, spawnedBy when the caller has an id"]
   SPN --> SPIB{"the realized launch hands the def's instructions to the brief? — cursor only"}
-  SPIB -- yes --> SPIB1["write the brief FILE: '## Agent instructions' + the instructions, then '## Brief' + the task"]
+  SPIB -- yes --> SPIB1["write the brief FILE: '## Agent instructions' + the instructions, then '## Brief' + the task (the label already read the task alone)"]
   SPIB -- no --> SPIB2["write the brief FILE: the task as given"]
   SPIB1 --> SPR["ring the first turn — the ring graph below"]
   SPIB2 --> SPR

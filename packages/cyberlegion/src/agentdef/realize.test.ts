@@ -114,7 +114,7 @@ describe('spec:cyberlegion/agent', () => {
 
 // spec: agent/agent.feature — a def's instructions travel through each harness's own instruction
 // channel; cursor has none, so a cursor def with a body refuses.
-describe('spec:cyberlegion/agent instructions', () => {
+describe('spec:cyberlegion/agent', () => {
 	const body = 'Keep every answer under fifty words.'
 
 	/** The value of the `-c developer_instructions=...` argument, unquoted by a real POSIX shell. */

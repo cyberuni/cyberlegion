@@ -5,16 +5,18 @@ status: active
 todos:
   - content: "explore: agent/ node — additive per-harness instruction-channel scenarios + README prose"
     status: completed
-  - content: "needs-input: cursor has no instruction channel — recommended refuse loudly (mailed operator)"
-    status: in_progress
+  - content: "needs-input: cursor has no instruction channel — owner decided: prepend to the brief"
+    status: completed
   - content: "spec gate: cold spec-judge, structural diff (expect addOnly), ledger gate line"
     status: completed
   - content: "deliver: test-first codex developer_instructions + cursor refusal in realizeLaunch"
     status: completed
   - content: "impl gate: cold impl-judge over the new frozen scenarios"
     status: completed
-  - content: "handoff: PR against main (Closes #36), rebase after #41 if it lands first, mail operator"
-    status: pending
+  - content: "rework: cursor instructions in front of the brief; agent map rows after #50/#55"
+    status: completed
+  - content: "handoff: PR #51 against main (Closes #36), CI green, mail operator ready"
+    status: in_progress
 ---
 
 # github-36 — realizeLaunch sends claude's instructions flag to codex and cursor
@@ -33,12 +35,13 @@ accepts it.
 - cursor-agent 2026.07.01 — `--help` lists no system-prompt, instructions, or rules flag and no
   config override. Only the positional prompt, workspace rule files, and the brief remain.
 
-**Cursor: refuse** (recommended, mailed as needs-input). A rule file writes into the unit's tree
-and persists; prepending to the brief demotes instructions to a user turn and is unread under
-`--no-wake`. Refusal matches #34's cursor effort-without-model precedent.
+**Cursor: prepend to the brief** (owner's decision, overriding the refuse recommendation). The
+realized launch returns `briefInstructions`; spawn writes them under `## Agent instructions` ahead of
+the task under `## Brief`. Under `--no-wake` they arrive only when the brief is read (documented).
 
 ## NEXT
 
-Both gates self-asserted by:agent (cold spec-judge ALIGNED; cold impl-judge 7/7, mutation-backstopped).
-Rebased onto main after #41 landed. Open: the owner's reply on the cursor refusal (needs-input
-mailed); PR against main (Closes #36), then mail the operator.
+Both gates re-run and self-asserted by:agent after the rework (spec round 3 ALIGNED; impl round 2
+10/10, bridge-bound). Rebased onto main past #50/#55. Remaining: CI green on PR #51, then mail the
+operator "ready"; merge is the operator's call. Separate follow-on: cursor effort with no model
+(its own issue + PR), blocked on a cursor-agent login for the live check.
