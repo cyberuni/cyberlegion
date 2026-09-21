@@ -157,10 +157,11 @@ The CLI follows the [10 agent-CLI principles](https://github.com/kunchenguid/axi
 
 ### Version
 
-`src/cli.ts` currently hardcodes `VERSION = '0.0.0'` for `.version()` rather than reading
-`packages/cyberlegion/package.json` at runtime — a pre-existing gap carried over from the
-monorepo, not something this scaffold fixes. Reading it at runtime (rather than importing the
-JSON, which a bundler could inline) is the convention to converge on when this is addressed.
+`src/cli.ts` reads the version it gives `.version()` from `packages/cyberlegion/package.json`
+at runtime, through `new URL('../package.json', import.meta.url)`, which resolves the same from
+`src/` and from the bundled `dist/`. Keep it a runtime read: importing the JSON would let the
+bundler inline a copy that goes stale. `src/cli.test.ts` checks that `--version` reports the
+manifest's version.
 
 <!-- buddy-agent-harness:begin -->
 
