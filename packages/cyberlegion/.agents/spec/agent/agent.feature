@@ -248,7 +248,7 @@ Feature: agent — resolve reusable agent definitions
 
   Scenario: agent resolve --file resolves an exact path, bypassing name search
     Given a def file living outside .agents/agents/
-    When it runs agent resolve --agent-file <path>
+    When it runs agent resolve --file <path>
     Then it resolves that exact file rather than searching the project convention
 
   Scenario: agent path prints only the resolved def file's path
