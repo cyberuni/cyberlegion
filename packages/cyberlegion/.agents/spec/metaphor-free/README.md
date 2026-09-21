@@ -60,11 +60,16 @@ vocabulary stays generic.
   than the memory-dependent step this guard replaces.
 - **In-scope file** — a file under one of the guard's **five roots**, named repo-relative: the CLI's
   `packages/cyberlegion/src/` and `packages/cyberlegion/.agents/spec/`; the plugin layer's
-  `packages/cyberlegion/skills/` and `packages/cyberlegion/agents/`; and the plugin's project spec at
-  `.agents/specs/`. It carries exactly **two file-level exclusions**:
-  **(a) the ledgers** (`packages/cyberlegion/.agents/spec/ledger/` and
-  `.agents/specs/cyberlegion-plugin/ledger/`) — provenance that records past leaks and past decisions
-  verbatim (e.g. `resolveBunker` and "Council metaphor-leak" appear in old `why` strings); and
+  `packages/cyberlegion/skills/` and `packages/cyberlegion/agents/`; and the plural project-spec tree
+  `.agents/specs/`, which holds the plugin's project spec. It carries exactly **two file-level
+  exclusions**:
+  **(a) the ledgers** — provenance that records past leaks and past decisions verbatim (e.g.
+  `resolveBunker` and "Council metaphor-leak" appear in old `why` strings). A ledger is the `ledger/`
+  directory at a spec tree's root: `packages/cyberlegion/.agents/spec/ledger/` for the CLI, and
+  `.agents/specs/<project>/ledger/` for **every** project under the plural tree. The second is a
+  **positional rule, not a folder name**: a project spec added beside the plugin's has its ledger
+  excluded with no guard edit (#45). A folder named `ledger` any deeper inside a project spec is not a
+  ledger, so it stays in scope — the rule does not widen into "any path segment named `ledger`"; and
   **(b) the guard's own definition files** — the allow-list and **this `metaphor-free/` node's own
   README + `.feature`** — which must name the banned terms literally in order to define, cite, and
   debate them. Scanning the guard's own defining documents would flag the definition as a leak — the
@@ -115,7 +120,7 @@ checks one thing: no unsanctioned capitalized banned term in any in-scope file.
 ```mermaid
 graph TD
   A[check:metaphor-free over the five roots] --> B[enumerate files under each root]
-  B --> S{is the file in scope?<br/>excludes the ledgers<br/>and the guard's own definition files}
+  B --> S{is the file in scope?<br/>excludes each spec tree's root ledger<br/>and the guard's own definition files}
   S -->|out of scope| G[no violation on this line]
   S -->|in scope| C{does a banned term appear in its capitalized persona-form?<br/>case-sensitive, whole word or camelCase segment, not a substring}
   C -->|no persona-form match| G
@@ -130,7 +135,8 @@ graph TD
 
 The scope filter (step S) is a **per-file** decision: it admits the five roots — the CLI's `src/`
 and spec tree, the plugin layer's `skills/` and `agents/`, and the plugin's project spec
-`.agents/specs/` — and **excludes** two whole-file sets — the ledgers, and
+`.agents/specs/` — and **excludes** two whole-file sets — the ledgers (each spec tree's root
+`ledger/`, including every project's under `.agents/specs/`), and
 the guard's own definition files (the allow-list and this node's own README + `.feature`). The match
 (step C) has two guards, each isolated by a scenario below: it is **case-sensitive on the capitalized
 persona-form** (a lowercase generic word does not match), and it matches a **whole word or a capitalized
@@ -150,11 +156,14 @@ compound segment** (`resolveBunker` matches; the substring in `Podcast` does not
 | persona-form match, sanctioned → no violation | a **sanctioned boundary reference** on the allow-list (charter / non-goals / outward-caller) | `a sanctioned boundary reference passes the guard` |
 | out of scope (S) → not scanned | file in the **ledger** (provenance) | `a banned term recorded in provenance passes the guard` |
 | out of scope (S) → not scanned | file in the **plugin project spec's ledger** (provenance) | `a banned term recorded in the plugin spec's provenance passes the guard` |
+| out of scope (S) → not scanned | file in **another project spec's ledger** under `.agents/specs/` (provenance, by position) | `a banned term recorded in another project spec's provenance passes the guard` |
+| in scope (S), unsanctioned → FAIL | a **`ledger`-named folder nested** below a project spec's root — not a ledger | `a persona name under a nested ledger-named folder fails the guard` |
 | out of scope (S) → not scanned | a **guard's own definition file** (allow-list or this node's README/`.feature`) | `the guard's own defining document passes the guard` |
 | no violation anywhere → PASS | **several** in-scope files, every persona-form occurrence **allow-listed** | `a clean multi-file package passes the guard` |
 
-Each of the 12 rows above binds 1:1 to a scenario in
+Each of the 14 rows above binds 1:1 to a scenario in
 [`metaphor-free.feature`](./metaphor-free.feature): five FAIL edges (the #159 source-identifier class,
 the #172 / #212 doc class, and one per plugin-layer root added by #29), the two match guards (case,
-substring), the sanctioned-allow-list edge, the three out-of-scope edges (the CLI ledger, the plugin
-spec's ledger, the guard's own definition), and the clean multi-file aggregate pass.
+substring), the sanctioned-allow-list edge, the four out-of-scope edges (the CLI ledger, the plugin
+spec's ledger, another project spec's ledger, the guard's own definition), the nested `ledger`-named
+folder that the ledger rule must not reach (#45), and the clean multi-file aggregate pass.
