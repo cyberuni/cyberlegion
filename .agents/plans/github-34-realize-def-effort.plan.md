@@ -4,15 +4,15 @@ project: cyberlegion
 status: active
 todos:
   - content: "explore: agent/ node — additive realizeLaunch effort scenarios + README use-case prose"
-    status: pending
+    status: completed
   - content: "spec gate: cold spec-judge, structural diff (expect addOnly), ledger gate line"
-    status: pending
+    status: completed
   - content: "deliver: test-first per-harness effort mapping in realizeLaunch; pnpm verify green"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over the new frozen scenarios"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #34), mail operator, then start #33 on top"
-    status: pending
+    status: completed
 ---
 
 # github-34 — realizeLaunch drops a def's effort
@@ -38,4 +38,6 @@ cursor, which neither CLI accepts — filed as #36.
 
 ## NEXT
 
-Explore: draft the additive scenarios in `packages/cyberlegion/.agents/spec/agent/agent.feature`.
+Landed on branch `fix/34-realize-def-effort` as a PR against main (Closes #34); both gates
+self-asserted by:agent, the owner ratifies and merges at the PR. Follow-ups: #36 (instructions flag
+on codex/cursor), #38 (backfill the agent/ node's Control Flow and Scenario map). #33 builds on this.
