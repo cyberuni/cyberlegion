@@ -8,11 +8,11 @@ todos:
   - content: "spec gate: check:suite + cold ACED spec-judge; freeze inbox.feature; ledger gate line"
     status: completed
   - content: "deliver: red run of the impl-judge on the current skill, then fix manage-inbox SKILL.md + docs page"
-    status: in_progress
+    status: completed
   - content: "impl gate: cold ACED impl-judge over the frozen suite"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #53), CI green, mail operator"
-    status: pending
+    status: completed
 ---
 
 # github-53 — manage-inbox has no rule for several standing owners
@@ -31,5 +31,5 @@ suite is authored here — skill-owned decisions only; CLI outcomes stay in the 
 
 ## NEXT
 
-Deliver: red run of the cold ACED impl-judge on the current SKILL.md, then add the several-owners
-stop (and any other failing scenario's rule) to `manage-inbox` and its docs page.
+Landed in the PR that closes #53: frozen `inbox.feature`, both gates approved, `manage-inbox` and its
+docs page fixed. No resume action remains.

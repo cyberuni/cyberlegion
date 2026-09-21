@@ -17,16 +17,22 @@ ack or reply the human directs.
 ```
 
 It also triggers on prose: "check my inbox," "any reports for me," "what did the agents send,"
-"read that report," "ack that," "mark it read," "clear my owner inbox," or acting on a surfaced
-owner-mail doorbell.
+"read that report," "ack that," "mark it read," "clear my owner inbox," answering a question an
+agent left in a report, or acting on a surfaced owner-mail doorbell.
 
 ## What it does
 
 ### Resolve the owner handle
 
-Finds the standing owner identity first; `unit register --standing` lists it. Uses
-`$CYBERLEGION_OWNER` if set, else the single standing handle listed. If none exists yet, that's a
-deliberate gap: the skill does not auto-create an owner mailbox while just checking mail.
+Picks whose mailbox to act on, in this order:
+
+- **`$CYBERLEGION_OWNER` is set:** uses it. If it names no standing owner, the skill reports the
+  CLI's error and stops; it never swaps in another owner.
+- **Unset, one standing owner** (`unit register --standing` lists them): uses that one.
+- **Unset, no standing owner:** says there is no owner mailbox yet and creates none.
+- **Unset, several standing owners:** stops without running any mail command, lists every standing
+  handle, and asks you to set `CYBERLEGION_OWNER` to the one you mean. Guessing could show or ack
+  another owner's mail.
 
 ### List what is waiting
 
@@ -43,7 +49,8 @@ surfacing until explicitly cleared. Peeking is safe; it changes nothing.
 
 `mail ack <msg-id> --owner <handle>`. Ack is the sole read-state change and the sole signal that a
 report is handled. Acking an already-acked or unknown id errors rather than silently succeeding;
-two concurrent acks of the same message resolve to exactly one success.
+two concurrent acks of the same message resolve to exactly one success. When an ack fails, the
+skill says so rather than reporting the message as cleared.
 
 ### Reply, to answer a frameless agent's question
 
@@ -60,7 +67,9 @@ the answer, since the thread carries state across the agent's stateless re-runs.
 ## What it will not do
 
 It will not auto-create a standing owner identity just to satisfy a "check my inbox" request. That
-mint is a deliberate, separate act.
+mint is a deliberate, separate act that belongs to
+[`init-cyberlegion`](/cyberlegion/skills/init-cyberlegion/). It will not pick one owner's mailbox
+when several exist and `CYBERLEGION_OWNER` is unset.
 
 ## Related
 

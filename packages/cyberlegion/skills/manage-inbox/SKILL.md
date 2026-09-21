@@ -1,6 +1,6 @@
 ---
 name: manage-inbox
-description: "Use this skill when the user wants to check, read, or clear the owner mailbox — the durable inbox where headless and cron-started agents send their reports. Triggers: 'check my inbox', 'any reports for me', 'what did the agents send', 'read that report', 'ack that', 'mark it read', 'clear my owner inbox', or acting on a surfaced owner-mail doorbell."
+description: "Use this skill when the user wants to check, read, or clear the owner mailbox — the durable inbox where headless and cron-started agents send their reports. Triggers: 'check my inbox', 'any reports for me', 'what did the agents send', 'read that report', 'ack that', 'mark it read', 'clear my owner inbox', answering a question an agent left in a report, or acting on a surfaced owner-mail doorbell. Not for creating or binding the owner identity (init-cyberlegion) or a session's own mail (legate)."
 ---
 
 # manage-inbox
@@ -22,9 +22,18 @@ The owner mailbox is a **standing** identity. Find it first:
 npx cyberlegion@0.3.1 unit register --standing            # lists the standing owner record(s)
 ```
 
-Use `$CYBERLEGION_OWNER` if set, else the single standing handle listed. If **no** standing owner
-exists, there is no owner mailbox yet — create one with `unit register --standing --handle <name>` (that is a
-deliberate act; do not auto-create it while just checking mail).
+Pick the handle in this order, and scope every mail command below to it with `--owner <handle>`:
+
+1. **`$CYBERLEGION_OWNER` is set** — use it as given; do not consult the standing list. If the CLI
+   answers that it is not a standing owner, report that error to the user and stop. Never retry with
+   a handle from the standing list: the variable named one owner, and a substitute is a guess.
+2. **Unset, exactly one standing owner** — use that handle without asking.
+3. **Unset, no standing owner** — tell the user there is no owner mailbox yet and stop. Do not run
+   `unit register --standing --handle` yourself: creating the owner identity is a deliberate act
+   that belongs to `init-cyberlegion`.
+4. **Unset, more than one standing owner** — stop. Run no mail command with `--owner`. List every
+   standing handle, and tell the user to set `CYBERLEGION_OWNER` to the one whose mailbox they mean.
+   Never pick one: a wrong pick shows, or acks, another owner's mail.
 
 ## List — what is waiting
 
@@ -43,7 +52,7 @@ have seen it inline; listing is how you review deliberately.
 npx cyberlegion@0.3.1 mail read <msg-id> --owner <handle>
 ```
 
-Prints the report body (sender, subject, id). **Read does not ack** — the message stays unread and
+Prints the report body (sender, subject, id). Do not add `--ack`. **Read does not ack** — the message stays unread and
 keeps surfacing until you explicitly clear it. Peeking is safe; it changes nothing.
 
 ## Ack — the only thing that clears it
@@ -57,6 +66,8 @@ that was merely printed into a session is **not** read until you ack it. Ack onc
 acted on (or consciously dismissed) the report; acking an already-acked or unknown id errors rather
 than silently succeeding. Two concurrent acks of the same message resolve to exactly one success —
 nothing is double-consumed.
+
+If the ack exits nonzero, tell the user it failed and why; never report the message as cleared.
 
 ## Reply — answer a frameless agent's question
 
@@ -73,5 +84,6 @@ The thread carries the state across the agent's stateless re-runs.
 
 - This skill only manages the **owner** mailbox (`--owner`). A session's own inbox is the plain
   `mail inbox`/`read`/`ack` (no `--owner`) and is not this skill's concern.
+- Creating or binding the owner identity is `init-cyberlegion`'s job; hand those requests to it.
 - It is a thin CLI wrapper — it decides *nothing* about routing or dispatch (that is the Legate /
   `dispatch-governance`), and writes no state beyond the ack/reply the human directs.
