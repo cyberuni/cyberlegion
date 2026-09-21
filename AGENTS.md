@@ -67,8 +67,11 @@ filesystem (Claude Code, Cursor, Codex). One npm package, `packages/cyberlegion/
 
 The package root doubles as the plugin root, but the layers stay separate in concept — the CLI is
 a general-purpose mechanism a routing layer builds on, and the plugin is one particular consumer
-of it. The CLI's `src/` and `.agents/spec/` stay metaphor-free (`pnpm cl check:metaphor-free`);
-the plugin's skills are where the Legion vocabulary lives. Others bypass the Legate entirely: the
+of it. Both layers stay free of `cyberfleet`'s persona names — a dependency does not name its
+consumer's personas — and `pnpm cl check:metaphor-free` enforces that over the CLI's `src/` and
+`.agents/spec/`, the plugin's `skills/` and `agents/`, and the plugin's project spec
+(`.agents/specs/`). The plugin's skills are where cyberlegion's own Legion vocabulary (the Legate,
+units) lives. Others bypass the Legate entirely: the
 `cyberfleet` plugin's skills shell out to the `cyberlegion` CLI (`unit spawn`, `unit who`, `mail
 send`) and reference no cyberlegion skill, because cyberfleet carries its own routing judgment.
 
