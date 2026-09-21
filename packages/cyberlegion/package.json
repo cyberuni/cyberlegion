@@ -41,7 +41,7 @@
 	"scripts": {
 		"build": "tsdown",
 		"check:metaphor-free": "tsx src/check-metaphor-free.ts",
-		"dev": "tsx src/cli.ts",
+		"dev": "tsx src/dev.ts",
 		"test": "vitest run src",
 		"test:watch": "vitest",
 		"typecheck": "tsc --noEmit"
