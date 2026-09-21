@@ -1,7 +1,8 @@
 // check:metaphor-free — the vocabulary-boundary guard.
 //
-// cyberlegion is chartered metaphor-free: no fleet-persona or place vocabulary. This module scans
-// the package's in-scope files for a banned term in its capitalized persona-form and reports each
+// cyberlegion is chartered metaphor-free: no fleet-persona or place vocabulary from its consumer,
+// cyberfleet, in the CLI or the plugin layer. This module scans the in-scope files under the repo
+// root for a banned term in its capitalized persona-form and reports each
 // unsanctioned occurrence as a violation. See .agents/spec/metaphor-free/README.md for the frozen
 // contract this module implements.
 //
@@ -30,40 +31,51 @@ interface AllowListEntry {
 
 const ALLOW_LIST: AllowListEntry[] = [
 	{
-		file: '.agents/spec/unit/lifecycle/README.md',
+		file: 'packages/cyberlegion/.agents/spec/unit/lifecycle/README.md',
 		term: 'Operator',
 		contains: "cyberfleet`'s Operator) is mux-agnostic",
 	},
 	{
-		file: '.agents/spec/unit/lifecycle/README.md',
+		file: 'packages/cyberlegion/.agents/spec/unit/lifecycle/README.md',
 		term: 'Operator',
 		contains: 'fixes every caller at once (Operator, Pod, and the Legate',
 	},
 	{
-		file: '.agents/spec/unit/lifecycle/README.md',
+		file: 'packages/cyberlegion/.agents/spec/unit/lifecycle/README.md',
 		term: 'Pod',
 		contains: 'fixes every caller at once (Operator, Pod, and the Legate',
 	},
 	{
-		file: '.agents/spec/unit/lifecycle/lifecycle.feature',
+		file: 'packages/cyberlegion/.agents/spec/unit/lifecycle/lifecycle.feature',
 		term: 'Operator',
 		contains: 'fleet-layer caller (Operator) is mux-agnostic',
 	},
 ]
 
-/** The two in-scope roots (relative to the package root). Everything else under the package is out
- * of scope for this guard. */
-const IN_SCOPE_ROOTS = ['src', '.agents/spec']
+/** The in-scope roots, relative to the repo root: the CLI (src, its spec tree), the plugin layer
+ * (skills, agents), and the plugin's project spec. cyberfleet is a consumer of cyberlegion, so no
+ * layer here may name its personas. Everything outside these roots is out of scope for this guard. */
+const IN_SCOPE_ROOTS = [
+	'packages/cyberlegion/src',
+	'packages/cyberlegion/.agents/spec',
+	'packages/cyberlegion/skills',
+	'packages/cyberlegion/agents',
+	'.agents/specs',
+]
 
 /** Whole-directory exclusions: a file under any of these prefixes is not scanned at all.
- * (a) the ledger — provenance that records past leaks verbatim.
+ * (a) the ledgers of both spec trees — provenance that records past leaks and decisions verbatim.
  * (b) this node's own README + .feature — they must name the banned terms literally to define them. */
-const EXCLUDED_PATH_PREFIXES = ['.agents/spec/ledger/', '.agents/spec/metaphor-free/']
+const EXCLUDED_PATH_PREFIXES = [
+	'packages/cyberlegion/.agents/spec/ledger/',
+	'.agents/specs/cyberlegion-plugin/ledger/',
+	'packages/cyberlegion/.agents/spec/metaphor-free/',
+]
 
 /** Whole-file exclusions: the guard's own implementation + test, which must name the banned terms
  * literally as string constants and fixtures. An explicit, reviewable set — grow it here, not by
  * carving out lines. */
-const EXCLUDED_FILES = ['src/metaphor-free.ts', 'src/metaphor-free.test.ts']
+const EXCLUDED_FILES = ['packages/cyberlegion/src/metaphor-free.ts', 'packages/cyberlegion/src/metaphor-free.test.ts']
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.git'])
 
@@ -145,9 +157,10 @@ export interface ScanOptions {
 	inScopeRoots?: readonly string[]
 }
 
-const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+/** The repo root: this file sits at `packages/cyberlegion/src/`. */
+const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 
-/** Scans the in-scope files under `root` (default: the cyberlegion package directory) and returns
+/** Scans the in-scope files under `root` (default: the repo root) and returns
  * every unsanctioned banned-term occurrence. Empty means clean. `options` lets callers (tests)
  * substitute fixture-scoped config in place of the real banned list / allow-list / exclusions /
  * scope roots. */
