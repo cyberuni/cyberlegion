@@ -147,6 +147,11 @@ Feature: agent — resolve reusable agent definitions
     Then it throws an error naming cursor and the missing model
     And it returns no launch command, so no session starts at the harness default effort
 
+  Scenario: an explicit effort override wins over the def's own effort
+    Given a resolved def with harness "claude", model "sonnet" and effort "low"
+    When realizeLaunch runs with an override effort "max"
+    Then the command contains --effort 'max' and does not contain --effort 'low'
+
   # ── agent list / show / resolve / path ──
 
   Scenario: agent list reports a definitive empty state when no defs exist

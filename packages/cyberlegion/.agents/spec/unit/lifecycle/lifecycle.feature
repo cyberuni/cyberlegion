@@ -39,6 +39,48 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit spawn --agent <name> --harness codex --task t
     Then the spawned peer's harness is codex
 
+  Scenario: --model and --effort on a bare --harness spawn launch with those settings
+    Given the command line is exactly unit spawn --harness claude --model sonnet --effort high --task "water the east beds"
+    When unit spawn runs
+    Then the launch command carries model sonnet and effort high
+    And the spawn output reports model sonnet and effort high
+
+  Scenario: --model overrides the resolved def's own model and keeps its instructions
+    Given an agent def with harness claude, model sonnet, and instructions "check the soil pH first"
+    When a caller runs unit spawn --agent <name> --model opus --task t
+    Then the launch command carries model opus and does not carry model sonnet
+    And the launch command carries the instructions "check the soil pH first"
+    And the spawn output reports model opus
+
+  Scenario: --effort overrides the resolved def's own effort
+    Given an agent def with harness claude, model sonnet, and effort low
+    When a caller runs unit spawn --agent <name> --effort max --task t
+    Then the launch command carries effort max and does not carry effort low
+    And the spawn output reports effort max
+
+  Scenario: a def's own model and effort are reported when no flag overrides them
+    Given an agent def with harness claude, model sonnet, and effort high
+    When a caller runs unit spawn --agent <name> --task t
+    Then the spawn output reports model sonnet and effort high
+
+  Scenario: a spawn with no model or effort from any source reports the harness default for both
+    Given the command line is exactly unit spawn --harness codex --task t
+    When unit spawn runs
+    Then the spawn output reports model "(harness default)" and effort "(harness default)"
+
+  Scenario: --effort on a cursor spawn with no model refuses before anything is created
+    Given the command line is exactly unit spawn --harness cursor --effort high --task t
+    When unit spawn runs
+    Then it throws naming cursor and the missing model
+    And no worktree is created
+    And no session is opened
+    And no unit is registered
+
+  Scenario: --effort on a cursor spawn with a model launches with the effort on that model
+    Given the command line is exactly unit spawn --harness cursor --model gpt-5 --effort high --task t
+    When unit spawn runs
+    Then the launch command carries the model argument 'gpt-5[effort=high]'
+
   # ── spawn registers the peer it opened ──
   # The title and section comment used to claim registration PRECEDED the launch. Nothing in the
   # child reads the record or the brief any more (the peer learns of its brief from the wake, rung

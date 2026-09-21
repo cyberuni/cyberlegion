@@ -80,7 +80,7 @@ Mark dead units exited and sweep. Output: a `pruned` table (`id`, `handle`).
 ## spawn
 
 ```sh
-npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
+npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
 ```
 
 Launch a new peer session in its own git worktree (tmux or herdr), or into an existing directory
@@ -89,8 +89,10 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | Option | Meaning |
 |---|---|
 | `--harness <h>` | `claude` \| `cursor` \| `codex` (required unless `--agent`/`--agent-file` resolves one) |
-| `--agent <name>` | resolve an agent def (`.agents/agents/<name>.md`) for harness/model/instructions |
+| `--agent <name>` | resolve an agent def (`.agents/agents/<name>.md`) for harness/model/effort/instructions |
 | `--agent-file <path>` | read an exact agent def file instead of resolving by name |
+| `--model <name>` | model for this launch only (flag > agent def > harness default) |
+| `--effort <level>` | effort for this launch only (flag > agent def > harness default) |
 | `--task <text>` | brief text, or `-` for stdin |
 | `--brief-file <path>` | read the brief from a file |
 | `--handle <name>` | handle for the new peer |
@@ -100,9 +102,25 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`); see [Placement](/cyberlegion/concepts/architecture/#placement-is-a-concept-not-a-backend-command) |
 | `--no-wake` | suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself) |
 
+`--model` and `--effort` override one launch. The precedence is **flag > agent def > harness
+default**: a flag beats the def's own `model`/`effort` tag, and the def's tag beats the harness's own
+default. A flag never writes back to the def. The flags also work without a def, on a bare
+`--harness`. Each harness spells effort differently, and spawn maps it for you:
+
+| Harness | Effort reaches the session as |
+|---|---|
+| `claude` | `--effort <level>` |
+| `codex` | `-c model_reasoning_effort="<level>"` |
+| `cursor` | a parameter on the model, `--model '<model>[effort=<level>]'` |
+
+Cursor has no effort control apart from the model. A cursor spawn with an effort but no model, from
+either the flag or the def, therefore fails before anything is created.
+
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
-act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `worktree`, `pane`,
-`rung`. Suggests `unit read <id>` as a next step.
+act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `model`, `effort`,
+`worktree`, `pane`, `rung`. The `model` and `effort` fields report what the session launched with,
+from whichever source won, and read `(harness default)` when no source set one. Suggests
+`unit read <id>` as a next step.
 
 ## close
 

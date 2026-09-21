@@ -100,6 +100,12 @@ describe('spec:cyberlegion/agent', () => {
 		}).toThrow(/cursor.*model/)
 		expect(result).toBeUndefined()
 	})
+
+	it("an explicit effort override wins over the def's own effort", () => {
+		const { command } = realizeLaunch(def({ harness: 'claude', model: 'sonnet', effort: 'low' }), { effort: 'max' })
+		expect(command).toContain(`--effort 'max'`)
+		expect(command).not.toContain(`--effort 'low'`)
+	})
 })
 
 // spec: unit/lifecycle/lifecycle.feature — `--agent` resolves a def whose harness/model/

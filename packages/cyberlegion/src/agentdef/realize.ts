@@ -18,6 +18,8 @@ export function shellQuote(value: string): string {
 export interface RealizeLaunchOptions {
 	/** Overrides def.model when present. */
 	model?: string
+	/** Overrides def.effort when present. */
+	effort?: string
 	/** Overrides def.harness when present; falls back to 'claude' when neither is set. */
 	harness?: Harness
 }
@@ -25,6 +27,10 @@ export interface RealizeLaunchOptions {
 export interface RealizedLaunch {
 	harness: Harness
 	command: string
+	/** The model and effort the command launches with, from whichever source won; absent when the
+	 * harness default applies. */
+	model?: string
+	effort?: string
 }
 
 /** Cursor carries effort as a bracket parameter on the model (`<model>[effort=<level>]`): merge it into
@@ -59,21 +65,24 @@ function modelAndEffortArgs(harness: Harness, model?: string, effort?: string): 
 	return [...args, '--effort', shellQuote(effort)]
 }
 
-/** Build the harness launch invocation for a def — explicit `model`/`harness` win over the def's
- * own tags, which win over the harness default. The def's effort goes through the harness's own
+/** Build the harness launch invocation for a def — explicit `model`/`effort`/`harness` win over the
+ * def's own tags, which win over the harness default. The def's effort goes through the harness's own
  * effort control (see `modelAndEffortArgs`); `--append-system-prompt` carries the instructions. */
 export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): RealizedLaunch {
 	const harness = opts.harness ?? def.harness ?? DEFAULT_HARNESS
 	const model = opts.model ?? def.model
-	const parts = [LAUNCH_MAP[harness], ...modelAndEffortArgs(harness, model, def.effort)]
+	const effort = opts.effort ?? def.effort
+	const parts = [LAUNCH_MAP[harness], ...modelAndEffortArgs(harness, model, effort)]
 	if (def.instructions) parts.push('--append-system-prompt', shellQuote(def.instructions))
-	return { harness, command: parts.join(' ') }
+	return { harness, command: parts.join(' '), model, effort }
 }
 
 /**
  * Resolve what `unit spawn` should launch, from either an explicit `--harness` or an agent def
- * (`--agent` / `--agent-file`) whose harness, model and instructions compose the launch command.
- * An explicit `--harness` overrides the def's own.
+ * (`--agent` / `--agent-file`) whose harness, model, effort and instructions compose the launch
+ * command. An explicit `--harness`/`--model`/`--effort` overrides the def's own, for this launch only.
+ * With no def, a `--model`/`--effort` composes a launch from `--harness` alone; with neither, the
+ * harness's own default command stands (no `command` returned).
  *
  * Extracted from the CLI action so the def→launch wiring is reachable from a test: composed inline
  * it sat between two well-covered halves (`resolveAgentDef`, `realizeLaunch`) with nothing
@@ -83,16 +92,21 @@ export function resolveSpawnLaunch(input: {
 	agent?: string
 	agentFile?: string
 	harness?: string
+	model?: string
+	effort?: string
 	cwd?: string
 	searchRoots?: string[]
-}): { harness?: string; command?: string } {
-	if (!input.agent && !input.agentFile) return { harness: input.harness }
+}): { harness?: string; command?: string; model?: string; effort?: string } {
+	const overrides = { harness: input.harness as Harness | undefined, model: input.model, effort: input.effort }
+	if (!input.agent && !input.agentFile) {
+		if (!input.harness || (!input.model && !input.effort)) return { harness: input.harness }
+		return realizeLaunch({ name: input.harness, instructions: '', path: '' }, overrides)
+	}
 	const def = resolveAgentDef({
 		name: input.agent,
 		file: input.agentFile,
 		...(input.cwd ? { cwd: input.cwd } : {}),
 		...(input.searchRoots ? { searchRoots: input.searchRoots } : {}),
 	})
-	const realized = realizeLaunch(def, { harness: input.harness as Harness | undefined })
-	return { harness: realized.harness, command: realized.command }
+	return realizeLaunch(def, overrides)
 }
