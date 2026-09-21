@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { parse as parseToml } from 'smol-toml'
 import { describe, expect, it } from 'vitest'
 import { realizeLaunch, resolveSpawnLaunch, shellQuote } from './realize.ts'
 import type { AgentDef } from './resolve.ts'
@@ -32,7 +34,7 @@ describe('realizeLaunch', () => {
 	})
 
 	it('maps cursor and codex to their own launch binaries', () => {
-		expect(realizeLaunch(def({ model: 'opus', harness: 'cursor' })).command).toContain('cursor-agent')
+		expect(realizeLaunch(def({ model: 'opus', harness: 'cursor', instructions: '' })).command).toContain('cursor-agent')
 		expect(realizeLaunch(def({ model: 'opus', harness: 'codex' })).command).toContain('codex ')
 	})
 
@@ -68,13 +70,15 @@ describe('spec:cyberlegion/agent', () => {
 			['cursor', 'gpt-5', `--model 'gpt-5[effort=high]'`],
 		] as const
 		for (const [harness, model, control] of rows) {
-			expect(realizeLaunch(def({ harness, model, effort: 'high' })).command).toContain(control)
+			// cursor has no instruction channel, so its fixture carries an empty body
+			const instructions = harness === 'cursor' ? '' : 'Look for correctness bugs first.'
+			expect(realizeLaunch(def({ harness, model, effort: 'high', instructions })).command).toContain(control)
 		}
 	})
 
 	it('a def with no effort launches with no effort control on any harness', () => {
 		for (const harness of ['claude', 'codex', 'cursor'] as const) {
-			const { command } = realizeLaunch(def({ harness, model: 'gpt-5' }))
+			const { command } = realizeLaunch(def({ harness, model: 'gpt-5', instructions: '' }))
 			expect(command).not.toContain('--effort')
 			expect(command).not.toContain('model_reasoning_effort')
 			expect(command).not.toContain('effort=')
@@ -88,7 +92,7 @@ describe('spec:cyberlegion/agent', () => {
 			['gpt-5[context=1m,effort=low]', 'gpt-5[context=1m,effort=high]'],
 		]
 		for (const [model, realized] of rows) {
-			const { command } = realizeLaunch(def({ harness: 'cursor', model, effort: 'high' }))
+			const { command } = realizeLaunch(def({ harness: 'cursor', model, effort: 'high', instructions: '' }))
 			expect(command).toContain(`--model ${shellQuote(realized)}`)
 		}
 	})
@@ -96,7 +100,7 @@ describe('spec:cyberlegion/agent', () => {
 	it('a cursor effort with no model refuses rather than launching at the default effort', () => {
 		let result: unknown
 		expect(() => {
-			result = realizeLaunch(def({ harness: 'cursor', effort: 'high' }))
+			result = realizeLaunch(def({ harness: 'cursor', effort: 'high', instructions: '' }))
 		}).toThrow(/cursor.*model/)
 		expect(result).toBeUndefined()
 	})
@@ -105,6 +109,69 @@ describe('spec:cyberlegion/agent', () => {
 		const { command } = realizeLaunch(def({ harness: 'claude', model: 'sonnet', effort: 'low' }), { effort: 'max' })
 		expect(command).toContain(`--effort 'max'`)
 		expect(command).not.toContain(`--effort 'low'`)
+	})
+})
+
+// spec: agent/agent.feature — a def's instructions travel through each harness's own instruction
+// channel; cursor has none, so a cursor def with a body refuses.
+describe('spec:cyberlegion/agent instructions', () => {
+	const body = 'Keep every answer under fifty words.'
+
+	/** The value of the `-c developer_instructions=...` argument, unquoted by a real POSIX shell. */
+	function developerInstructions(command: string): string {
+		const arg = command.split(' -c ').find((a) => a.startsWith("'developer_instructions="))
+		if (!arg) throw new Error(`no developer_instructions override in: ${command}`)
+		const quoted = arg.slice(0, arg.lastIndexOf("'") + 1)
+		const unquoted = execFileSync('sh', ['-c', `printf %s ${quoted}`], { encoding: 'utf8' })
+		return unquoted.slice('developer_instructions='.length)
+	}
+
+	it("realizeLaunch carries the def's instructions in the harness's own instruction channel", () => {
+		const rows = [
+			['claude', `--append-system-prompt ${shellQuote(body)}`],
+			['codex', `-c ${shellQuote(`developer_instructions="${body}"`)}`],
+		] as const
+		for (const [harness, channel] of rows) {
+			expect(realizeLaunch(def({ harness, instructions: body })).command).toContain(channel)
+		}
+	})
+
+	it("a codex def's instructions never reach codex as the claude-only flag", () => {
+		expect(realizeLaunch(def({ harness: 'codex', instructions: body })).command).not.toContain('--append-system-prompt')
+	})
+
+	it('codex instructions spanning lines with quotes and backslashes arrive as one exact TOML string', () => {
+		const instructions = `Name the file you change.\nSay "done" when the path C:\\tmp\\x is clean; don't skip it.`
+		const value = developerInstructions(realizeLaunch(def({ harness: 'codex', instructions })).command)
+		expect(parseToml(`v = ${value}`).v).toBe(instructions)
+	})
+
+	it('a def with an empty instructions body carries no instruction argument', () => {
+		for (const harness of ['claude', 'codex'] as const) {
+			const { command } = realizeLaunch(def({ harness, model: 'gpt-5', instructions: '' }))
+			expect(command).not.toContain('--append-system-prompt')
+			expect(command).not.toContain('developer_instructions')
+		}
+	})
+
+	it('a cursor def with instructions refuses rather than launching without them', () => {
+		let result: unknown
+		expect(() => {
+			result = realizeLaunch(def({ harness: 'cursor', model: 'gpt-5', instructions: body }))
+		}).toThrow(/cursor.*instruction/)
+		expect(result).toBeUndefined()
+	})
+
+	it('a cursor def with an empty instructions body launches with no instruction argument', () => {
+		expect(realizeLaunch(def({ harness: 'cursor', model: 'gpt-5', instructions: '' })).command).toBe(
+			"cursor-agent --model 'gpt-5'",
+		)
+	})
+
+	it('an override to cursor refuses a def whose own harness could carry its instructions', () => {
+		expect(() => realizeLaunch(def({ harness: 'claude', instructions: body }), { harness: 'cursor' })).toThrow(
+			/cursor.*instruction/,
+		)
 	})
 })
 

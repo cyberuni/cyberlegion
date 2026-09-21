@@ -64,7 +64,17 @@ surface that inspects a def before that:
   Cursor has no effort control apart from the model, so a cursor def with an `effort` but no `model`
   **throws** rather than launching — a warn-and-ignore would start a session that looks configured
   and runs at the harness default effort, the silent drop this rule exists to prevent. A def with no
-  `effort` carries no effort control at all; the harness default applies. This realizes
+  `effort` carries no effort control at all; the harness default applies. A def's `instructions`
+  body likewise travels through each harness's own instruction channel, since only claude has an
+  append-to-system-prompt flag: `claude --append-system-prompt '<body>'`; codex's config override
+  `-c developer_instructions="<body>"` (no dedicated flag; the value is a TOML basic string, so a
+  multi-line body or one carrying quotes and backslashes arrives intact, and it adds to codex's own
+  base instructions rather than replacing them). Cursor's CLI has **no** instruction channel —
+  no flag, no config override — so a cursor def with a non-empty body **throws**, naming cursor,
+  rather than launching: a session started without the def's instructions looks configured and
+  runs as a generic agent, the same silent drop the effort rule refuses. A cursor def with an empty
+  body launches normally, and a def whose body is empty carries no instruction argument on any
+  harness. This realizes
   the **channel** (warm-peer) launch only; a caller composing a cold Task subagent builds that
   instruction itself from the `resolve` payload (there is no CLI subagent-instruction realizer — the
   result-slot and its instruction builder were dropped in CR-4).
@@ -91,7 +101,7 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `--agent-file`/`file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override; per-harness instruction channel, cursor's instructions refusal |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |
 
 ## Control Flow

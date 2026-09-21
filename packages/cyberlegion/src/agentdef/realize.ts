@@ -65,15 +65,36 @@ function modelAndEffortArgs(harness: Harness, model?: string, effort?: string): 
 	return [...args, '--effort', shellQuote(effort)]
 }
 
+/** A TOML basic string: JSON's escapes are all legal TOML escapes, and TOML also forbids a raw DEL. */
+function tomlBasicString(value: string): string {
+	return JSON.stringify(value).replace(/\x7f/g, '\\u007f')
+}
+
+/** The instruction arguments for one harness. Only claude has an append-to-system-prompt flag;
+ * codex takes a `developer_instructions` config override, added on top of its own base
+ * instructions. Cursor has no channel at all, so a cursor def with a body throws rather than
+ * launching a session that silently runs without it. */
+function instructionArgs(harness: Harness, instructions: string): string[] {
+	if (!instructions) return []
+	if (harness === 'claude') return ['--append-system-prompt', shellQuote(instructions)]
+	if (harness === 'codex') return ['-c', shellQuote(`developer_instructions=${tomlBasicString(instructions)}`)]
+	throw new Error(
+		`cursor-agent has no flag or config override that carries a def's instructions; launch this def on claude or codex, or give it an empty body`,
+	)
+}
+
 /** Build the harness launch invocation for a def — explicit `model`/`effort`/`harness` win over the
- * def's own tags, which win over the harness default. The def's effort goes through the harness's own
- * effort control (see `modelAndEffortArgs`); `--append-system-prompt` carries the instructions. */
+ * def's own tags, which win over the harness default. The def's effort and instructions each go
+ * through the harness's own control (see `modelAndEffortArgs`, `instructionArgs`). */
 export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): RealizedLaunch {
 	const harness = opts.harness ?? def.harness ?? DEFAULT_HARNESS
 	const model = opts.model ?? def.model
 	const effort = opts.effort ?? def.effort
-	const parts = [LAUNCH_MAP[harness], ...modelAndEffortArgs(harness, model, effort)]
-	if (def.instructions) parts.push('--append-system-prompt', shellQuote(def.instructions))
+	const parts = [
+		LAUNCH_MAP[harness],
+		...modelAndEffortArgs(harness, model, effort),
+		...instructionArgs(harness, def.instructions),
+	]
 	return { harness, command: parts.join(' '), model, effort }
 }
 
