@@ -263,12 +263,17 @@ withGlobals(unit.command('prune'))
 		})
 	})
 
+/** What a model/effort/harness field reads when no source set it and the harness's own default applies. */
+const HARNESS_DEFAULT = '(harness default)'
+
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd: Command): Command {
 	return withGlobals(cmd)
 		.option('--harness <h>', 'claude | cursor | codex (required unless --agent/--agent-file resolves one)')
-		.option('--agent <name>', 'resolve an agent def (.agents/agents/<name>.md) for harness/model/instructions')
+		.option('--agent <name>', 'resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions')
 		.option('--agent-file <path>', 'read an exact agent def file instead of resolving by name')
+		.option('--model <name>', 'model for this launch only (flag > agent def > harness default)')
+		.option('--effort <level>', 'effort for this launch only (flag > agent def > harness default)')
 		.option('--task <text>', 'brief text, or - for stdin')
 		.option('--brief-file <path>', 'read the brief from a file')
 		.option('--handle <name>', 'handle for the new peer')
@@ -313,11 +318,20 @@ function defineSpawn(cmd: Command): Command {
 					spawned: res.agent.id,
 					handle: res.agent.handle,
 					harness: res.agent.harness,
+					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
+					effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
 					worktree: res.agent.worktree?.root,
 					pane: res.pane,
 					rung: res.rung,
 				}),
-				json: { agent: res.agent, pane: res.pane, launch: res.launch, rung: res.rung },
+				json: {
+					agent: res.agent,
+					pane: res.pane,
+					launch: res.launch,
+					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
+					effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+					rung: res.rung,
+				},
 			})
 			nextStep(`cyberlegion unit read ${res.agent.id}`)
 		})
@@ -880,9 +894,9 @@ function agentDefFields(d: AgentDef) {
 	return {
 		name: d.name,
 		description: d.description,
-		model: d.model ?? '(harness default)',
+		model: d.model ?? HARNESS_DEFAULT,
 		effort: d.effort,
-		harness: d.harness ?? '(harness default)',
+		harness: d.harness ?? HARNESS_DEFAULT,
 		warm: d.warm ?? false,
 		interactive: d.interactive ?? false,
 		path: d.path,

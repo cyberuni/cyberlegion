@@ -11,6 +11,8 @@ export interface SpawnCommandOptions {
 	harness?: string
 	agent?: string
 	agentFile?: string
+	model?: string
+	effort?: string
 	task?: string
 	briefFile?: string
 	handle?: string
@@ -24,15 +26,21 @@ export interface SpawnCommandOptions {
 /**
  * Translate `unit spawn`'s options into the spawn input and its wake decision — resolving an
  * `--agent`/`--agent-file` def into the harness and composed launch command, with an explicit
- * `--harness` overriding the def's own.
+ * `--harness`/`--model`/`--effort` overriding the def's own.
  *
  * Throws when no harness can be resolved, so the CLI's own `fail()` still renders it.
  */
-export function spawnCommandInput(opts: SpawnCommandOptions): { input: SpawnInput; noWake: boolean } {
-	const { harness, command } = resolveSpawnLaunch({
+export function spawnCommandInput(opts: SpawnCommandOptions): {
+	input: SpawnInput
+	noWake: boolean
+	launched: { model?: string; effort?: string }
+} {
+	const { harness, command, model, effort } = resolveSpawnLaunch({
 		agent: opts.agent,
 		agentFile: opts.agentFile,
 		harness: opts.harness,
+		model: opts.model,
+		effort: opts.effort,
 	})
 	if (!harness) throw new Error('unit spawn needs --harness, or --agent/--agent-file resolving one')
 	return {
@@ -49,6 +57,8 @@ export function spawnCommandInput(opts: SpawnCommandOptions): { input: SpawnInpu
 		},
 		// Commander sets `wake: false` for `--no-wake`; anything else means ring.
 		noWake: opts.wake === false,
+		// What the launch carries, from whichever source won — absent where the harness default applies.
+		launched: { model, effort },
 	}
 }
 

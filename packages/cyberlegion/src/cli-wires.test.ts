@@ -231,6 +231,88 @@ describe('spec:cyberlegion/unit/lifecycle an agent def composes the spawn input'
 	})
 })
 
+// spec: unit/lifecycle/lifecycle.feature — `--model`/`--effort` override one launch: flag > def >
+// harness default, on a def or a bare --harness alike, and the spawn output reports what launched.
+describe('spec:cyberlegion/unit/lifecycle', () => {
+	/** A throwaway project holding one def, `.agents/agents/gardener.md`, with the given frontmatter. */
+	async function withDef(frontmatter: string, instructions: string, run: () => Promise<void>): Promise<void> {
+		const dir = mkdtempSync(join(tmpdir(), 'cl-agentdef-'))
+		mkdirSync(join(dir, '.git'), { recursive: true })
+		mkdirSync(join(dir, '.agents', 'agents'), { recursive: true })
+		writeFileSync(join(dir, '.agents', 'agents', 'gardener.md'), `---\n${frontmatter}\n---\n\n${instructions}\n`)
+		const before = process.cwd()
+		process.chdir(dir)
+		try {
+			await run()
+		} finally {
+			process.chdir(before)
+		}
+	}
+
+	const launched = () => (spawnAndWake.mock.calls[0]?.[1] as { command?: string } | undefined)?.command ?? ''
+
+	it('--model and --effort on a bare --harness spawn launch with those settings', async () => {
+		const log = captureStdout()
+		await cli(['unit', 'spawn', '--harness', 'claude', '--model', 'sonnet', '--effort', 'high', '--task', 't'])
+		expect(launched()).toContain(`--model 'sonnet'`)
+		expect(launched()).toContain(`--effort 'high'`)
+		expect(printed(log)).toContain('model: sonnet')
+		expect(printed(log)).toContain('effort: high')
+	})
+
+	it("--model overrides the resolved def's own model and keeps its instructions", async () => {
+		await withDef('harness: claude\nmodel: sonnet', 'check the soil pH first', async () => {
+			const log = captureStdout()
+			await cli(['unit', 'spawn', '--agent', 'gardener', '--model', 'opus', '--task', 't'])
+			expect(launched()).toContain(`--model 'opus'`)
+			expect(launched()).not.toContain('sonnet')
+			expect(launched()).toContain('check the soil pH first')
+			expect(printed(log)).toContain('model: opus')
+		})
+	})
+
+	it("--effort overrides the resolved def's own effort", async () => {
+		await withDef('harness: claude\nmodel: sonnet\neffort: low', 'water daily', async () => {
+			const log = captureStdout()
+			await cli(['unit', 'spawn', '--agent', 'gardener', '--effort', 'max', '--task', 't'])
+			expect(launched()).toContain(`--effort 'max'`)
+			expect(launched()).not.toContain(`--effort 'low'`)
+			expect(printed(log)).toContain('effort: max')
+		})
+	})
+
+	it("a def's own model and effort are reported when no flag overrides them", async () => {
+		await withDef('harness: claude\nmodel: sonnet\neffort: high', 'water daily', async () => {
+			const log = captureStdout()
+			await cli(['unit', 'spawn', '--agent', 'gardener', '--task', 't'])
+			expect(printed(log)).toContain('model: sonnet')
+			expect(printed(log)).toContain('effort: high')
+		})
+	})
+
+	it('a spawn with no model or effort from any source reports the harness default for both', async () => {
+		const log = captureStdout()
+		await cli(['unit', 'spawn', '--harness', 'codex', '--task', 't'])
+		expect(printed(log)).toContain('model: (harness default)')
+		expect(printed(log)).toContain('effort: (harness default)')
+	})
+
+	it('--effort on a cursor spawn with no model refuses before anything is created', async () => {
+		const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+		await expect(cli(['unit', 'spawn', '--harness', 'cursor', '--effort', 'high', '--task', 't'])).rejects.toThrow(
+			/process\.exit/,
+		)
+		expect(err.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/cursor.*model/)
+		// the refusal is raised before spawn runs, so no worktree, session or unit exists
+		expect(spawnAndWake).not.toHaveBeenCalled()
+	})
+
+	it('--effort on a cursor spawn with a model launches with the effort on that model', async () => {
+		await cli(['unit', 'spawn', '--harness', 'cursor', '--model', 'gpt-5', '--effort', 'high', '--task', 't'])
+		expect(launched()).toContain(`--model 'gpt-5[effort=high]'`)
+	})
+})
+
 // `service start` composes resolve-or-start around the same spawn wire: it spawns only when this
 // caller wins the reservation, binds what it spawned, and hands a failed spawn's reservation back.
 describe('spec:cyberlegion/service `service start` spawns at most once and binds the peer', () => {
