@@ -369,6 +369,30 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And no session is opened
     And no unit is registered
 
+  # ── the spawned session can invoke the CLI that spawned it ──
+  # A brief tells its unit to report with `cyberlegion mail send`, and the new session need not have
+  # `cyberlegion` on its PATH. So spawn writes a `cyberlegion` shim into the unit's data dir that
+  # re-invokes the caller's own CLI — the same node, loader flags and entry file — and puts that dir
+  # first on the launched session's PATH. The brief's command works as written, and the version a
+  # unit reports through is the one that spawned it, never one resolved from the registry later.
+
+  Scenario: spawn puts a cyberlegion command on the new session's PATH that re-invokes the caller's own CLI
+    Given a caller running unit spawn --harness claude --task "report back" from an installed cyberlegion
+    When unit spawn runs
+    Then the unit's data dir holds an executable cyberlegion shim that runs the caller's own CLI entry with the arguments it is given
+    And the typed launch command puts that shim's directory first on PATH
+
+  Scenario: the shim is on disk before the session opens
+    Given a caller running unit spawn --harness claude --task "report back" from an installed cyberlegion
+    When unit spawn runs
+    Then the shim exists by the time the session backend is asked to open the pane
+
+  Scenario: a spawn refused at a guard writes no shim
+    Given a caller running unit spawn --harness claude --task "report back" --cwd <a directory that does not exist>
+    When unit spawn runs
+    Then it errors that the directory must already exist
+    And no shim is written
+
   # ── spawn delivers the peer's first turn (a fresh paned session boots idle) ──
   # For a paned agent, payload-delivery (the brief file) and turn-delivery (a taken turn) are two
   # acts. The brief stays on disk and no hook injects it; the model also takes no turn on its own —
