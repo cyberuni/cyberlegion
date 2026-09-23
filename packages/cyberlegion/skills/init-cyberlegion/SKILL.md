@@ -28,7 +28,6 @@ like? — the CLI holds all the *mechanism*.
 >
 > Do not scrape the version from prose.
 
-
 ## Flow
 
 ### 1. Probe the environment

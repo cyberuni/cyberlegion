@@ -8,11 +8,11 @@ todos:
   - content: "spec gate: check:suite + cold spec-judge; freeze cli-launcher.feature; ledger gate line"
     status: completed
   - content: "deliver: launcher per CLI-calling skill, skill bodies to node scripts/cyberlegion.mjs, version-flow pin regen"
-    status: in_progress
+    status: completed
   - content: "impl gate: cold impl-judge; run a launcher from an installed-shape dir; run the version flow"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #68), CI green, mail operator"
-    status: pending
+    status: completed
 ---
 
 # github-68 — skills run the CLI they ship with
@@ -36,5 +36,6 @@ for its fallback version; the version flow now regenerates that map too.
 
 ## NEXT
 
-Spec gate passed (round 2); `cli-launcher.feature` frozen. Deliver: tests first, then launchers,
-skill bodies, and the version-sync pin regeneration.
+Landed as a PR against main (Closes #68): both gates self-asserted, provisional pending the owner's
+ratification at the PR. No resume action remains. Two backlog follow-ups are recorded in the ledger
+(stale npx examples in the readmes and install guide; an explicit `check:pins` script).
