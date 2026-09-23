@@ -8,7 +8,8 @@
 // package.json it takes its version from.
 //
 // The same move keeps the CLI pins the plugin publishes at that version: each skill's
-// `npx -y cyberlegion@<version>` fallback line, and the `cyberlegion` entry in
+// `npx -y cyberlegion@<version>` fallback line, the same fallback inside each skill's
+// `scripts/cyberlegion.mjs` launcher, and the `cyberlegion` entry in
 // `.plugin/pins.json` that `init-cyberlegion` reads. A skill states the flags and output of
 // its own version, so a pin left behind hands an agent a CLI its text does not describe.
 // With `--check` nothing is written: every stale pin is named on stderr and the exit code is
@@ -36,8 +37,9 @@ const { version } = JSON.parse(readFileSync(SOURCE, 'utf8'))
 if (!version) throw new Error(`no version field in ${SOURCE}`)
 
 const skillFiles = readdirSync(SKILLS, { withFileTypes: true })
-	.filter((entry) => entry.isDirectory() && existsSync(join(SKILLS, entry.name, 'SKILL.md')))
-	.map((entry) => join(SKILLS, entry.name, 'SKILL.md'))
+	.filter((entry) => entry.isDirectory())
+	.flatMap((entry) => ['SKILL.md', join('scripts', 'cyberlegion.mjs')].map((file) => join(SKILLS, entry.name, file)))
+	.filter((file) => existsSync(file))
 
 // `--check` guards the pins an agent runs; the manifest is synced but left to
 // `universal-plugin plugin build`, which owns what reads it.

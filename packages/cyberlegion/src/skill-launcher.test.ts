@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -93,6 +93,25 @@ describe('cli-launcher: a skill runs the CLI it ships with', () => {
 			stderr: viaBin.stderr,
 			status: viaBin.status,
 		})
+	})
+
+	it.each(cliSkills)("%s's launcher runs the pinned published CLI from a standalone skill folder", (name) => {
+		// The skill folder alone, as a skills installer copies one; a stub npx on PATH records how it
+		// was called, so the case needs no network and proves the exit code is passed through.
+		const root = installShape([join('skills', name, LAUNCHER)])
+		const standalone = join(root, 'skills', name)
+		const stubs = mkdtempSync(join(tmpdir(), 'cyberlegion-npx-'))
+		writeFileSync(join(stubs, 'npx'), '#!/bin/sh\necho "npx $*"\nexit 7\n', { mode: 0o755 })
+
+		const res = spawnSync('node', [join(standalone, LAUNCHER), 'unit', 'who', '--all'], {
+			cwd: standalone,
+			encoding: 'utf8',
+			env: { ...process.env, PATH: `${stubs}${delimiter}${process.env.PATH}` },
+		})
+
+		expect(res.stdout.trim()).toBe(`npx -y cyberlegion@${VERSION} unit who --all`)
+		expect(res.status).toBe(7)
+		expect(res.stderr).toContain(`npx -y cyberlegion@${VERSION}`)
 	})
 
 	it('names the missing built CLI and the pinned fallback at a checkout without dist', () => {

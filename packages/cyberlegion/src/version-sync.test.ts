@@ -27,6 +27,7 @@ function scratchRepo(version: string, pinned: string): string {
 		`# alpha\n\n> fallback: \`npx -y cyberlegion@${pinned}\`.\n\n\`\`\`bash\nnode scripts/cyberlegion.mjs unit who\n\`\`\`\n`,
 	)
 	write(join(PKG, 'skills', 'beta', 'SKILL.md'), `# beta\n\nfallback: \`npx -y cyberlegion@${pinned}\`\n`)
+	write(join(PKG, 'skills', 'alpha', 'scripts', 'cyberlegion.mjs'), `const FALLBACK = 'npx -y cyberlegion@${pinned}'\n`)
 	return root
 }
 
@@ -42,6 +43,14 @@ describe('the version flow keeps the CLI pins current', () => {
 		expect(read(root, 'skills/alpha/SKILL.md')).toContain('`npx -y cyberlegion@0.5.0`')
 		expect(read(root, 'skills/beta/SKILL.md')).toContain('`npx -y cyberlegion@0.5.0`')
 		expect(read(root, 'skills/alpha/SKILL.md')).not.toContain('0.3.1')
+	})
+
+	it("rewrites every launcher's fallback pin to the package version", () => {
+		const root = scratchRepo('0.5.0', '0.3.1')
+
+		expect(sync(root).status).toBe(0)
+
+		expect(read(root, 'skills/alpha/scripts/cyberlegion.mjs')).toBe("const FALLBACK = 'npx -y cyberlegion@0.5.0'\n")
 	})
 
 	it("rewrites the plugin's pins map to the package version", () => {
@@ -61,6 +70,7 @@ describe('the version flow keeps the CLI pins current', () => {
 		expect(res.stderr).toContain(join(PKG, 'skills', 'alpha', 'SKILL.md'))
 		expect(res.stderr).toContain(join(PKG, 'skills', 'beta', 'SKILL.md'))
 		expect(res.stderr).toContain(join(PKG, '.plugin', 'pins.json'))
+		expect(res.stderr).toContain(join(PKG, 'skills', 'alpha', 'scripts', 'cyberlegion.mjs'))
 		expect(res.stderr).toContain('0.3.1')
 		// --check reports; it never rewrites.
 		expect(read(root, 'skills/alpha/SKILL.md')).toContain('cyberlegion@0.3.1')
