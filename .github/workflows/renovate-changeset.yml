@@ -33,15 +33,17 @@ jobs:
       # A push made with GITHUB_TOKEN does not re-trigger `pull_request`, so the
       # required checks would never re-run and the PR would stall in the merge queue.
       # The app token does re-trigger them.
+      #
+      # Checkout and the token run for every Renovate PR, labeled or not: any
+      # dependency bump (a bundled runtime dependency, or the bundler itself) can change
+      # the committed CLI bundle, which `pnpm verify` rejects when stale.
       - uses: actions/create-github-app-token@v3
-        if: steps.level.outputs.level != ''
         id: app-token
         with:
           app-id: ${{ secrets.AUTOFIX_APP_ID }}
           private-key: ${{ secrets.AUTOFIX_APP_PRIVATE_KEY }}
 
       - uses: actions/checkout@v7
-        if: steps.level.outputs.level != ''
         with:
           ref: ${{ github.event.pull_request.head.ref }}
           token: ${{ steps.app-token.outputs.token }}
@@ -93,16 +95,25 @@ jobs:
 
           cat ".changeset/renovate-${PR_NUMBER}.md"
 
+      # `packages/cyberlegion/dist/cli.mjs` is committed so a source install of the plugin
+      # can run it (see scripts/check-cli-bundle.mjs). Rebuild it against the bumped
+      # dependencies so the PR carries a fresh copy.
+      - uses: cyberuni/.github/.github/actions/setup-node-pnpm@v1
+
+      - name: Rebuild the committed CLI bundle
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm cl build
+
       - name: Commit and push
-        if: steps.level.outputs.level != ''
         run: |
           set -euo pipefail
-          if [ -z "$(git status --porcelain)" ]; then
+          git add .changeset packages/cyberlegion/dist/cli.mjs
+          if git diff --cached --quiet; then
             echo "nothing to commit"
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .changeset
-          git commit -m 'chore: add changeset for dependency update'
+          git commit -m 'chore: add changeset and rebuild the CLI bundle for dependency update'
           git push

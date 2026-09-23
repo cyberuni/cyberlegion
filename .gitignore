@@ -1,5 +1,8 @@
 node_modules/
-dist/
+# Build output, except the bundled CLI a source install of the plugin runs
+# (see scripts/check-cli-bundle.mjs). `dist/*`, not `dist/`, so the exception can apply.
+**/dist/*
+!packages/cyberlegion/dist/cli.mjs
 .env
 .env.local
 *.tsbuildinfo

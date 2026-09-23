@@ -1,2 +1,3 @@
 pnpm exec biome check .
 pnpm test
+pnpm check:bundle
