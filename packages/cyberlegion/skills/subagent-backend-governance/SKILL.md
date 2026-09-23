@@ -11,10 +11,15 @@ one-shot unit with no live user channel, spawned through the caller's own Task t
 always in this order. What may reach that unit **mid-flight** is not decided by this backend but by
 the unit's **role** — see *Mid-turn messaging is scoped by role*, below.
 
+> **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
+> this plugin ships. The path is relative to this skill's own directory, not the working directory.
+> If you cannot resolve it, run the published CLI of the version that shipped this skill instead,
+> with the same arguments: `npx -y cyberlegion@0.4.0`.
+
 ## 1. Resolve the agent def
 
 ```bash
-npx cyberlegion@0.3.1 agent resolve <R> --format json
+node scripts/cyberlegion.mjs agent resolve <R> --format json
 ```
 
 Returns `model`, `effort`, `harness`, and `instructions` for role `R`. `cyberlegion` allocates no

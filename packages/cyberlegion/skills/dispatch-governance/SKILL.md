@@ -14,10 +14,15 @@ realized headless by the `headless-legate` agent. Both loads run the exact same 
 **Input:** an intent to fulfill role `R` with brief `B`, optionally expecting a result that
 satisfies verdict schema `V`.
 
+> **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
+> this plugin ships. The path is relative to this skill's own directory, not the working directory.
+> If you cannot resolve it, run the published CLI of the version that shipped this skill instead,
+> with the same arguments: `npx -y cyberlegion@0.4.0`.
+
 ## 1. Resolve the agent definition
 
 ```bash
-npx cyberlegion@0.3.1 agent resolve <R> --format json
+node scripts/cyberlegion.mjs agent resolve <R> --format json
 ```
 
 Read `model`, `effort`, `harness`, `warm`, `interactive` off the resolved def. `warm` marks a role
@@ -27,7 +32,7 @@ may need to grill the caller or converse over multiple rounds, not just return o
 ## 2. Probe the environment
 
 ```bash
-npx cyberlegion@0.3.1 mux doctor --format json
+node scripts/cyberlegion.mjs mux doctor --format json
 ```
 
 Read whether a multiplexer was ancestry-discovered (tmux/herdr) — a **channel** strategy needs one
@@ -48,8 +53,8 @@ to open a pane in; its absence rules that strategy out regardless of what the ag
   mint a thread id, weave it (and an instruction to reply on it) into brief `B`, then:
 
   ```bash
-  npx cyberlegion@0.3.1 unit spawn --agent <R> --brief-file <B> --at <placement>
-  npx cyberlegion@0.3.1 mail await --thread <the-minted-thread-id> [--timeout <ms>] [--max-wait <s>]
+  node scripts/cyberlegion.mjs unit spawn --agent <R> --brief-file <B> --at <placement>
+  node scripts/cyberlegion.mjs mail await --thread <the-minted-thread-id> [--timeout <ms>] [--max-wait <s>]
   ```
 
   `unit spawn` launches the peer (its brief tells it what thread to reply on); `mail await` then
