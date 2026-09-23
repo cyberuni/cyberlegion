@@ -12,8 +12,11 @@ copy npx fetches. Each such skill carries a launcher, `scripts/cyberlegion.mjs`,
 package root from its own file location and hands every argument to the package's
 `bin/cyberlegion.mjs`. Skill bodies call it as `node scripts/cyberlegion.mjs <command>`.
 
-A skill also names one pinned `npx -y cyberlegion@<version>` fallback for a host where the launcher
-path cannot be resolved. That pin, and the plugin's `.plugin/pins.json` map, are rewritten by the
+A launcher found outside a plugin package (the skill folder was copied on its own) runs that same
+pinned published CLI itself, so a skill works standalone and reaching outside its folder is only a
+fast path. The agentskills specification asks a script to "be self-contained or clearly document
+dependencies"; the launcher does both. A skill also names one pinned `npx -y cyberlegion@<version>` fallback for a host where the launcher
+path cannot be resolved. Those pins, and the plugin's `.plugin/pins.json` map, are rewritten by the
 release version flow (`pnpm version`) from `packages/cyberlegion/package.json`, and the test suite
 fails when either disagrees with that version. The pin can no longer lag the package.
 
@@ -55,7 +58,11 @@ invoking anything: they get the CLI version the skill's text describes, and no n
 
 **Extensions**
 
-- *run a CLI command* — the checkout carries no `dist/cli.mjs` (a source install that was never
+- *run a CLI command* — the skill folder was installed on its own, with no plugin package around it
+  (so no `bin/cyberlegion.mjs` three levels up): the launcher runs the pinned
+  `npx -y cyberlegion@<version>` itself, passing arguments, output, and exit code through, and says
+  so in one stderr line. The skill still works standalone, only slower; the package is a fast path,
+  not a dependency. The checkout carries no `dist/cli.mjs` (a source install that was never
   built): the launcher fails loud, naming the missing file and the pinned published version to run
   instead, rather than a raw module-not-found. The working directory is never used to find the CLI.
 - *fall back* — `init-cyberlegion` takes its fallback version from the plugin's `.plugin/pins.json`
@@ -78,7 +85,9 @@ graph TD
   FIND -->|no, any skill but init-cyberlegion| FALLBACK[npx -y cyberlegion@literal-pinned-version args]
   FIND -->|no, init-cyberlegion| INITFB[fallback version read from .plugin/pins.json: the init/ node's frozen edge]
   LAUNCH --> ROOT[package root from the launcher's own file location]
-  ROOT --> DIST{dist/cli.mjs present?}
+  ROOT --> PKG{bin/cyberlegion.mjs in that package root?}
+  PKG -->|no: a standalone skill folder| SELFFB[launcher runs npx -y cyberlegion@pinned-version; args, output, exit code pass through; one stderr notice]
+  PKG -->|yes| DIST{dist/cli.mjs present?}
   DIST -->|yes| RUN[shipped CLI runs; args, output, exit code pass through]
   DIST -->|no| MISSING[fail loud: name dist/cli.mjs and npx -y cyberlegion@package-version]
 ```
@@ -97,6 +106,7 @@ input, not where the CLI lives.
 graph TD
   BUMP[pnpm version bumps package.json] --> SYNC[version sync]
   SYNC --> SKILLPINS[every skill's literal fallback pin set to the version]
+  SYNC --> LAUNCHPINS[every launcher's fallback pin set to the version]
   SYNC --> MAP[.plugin/pins.json cyberlegion set to the version]
   VERIFY[pnpm verify] --> STALE{any pin differs from package.json?}
   STALE -->|yes| FAIL[the run fails, naming the stale pin]
@@ -115,6 +125,7 @@ every scenario in that suite has exactly one row.
 | `STEP → FIND` | the plugin's skills | `every skill that runs the CLI ships a launcher` |
 | `FIND → LAUNCH` | a skill body that names a CLI command | `a skill body runs every CLI command through its launcher` |
 | `LAUNCH → ROOT` | a launcher run from an unrelated working directory | `the launcher finds the CLI from its own location, not the working directory` |
+| `PKG → SELFFB` | a skill folder copied alone, with no package around it | `a launcher in a standalone skill folder runs the pinned published CLI` |
 | `DIST → RUN` | an installed-shape plugin directory with no node_modules | `a skill's launcher runs the shipped CLI from an installed-shape plugin directory` |
 | `RUN` (pass-through) | a command with arguments that exits non-zero | `arguments, output, and the exit code pass through the launcher unchanged` |
 | `DIST → MISSING` | an installed-shape directory without dist/cli.mjs | `a launcher at a checkout without the built CLI names it and the pinned fallback` |
@@ -130,6 +141,7 @@ every scenario in that suite has exactly one row.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `SYNC → SKILLPINS` | skills pinned to an older version | `the version flow rewrites every skill's fallback pin` |
+| `SYNC → LAUNCHPINS` | launchers pinned to an older version | `the version flow rewrites every launcher's fallback pin` |
 | `SYNC → MAP` | a pins map naming an older version | `the version flow rewrites the plugin's pins map` |
 
 ### catch a stale pin
