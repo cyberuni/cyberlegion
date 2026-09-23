@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -1511,5 +1512,73 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		const capture = tmuxArgs(calls, 'capture-pane').at(-1) ?? []
 		expect(targetOf(capture)).toBe(PANE)
 		expect(capture).not.toContain('-S')
+	})
+})
+
+describe('the spawned session can invoke the CLI that spawned it', () => {
+	// The caller's own invocation — the node binary, its loader flags, and the entry script — as the
+	// CLI records it from its own process (`selfInvocation`).
+	const self = ['/opt/node/bin/node', '--import', 'file:///opt/tsx/loader.mjs', '/opt/cyberlegion/bin/cyberlegion.mjs']
+
+	it('writes a cyberlegion shim into the unit data dir that re-invokes the caller, passing its arguments on', () => {
+		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
+		expect(readFileSync(shim, 'utf8')).toBe(
+			"#!/bin/sh\nexec '/opt/node/bin/node' '--import' 'file:///opt/tsx/loader.mjs' '/opt/cyberlegion/bin/cyberlegion.mjs' \"$@\"\n",
+		)
+		expect(statSync(shim).mode & 0o111).toBe(0o111)
+	})
+
+	it("puts the shim's directory first on the launched session's PATH", () => {
+		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		const bin = join(store.root, 'data', res.agent.id, 'bin')
+		expect(typed).toBe(`PATH='${bin}':"$PATH" CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`)
+	})
+
+	it('writes the shim before the session opens, so the harness never boots without it', () => {
+		let shimAtOpen: boolean | undefined
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'tmux' && args[0] === 'send-keys' && shimAtOpen === undefined) {
+				const data = join(store.root, 'data')
+				shimAtOpen =
+					existsSync(data) && readdirSync(data).some((id) => existsSync(join(data, id, 'bin', 'cyberlegion')))
+			}
+			return fakeExec(cmd, args)
+		}
+		spawn({ ...ctx(), exec, self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		expect(shimAtOpen).toBe(true)
+	})
+
+	it('quotes a single quote inside a path so the shim still names it exactly', () => {
+		const res = spawn(
+			{ ...ctx(), self: ['/opt/node', "/it's/cli.mjs"] },
+			{ harness: 'claude', task: 't', at: 'pane:right' },
+		)
+		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
+		expect(readFileSync(shim, 'utf8')).toContain(`'/it'\\''s/cli.mjs' "$@"`)
+	})
+
+	it('a shim run with arguments hands them to the recorded entry unchanged', () => {
+		const entry = join(mkdtempSync(join(tmpdir(), 'cl-entry-')), 'echo.mjs')
+		writeFileSync(entry, 'process.stdout.write(JSON.stringify(process.argv.slice(2)))')
+		const res = spawn({ ...ctx(), self: [process.execPath, entry] }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
+		const out = execFileSync(shim, ['mail', 'send', '--body', 'two words'], { encoding: 'utf8' })
+		expect(JSON.parse(out)).toEqual(['mail', 'send', '--body', 'two words'])
+	})
+
+	it('a spawn refused at a guard writes no shim', () => {
+		expect(() =>
+			spawn({ ...ctx(), self }, { harness: 'claude', task: 't', cwd: join(primaryRoot, 'missing'), at: 'tab' }),
+		).toThrow(/must already exist/)
+		expect(existsSync(join(store.root, 'data'))).toBe(false)
+	})
+
+	it('a context with no recorded invocation writes no shim and leaves PATH alone', () => {
+		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+		expect(existsSync(join(store.root, 'data', res.agent.id, 'bin'))).toBe(false)
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		expect(typed).not.toContain('PATH=')
 	})
 })

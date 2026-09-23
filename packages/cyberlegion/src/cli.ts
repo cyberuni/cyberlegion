@@ -46,7 +46,7 @@ import {
 	startService,
 	verifyOwnership,
 } from './service.ts'
-import { clearUnit, focusUnit, nudgeUnit, readUnit, spawnAndWake } from './session.ts'
+import { clearUnit, focusUnit, nudgeUnit, readUnit, selfInvocation, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -69,7 +69,7 @@ interface GlobalOpts {
 
 function ctxOf(opts: GlobalOpts): IdContext {
 	const store = new FileStore(resolveRoot({ space: opts.space }))
-	return { store, env: process.env }
+	return { store, env: process.env, self: selfInvocation() }
 }
 
 function formatOf(opts: GlobalOpts): Format {

@@ -39,6 +39,10 @@ export interface IdContext {
 	env?: NodeJS.ProcessEnv
 	exec?: Exec
 	now?: () => number
+	/** The argv that re-invokes this very CLI — node, its loader flags, and the entry script
+	 * (`selfInvocation`). `unit spawn` puts a `cyberlegion` shim over it on the new session's PATH,
+	 * so a unit reports through the install that spawned it. Absent, spawn writes no shim. */
+	self?: string[]
 }
 
 const nowIso = (ctx: IdContext) => new Date(ctx.now?.() ?? Date.now()).toISOString()

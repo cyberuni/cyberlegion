@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
@@ -134,7 +134,12 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const id = randomId()
 	const primaryRoot = resolvePrimaryRoot(exec)
 	const launch = input.command ?? LAUNCH_MAP[harness]
-	const fullLaunch = `${muxEnvPrefix(sessionAdapter.name)}${launch}`
+	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
+	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
+	const launchLine = (): string => {
+		const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
+		return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(sessionAdapter.name)}${launch}`
+	}
 	// A pane placement splits the CALLER's own pane, never whichever pane the backend defaults to —
 	// each backend's own default tracks the pane a HUMAN is looking at, which diverges exactly when a
 	// program is driving, which spawn always is (mux.feature: "a pane placement splits the calling
@@ -154,7 +159,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
 		// the caller opted into an existing dir, not into carving out an isolated space.
 		const at = input.at ?? 'tab'
-		target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at, from, ...labelFor(at, input, brief, id) })
+		target = sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
 	} else {
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
 		// A spawn that CREATES A NEW WORKTREE gets its own isolated, VISIBLE space by default — the
@@ -179,7 +184,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 				primaryRoot,
 				branch,
 				path: worktreePath,
-				launch: fullLaunch,
+				launch: launchLine(),
 				...labelFor(at, input, brief, id),
 			})
 			assertDistinctFromPrimary(opened.worktree.root, primaryRoot)
@@ -196,7 +201,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
 			cwd = added.root
 			worktree = added
-			target = sessionAdapter.open(exec, { cwd, launch: fullLaunch, at, from, ...labelFor(at, input, brief, id) })
+			target = sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
 		}
 	}
 
@@ -289,6 +294,36 @@ function muxEnvPrefix(muxName: string): string {
 	if (muxName === 'tmux') return 'CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE '
 	if (muxName === 'herdr') return 'CYBER_MUX=herdr '
 	return ''
+}
+
+/**
+ * The argv that re-invokes the running CLI exactly: this node binary, its loader flags (tsx under
+ * `pnpm cl dev`), and the entry script with symlinks resolved — so an `npx` or `.bin` link reaches
+ * the same file it ran from, never whatever the name resolves to later.
+ */
+export function selfInvocation(): string[] {
+	const entry = process.argv[1]
+	return [process.execPath, ...process.execArgv, ...(entry ? [realpathSync(entry)] : [])]
+}
+
+/**
+ * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
+ * and return its directory. A spawned session gets that directory first on its PATH, so the
+ * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
+ * the registry or the session's own PATH at report time.
+ */
+function writeSelfShim(dataDir: string, self: string[]): string {
+	const dir = join(dataDir, 'bin')
+	mkdirSync(dir, { recursive: true })
+	const shim = join(dir, 'cyberlegion')
+	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote).join(' ')} "$@"\n`)
+	chmodSync(shim, 0o755)
+	return dir
+}
+
+/** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
+function shellQuote(s: string): string {
+	return `'${s.replaceAll("'", "'\\''")}'`
 }
 
 export interface ClearResult {

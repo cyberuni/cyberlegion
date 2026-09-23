@@ -365,13 +365,13 @@ graph TD
   SPF -- no --> SPF1["throw: must already exist"]
   SPF -- yes --> SPG{"resolves onto the primary checkout?"}
   SPG -- yes --> SPG1["throw: refuses the primary checkout"]
-  SPG -- no --> SPO["at := --at ?? tab; open the session; worktree := none"]
+  SPG -- no --> SPO["at := --at ?? tab; write the shim (SPS), open the session; worktree := none"]
   SPE -- no --> SPI["branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace; path := --worktree-path ?? parent/repo.worktrees/legion-id6"]
   SPI --> SPJ{"the resolved worktree path is the primary checkout?"}
   SPJ -- yes --> SPJ1["throw BEFORE anything is created or opened"]
   SPJ -- no --> SPK{"at = workspace AND the backend offers worktree creation?"}
-  SPK -- yes --> SPK1["atomic: ONE backend call creates the worktree and opens its workspace"]
-  SPK -- no --> SPK2["plain: git worktree add, then a separate open"]
+  SPK -- yes --> SPK1["atomic: write the shim (SPS), then ONE backend call creates the worktree and opens its workspace"]
+  SPK -- no --> SPK2["plain: git worktree add, write the shim (SPS), then a separate open"]
   SPK1 --> SPBK{"backstop: the root the route returned is the primary checkout?"}
   SPK2 --> SPBK
   SPBK -- yes --> SPBK1["throw — fires AFTER creation; nothing rolls it back"]
@@ -384,6 +384,13 @@ graph TD
   SPIB1 --> SPR["ring the first turn — the ring graph below"]
   SPIB2 --> SPR
 ```
+
+`SPS` — the self shim, written only past every refusal and before any session opens: the caller's
+CLI records its own invocation (node, loader flags, the entry file with symlinks resolved), spawn
+writes `<hub>/data/<id>/bin/cyberlegion` to exec it with the given arguments, and the typed launch
+prefixes `PATH='<that dir>':"$PATH"`. A caller that records no invocation writes no shim and leaves
+PATH alone. A shim, not an env var such as `CYBERLEGION_BIN`: a brief's `cyberlegion mail send` then
+works as written, whoever authored the brief, and nothing is resolved from the registry at report time.
 
 ### spawn — the workspace label (only on a `workspace` placement)
 
@@ -587,6 +594,14 @@ column records. They are not gaps.
 | `SPC` the file branch | --brief-file naming a file with content | `--brief-file reads the brief from the file it names` |
 | `SPIB -- yes` | a cursor agent def carrying instructions | `a cursor --agent spawn writes the def's instructions in front of the brief under their own heading` |
 | `SPIB -- no` | a claude agent def carrying instructions | `a claude --agent spawn's brief file holds the task alone` |
+
+### The spawned session can invoke the CLI that spawned it
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `SPS` shim written, PATH prefixed | a spawn from an installed cyberlegion | `spawn puts a cyberlegion command on the new session's PATH that re-invokes the caller's own CLI` |
+| `SPS` before the open | any spawn that opens a session | `the shim is on disk before the session opens` |
+| `SPF -- no` writes no shim | a --cwd naming a missing directory | `a spawn refused at a guard writes no shim` |
 
 ### The refusals, and the ordering they promise
 

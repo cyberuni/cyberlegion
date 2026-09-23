@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from "node:module";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -3170,12 +3170,12 @@ function assertDistinctFromPrimary(worktreeRoot, primaryRoot) {
 * Without this a value carrying a space or a quote would split into extra words, or unbalance the
 * line outright.
 */
-function shellQuote$1(value) {
+function shellQuote$2(value) {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 /** `env K=V …` with a trailing space, ready to prepend to a command line. Values are shell-quoted. */
 function envPrefix(env) {
-	return `env ${Object.entries(env).map(([key, value]) => `${key}=${shellQuote$1(value)}`).join(" ")} `;
+	return `env ${Object.entries(env).map(([key, value]) => `${key}=${shellQuote$2(value)}`).join(" ")} `;
 }
 /**
 * Given the env a route could not carry and the command (if any) that would run in the opened pane,
@@ -5892,7 +5892,10 @@ function spawn(ctx, input) {
 	const id = randomId();
 	const primaryRoot = resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
-	const fullLaunch = `${muxEnvPrefix(sessionAdapter.name)}${launch}`;
+	const launchLine = () => {
+		const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
+		return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(sessionAdapter.name)}${launch}`;
+	};
 	const from = callerPane(sessionAdapter, normalizedEnv);
 	let cwd;
 	let worktree;
@@ -5905,7 +5908,7 @@ function spawn(ctx, input) {
 		const at = input.at ?? "tab";
 		target = sessionAdapter.open(exec, {
 			cwd,
-			launch: fullLaunch,
+			launch: launchLine(),
 			at,
 			from,
 			...labelFor(at, input, brief, id)
@@ -5920,7 +5923,7 @@ function spawn(ctx, input) {
 				primaryRoot,
 				branch,
 				path: worktreePath,
-				launch: fullLaunch,
+				launch: launchLine(),
 				...labelFor(at, input, brief, id)
 			});
 			assertDistinctFromPrimary(opened.worktree.root, primaryRoot);
@@ -5940,7 +5943,7 @@ function spawn(ctx, input) {
 			worktree = added;
 			target = sessionAdapter.open(exec, {
 				cwd,
-				launch: fullLaunch,
+				launch: launchLine(),
 				at,
 				from,
 				...labelFor(at, input, brief, id)
@@ -6033,6 +6036,37 @@ function muxEnvPrefix(muxName) {
 	if (muxName === "tmux") return "CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE ";
 	if (muxName === "herdr") return "CYBER_MUX=herdr ";
 	return "";
+}
+/**
+* The argv that re-invokes the running CLI exactly: this node binary, its loader flags (tsx under
+* `pnpm cl dev`), and the entry script with symlinks resolved — so an `npx` or `.bin` link reaches
+* the same file it ran from, never whatever the name resolves to later.
+*/
+function selfInvocation() {
+	const entry = process.argv[1];
+	return [
+		process.execPath,
+		...process.execArgv,
+		...entry ? [realpathSync(entry)] : []
+	];
+}
+/**
+* Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
+* and return its directory. A spawned session gets that directory first on its PATH, so the
+* `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
+* the registry or the session's own PATH at report time.
+*/
+function writeSelfShim(dataDir, self) {
+	const dir = join(dataDir, "bin");
+	mkdirSync(dir, { recursive: true });
+	const shim = join(dir, "cyberlegion");
+	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote$1).join(" ")} "$@"\n`);
+	chmodSync(shim, 493);
+	return dir;
+}
+/** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
+function shellQuote$1(s) {
+	return `'${s.replaceAll("'", "'\\''")}'`;
 }
 /**
 * Resolve a unit's live session pane from a ref, or throw naming the ref. The one place
@@ -7586,7 +7620,8 @@ const VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.u
 function ctxOf(opts) {
 	return {
 		store: new FileStore(resolveRoot({ space: opts.space })),
-		env: process.env
+		env: process.env,
+		self: selfInvocation()
 	};
 }
 function formatOf(opts) {
