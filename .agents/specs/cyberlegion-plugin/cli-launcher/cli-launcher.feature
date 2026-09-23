@@ -35,6 +35,11 @@ Feature: cli-launcher — skills run the CLI they ship with
     When node runs a skill's launcher with a command the CLI rejects
     Then its stdout, stderr, and exit code equal those of bin/cyberlegion.mjs run with the same arguments
 
+  Scenario: a launcher in a standalone skill folder runs the pinned published CLI
+    Given a skill folder copied on its own, with no bin/cyberlegion.mjs three levels above its launcher
+    When node runs its scripts/cyberlegion.mjs with arguments
+    Then it runs npx -y cyberlegion@<package version> with those arguments, exits with that command's exit code, and names the fallback on stderr
+
   Scenario: a launcher at a checkout without the built CLI names it and the pinned fallback
     Given an installed-shape plugin directory without dist/cli.mjs
     When node runs a skill's launcher
@@ -53,6 +58,11 @@ Feature: cli-launcher — skills run the CLI they ship with
     Given skills whose fallback pins name an older version than package.json
     When the version sync runs
     Then every skill's fallback pin names the package.json version
+
+  Scenario: the version flow rewrites every launcher's fallback pin
+    Given launchers whose fallback pins name an older version than package.json
+    When the version sync runs
+    Then every launcher's fallback pin names the package.json version
 
   Scenario: the version flow rewrites the plugin's pins map
     Given a .plugin/pins.json whose cyberlegion entry names an older version than package.json
