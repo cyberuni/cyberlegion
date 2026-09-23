@@ -12,26 +12,29 @@ It is a **thin wrapper**: every mechanic is a `cyberlegion` CLI call. The skill 
 and the judgment* — is this a root session? should we ask to bind? what does the environment look
 like? — the CLI holds all the *mechanism*.
 
+> **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
+> this plugin ships. The path is relative to this skill's own directory, not the working directory.
+>
 > **Version pin.** Resolve the CLI version **once, before the flow**, by reading the plugin's bundled
 > map at `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json` — a flat `{ "<package>": "<version>" }` map the
-> `universal-plugin bundle` step emits at release time. Look up the `cyberlegion` key:
+> release version flow keeps equal to the shipped package version. Look up the `cyberlegion` key:
 >
-> - **A version is found** → use it for every `npx cyberlegion@0.3.1 ...` call below, **and** pass
->   it to the hook registration in step 2 as `init --pin <version>` so the installed surfacing hook is
->   pinned to the same shipped version.
+> - **A version is found** → pass it to the hook registration in step 2 as `init --pin <version>`
+>   so the installed surfacing hook is pinned to the same shipped version. If you cannot resolve
+>   `scripts/cyberlegion.mjs`, run `npx -y cyberlegion@<version>` in its place, with the same arguments.
 > - **No `pins.json`, no `cyberlegion` key, or a malformed map** (an unbundled workspace checkout) →
->   fall back to the unpinned `npx cyberlegion ...` form and pass **no** `--pin`. **Never invent a
->   version number.**
+>   pass **no** `--pin`; if you cannot resolve `scripts/cyberlegion.mjs`, fall back to the unpinned
+>   `npx -y cyberlegion` form. **Never invent a version number.**
 >
-> Do not scrape the version from prose. (`legion-publish` — actually publishing `cyberlegion` to npm —
-> is a later extraction CR; until then the npx pin is dormant and the local workspace bin serves.)
+> Do not scrape the version from prose.
+
 
 ## Flow
 
 ### 1. Probe the environment
 
 ```bash
-npx cyberlegion@0.3.1 mux doctor
+node scripts/cyberlegion.mjs mux doctor
 ```
 
 Run this **before** touching the hook or any identity. It reports `harness`, `mux`, `pane`,
@@ -42,17 +45,17 @@ invent facts the probe did not report.
 ### 2. Register the surfacing hook
 
 ```bash
-npx cyberlegion@0.3.1 init --pin <version>
+node scripts/cyberlegion.mjs init --pin <version>
 ```
 
 Pass `--pin <version>` with the version resolved above so the installed hook is pinned to the shipped
-version; **omit `--pin`** (and use the unpinned `npx cyberlegion init`) when the map yielded no version.
+version; **omit `--pin`** when the map yielded no version.
 
 Auto-detect is the default — no `--agent` flag. Pass `--agent <name>` **only** when `mux doctor` could
 not auto-detect the harness, or the user named one explicitly (it composes with `--pin`):
 
 ```bash
-npx cyberlegion@0.3.1 init --pin <version> --agent <name>
+node scripts/cyberlegion.mjs init --pin <version> --agent <name>
 ```
 
 This step is **idempotent**: if the hook is already registered, `init` reports `already present` —
@@ -84,8 +87,8 @@ Only a root session with no `legate` owner bound is offered the bind. Ask plainl
 ### 5. On an explicit yes — mint and bind
 
 ```bash
-npx cyberlegion@0.3.1 unit register --standing --handle legate
-npx cyberlegion@0.3.1 attach
+node scripts/cyberlegion.mjs unit register --standing --handle legate
+node scripts/cyberlegion.mjs attach
 ```
 
 Run these **in this order** and only after the explicit yes: mint the durable, session-independent

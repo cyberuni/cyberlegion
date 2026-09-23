@@ -10,16 +10,17 @@ owner identity holds, where frameless agents (cron-started, no parent frame) pus
 wraps the `cyberlegion` CLI's owner-scoped mail commands so a human roaming across sessions manages
 the one owner mailbox from wherever they are.
 
-> **Version pin.** Invocations read `npx cyberlegion@0.3.1 …` as a placeholder. Until the package
-> is published, resolve the CLI from the workspace checkout (`packages/cyberlegion/bin/cyberlegion.mjs`)
-> or the project's pinned version. Never invent a version number.
+> **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
+> this plugin ships. The path is relative to this skill's own directory, not the working directory.
+> If you cannot resolve it, run the published CLI of the version that shipped this skill instead,
+> with the same arguments: `npx -y cyberlegion@0.4.0`.
 
 ## Resolve the owner handle
 
 The owner mailbox is a **standing** identity. Find it first:
 
 ```bash
-npx cyberlegion@0.3.1 unit register --standing            # lists the standing owner record(s)
+node scripts/cyberlegion.mjs unit register --standing            # lists the standing owner record(s)
 ```
 
 Pick the handle in this order, and scope every mail command below to it with `--owner <handle>`:
@@ -38,8 +39,8 @@ Pick the handle in this order, and scope every mail command below to it with `--
 ## List — what is waiting
 
 ```bash
-npx cyberlegion@0.3.1 mail inbox --owner <handle>            # all owner mail, oldest-first
-npx cyberlegion@0.3.1 mail inbox --owner <handle> --unread   # only what is new
+node scripts/cyberlegion.mjs mail inbox --owner <handle>            # all owner mail, oldest-first
+node scripts/cyberlegion.mjs mail inbox --owner <handle> --unread   # only what is new
 ```
 
 The aggregate line reports `<N> messages (<U> unread)`. This is a **pull** from any session — the
@@ -49,7 +50,7 @@ have seen it inline; listing is how you review deliberately.
 ## Read — peek without consuming
 
 ```bash
-npx cyberlegion@0.3.1 mail read <msg-id> --owner <handle>
+node scripts/cyberlegion.mjs mail read <msg-id> --owner <handle>
 ```
 
 Prints the report body (sender, subject, id). Do not add `--ack`. **Read does not ack** — the message stays unread and
@@ -58,7 +59,7 @@ keeps surfacing until you explicitly clear it. Peeking is safe; it changes nothi
 ## Ack — the only thing that clears it
 
 ```bash
-npx cyberlegion@0.3.1 mail ack <msg-id> --owner <handle>
+node scripts/cyberlegion.mjs mail ack <msg-id> --owner <handle>
 ```
 
 Ack is the sole read-state change and the sole signal that a report is handled — a surfaced message
@@ -75,7 +76,7 @@ A report may be a **question** a frameless agent could not ask live. Reply on it
 tick (or the agent's next run) picks up the answer:
 
 ```bash
-npx cyberlegion@0.3.1 mail send --to <agent-or-thread-origin> --thread <t> --body "<answer>"
+node scripts/cyberlegion.mjs mail send --to <agent-or-thread-origin> --thread <t> --body "<answer>"
 ```
 
 The thread carries the state across the agent's stateless re-runs.

@@ -12,6 +12,11 @@ lifecycle, the same way `dispatch-governance` forces `run-inline` from "do I hav
 contract is loaded by `dispatch-governance` (to relay a callee's `needsInput`) and by every headless
 agent (`headless-legate`, `sdd-automaton`, the cold judges) to know how *it* reports.
 
+> **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
+> this plugin ships. The path is relative to this skill's own directory, not the working directory.
+> If you cannot resolve it, run the published CLI of the version that shipped this skill instead,
+> with the same arguments: `npx -y cyberlegion@0.4.0`.
+
 ## The one probe: who, if anyone, collects my return?
 
 A model is not running between turns. Whatever a headless agent emits must reach a collector, or be
@@ -50,7 +55,7 @@ exiting. Resolve the owner recipient in this order:
 Then:
 
 ```bash
-npx cyberlegion@0.3.1 mail send --to <owner> --subject "<what>" --body-file <report> [--thread <t>]
+node scripts/cyberlegion.mjs mail send --to <owner> --subject "<what>" --body-file <report> [--thread <t>]
 ```
 
 and **exit**. Do not park waiting for a live answer — a cron session has no one to answer live. The
