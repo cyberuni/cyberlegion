@@ -154,9 +154,12 @@ npx skills add cyberuni/cyberplace --plugin cyberlegion --global
 
 This package doubles as the plugin root: `plugin.json`, the generated `.claude-plugin/` and
 `.codex-plugin/` manifests, `skills/`, and `agents/` all ship in the npm tarball. The bundle
-carries the version it was built against in `.plugin/pins.json`, and its skills read that pin to invoke `npx cyberlegion@<version> …` rather than inventing a version. In a
-workspace checkout with no bundled pin, they fall back to the unpinned `npx cyberlegion …` form or
-the local bin (`packages/cyberlegion/bin/cyberlegion.mjs`).
+Each skill that runs the CLI carries a launcher, `scripts/cyberlegion.mjs`, that runs the CLI
+shipped in this same package (`bin/cyberlegion.mjs` over the committed `dist/cli.mjs`), so a skill
+never fetches a copy through npx and always runs the version its own text describes. Where the
+launcher cannot be resolved, a skill names one fallback pinned to the version that shipped it,
+`npx -y cyberlegion@<version>`. `pnpm version` rewrites those pins and `.plugin/pins.json` at every
+release, and the test suite fails on a stale one.
 
 ## License
 
