@@ -6,6 +6,7 @@
 		"build": "turbo run build",
 		"check": "biome check",
 		"check:fix": "biome check --write",
+		"check:bundle": "node scripts/check-cli-bundle.mjs",
 		"check:suite": "node scripts/check-suite.mjs",
 		"cl": "pnpm run --filter=./packages/cyberlegion",
 		"knip": "knip",
@@ -13,7 +14,7 @@
 		"release": "changeset publish",
 		"test": "turbo run test",
 		"typecheck": "turbo run typecheck",
-		"verify": "pnpm check && pnpm check:suite && turbo run build typecheck test && pnpm knip",
+		"verify": "pnpm check && pnpm check:suite && turbo run build typecheck test && pnpm check:bundle && pnpm knip",
 		"version": "changeset version && node scripts/sync-plugin-version.mjs && universal-plugin plugin build --root packages/cyberlegion",
 		"web": "turbo run --filter=@cyberuni/web"
 	},
