@@ -1,5 +1,21 @@
 # cyberlegion
 
+## 0.5.0
+
+### Minor Changes
+
+- afa7fb2: The plugin's skills now run the CLI they ship with. Each skill that calls `cyberlegion` carries a `scripts/cyberlegion.mjs` launcher that runs this package's own CLI, so a skill no longer pays for an `npx` fetch on every call or races other agents on the npx cache. Where the launcher cannot be resolved, a skill names one fallback pinned to the version that shipped it, and `pnpm version` now rewrites those pins and `.plugin/pins.json` at every release.
+- 9b25902: `unit spawn` accepts `--model <name>` and `--effort <level>`, which set the model and effort for one launch. The precedence is flag > agent def > harness default, and a flag never writes back to the def. The flags work with `--agent`/`--agent-file` and with a bare `--harness`. The spawn output now includes `model` and `effort`, reporting what the session launched with, or `(harness default)` when no source set one.
+
+### Patch Changes
+
+- 46d67c6: `bin/cyberlegion.mjs` now fails with a clear message when `dist/cli.mjs` is missing, naming the file and the same-version `npx -y cyberlegion@<version>` fallback, instead of a raw `ERR_MODULE_NOT_FOUND`.
+- 64195cc: `unit spawn --agent` now passes a def's instructions in a form each harness accepts. Claude still gets `--append-system-prompt`. Codex now gets its `developer_instructions` config override (`-c developer_instructions="…"`), because codex has no `--append-system-prompt` flag. Cursor has no way to take instructions from the command line, so spawn now writes them in front of the task in the peer's brief file, under an `## Agent instructions` heading.
+- 725ee89: The `manage-inbox` skill no longer guesses which owner mailbox to use. If `CYBERLEGION_OWNER` is unset and more than one standing owner exists, it stops without running any mail command, lists every standing handle, and asks you to set `CYBERLEGION_OWNER`. If `CYBERLEGION_OWNER` names a handle that is not a standing owner, it reports the error instead of switching to another owner.
+- 19a9a68: `unit spawn --agent` now launches with the agent def's `effort`. Before this fix the value was parsed and then silently dropped. Each harness receives it through its own control: `--effort <level>` for claude, `-c model_reasoning_effort="<level>"` for codex, and a bracket parameter on the model (`<model>[effort=<level>]`) for cursor. Cursor has no effort control apart from the model, so a cursor def that sets `effort` without a `model` now fails with an error instead of launching at the default effort.
+- 53901c9: `unit spawn` now puts a `cyberlegion` command on the spawned session's PATH. It is a shim in the unit's data dir that re-runs the exact CLI that spawned the unit, so a brief's `cyberlegion mail send` works as written and reports through the spawning version, not one fetched from the registry.
+- 6a1ec6c: An agent def whose `harness` tag is not `claude`, `cursor`, or `codex` now fails to resolve, with an error naming the value and the valid harnesses. Before this fix a typo such as `harness: claud` resolved, and `unit spawn --agent` built a launch command starting with `undefined`. `agent list` fails the same way when any def it finds carries an unknown harness.
+
 ## 0.4.0
 
 ### Minor Changes

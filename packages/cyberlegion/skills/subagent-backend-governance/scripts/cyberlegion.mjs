@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const FALLBACK = 'npx -y cyberlegion@0.4.0'
+const FALLBACK = 'npx -y cyberlegion@0.5.0'
 const bin = new URL('../../../bin/cyberlegion.mjs', import.meta.url)
 
 if (existsSync(fileURLToPath(bin))) {
