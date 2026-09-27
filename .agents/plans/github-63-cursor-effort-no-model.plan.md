@@ -12,9 +12,9 @@ todos:
   - content: "deliver: test-first realizeLaunch effortNotApplied + CLI stderr warning; rebuild dist; pnpm verify"
     status: completed
   - content: "impl gate: cold impl-judge over the replaced frozen scenarios"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #63), mail operator"
-    status: pending
+    status: completed
 ---
 
 # github-63 — cursor effort with no model must not throw
@@ -37,5 +37,6 @@ not launch on this account.
 
 ## NEXT
 
-Spec gate passed (round 3, self-asserted by:agent); fix committed. Next: rebase onto main, rebuild
-dist, cold impl-judge over the three replaced scenarios, then PR (Closes #63) and mail operator.
+Landed on branch `fix/63-cursor-effort-no-model` as a PR against main (Closes #63); both gates
+self-asserted by:agent, the owner ratifies and merges at the PR. Follow-up: the bracket-rejection
+observation above, recorded in the ledger shard and filed as #72.
