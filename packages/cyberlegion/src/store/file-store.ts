@@ -128,6 +128,10 @@ export class FileStore implements Store {
 		throw new Error(`"${msgId}" is not a message in this inbox`)
 	}
 
+	removeMailbox(id: string): void {
+		rmSync(paths.inboxDir(this.root, id), { recursive: true, force: true })
+	}
+
 	putAgent(rec: AgentRecord): void {
 		writeJson(paths.agentFile(this.root, rec.id), rec)
 	}

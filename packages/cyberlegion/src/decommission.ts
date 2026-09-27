@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, realExec } from './identity.ts'
+import { deleteMailbox } from './message.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 
 export interface DecommissionInput {
@@ -35,7 +36,10 @@ export interface DecommissionResult {
  * is tolerated, but a genuine worktree-removal failure aborts and leaves the record intact so the
  * operation is retryable.
  *
- * `keepWorktree` reaps everything else — pane, record, pane pointer, brief — and leaves the
+ * The reap covers the record, pane pointer, stored brief, and mailbox. To end only the session and keep
+ * the unit, `stopUnit` (`unit-runtime.ts`) is the non-destructive counterpart.
+ *
+ * `keepWorktree` reaps everything else — pane, record, pane pointer, brief, mailbox — and leaves the
  * checkout on disk, reporting it as `retainedWorktree`.
  */
 export function decommission(ctx: IdContext, input: DecommissionInput): DecommissionResult {
@@ -100,6 +104,9 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 	ctx.store.removeAgent(input.id)
 	if (pane) ctx.store.removePaneIndex(pane)
 	ctx.store.removeAgentData(input.id)
+	// The mailbox goes with the unit — a close is the address going away for good. Asked of the mail
+	// side rather than deleted here, so where a mailbox lives stays mail's concern.
+	deleteMailbox(ctx.store, input.id)
 
 	return {
 		agent: rec,

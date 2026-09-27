@@ -29,7 +29,7 @@ type StorablePaneMux = 'tmux' | 'herdr'
  * inside a pane-carrying-but-unstorable multiplexer (wezterm/zellij) is simply unpaned here — it can
  * still resolve an identity via the `$CYBERLEGION_AGENT_ID` env fallback, it just cannot bind a pane
  * locator to it. */
-function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pane: string } | undefined {
+export function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pane: string } | undefined {
 	const cur = currentPane(normalizeMuxEnv(env))
 	return cur && (cur.mux === 'tmux' || cur.mux === 'herdr') ? { mux: cur.mux, pane: cur.pane } : undefined
 }
@@ -407,6 +407,14 @@ function isSessionIndependent(rec: AgentRecord): boolean {
 	return rec.kind === 'standing' || rec.kind === 'service'
 }
 
+/** Whether `prune`/`reconcile` may judge this record by its pane or its last-seen. A standing or
+ * service record has no session to judge; a stopped unit's session was ended on purpose, so neither
+ * a missing pane nor an old last-seen says anything about it — and flipping it to `exited` would make
+ * its handle unaddressable, stranding the mail its id still receives. */
+function isPrunable(rec: AgentRecord): boolean {
+	return !isSessionIndependent(rec) && rec.status !== 'exited' && rec.status !== 'stopped'
+}
+
 /**
  * Whether a unit's session is still there, as far as its backend can tell. "Cannot rule out alive"
  * must never become grounds to replace an owner — the same fail-closed policy `store/lock.ts` takes
@@ -417,7 +425,7 @@ function isSessionIndependent(rec: AgentRecord): boolean {
  * "gone". An exited record is never live.
  */
 export function sessionLive(ctx: IdContext, rec: AgentRecord): boolean {
-	if (rec.status === 'exited') return false
+	if (rec.status === 'exited' || rec.status === 'stopped') return false
 	if (!rec.pane) return true
 	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec)
 	if (panes.length === 0) return true
@@ -497,8 +505,7 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
 	const live = new Set(panes.map((p) => p.id))
 	const changed: AgentRecord[] = []
 	for (const rec of listAgents(ctx.store)) {
-		if (isSessionIndependent(rec)) continue
-		if (rec.status === 'exited') continue
+		if (!isPrunable(rec)) continue
 		if (!rec.pane) continue
 		if (rec.pane.mux !== cur.mux) continue
 		if (!live.has(rec.pane.id)) {
@@ -519,8 +526,7 @@ export function prune(ctx: IdContext): AgentRecord[] {
 	const now = ctx.now?.() ?? Date.now()
 	const changed: AgentRecord[] = reconcile(ctx)
 	for (const rec of listAgents(ctx.store)) {
-		if (isSessionIndependent(rec)) continue
-		if (rec.status === 'exited') continue
+		if (!isPrunable(rec)) continue
 		const paneGone = rec.pane ? !PANE_ADAPTERS[rec.pane.mux].paneExists(exec, { id: rec.pane.id }) : false
 		const stale = now - new Date(rec.lastSeen).getTime() > STALE_MS
 		if (paneGone || stale) {

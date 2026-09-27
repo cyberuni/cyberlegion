@@ -5422,6 +5422,13 @@ const STALE_MS = 9e5;
 function isSessionIndependent(rec) {
 	return rec.kind === "standing" || rec.kind === "service";
 }
+/** Whether `prune`/`reconcile` may judge this record by its pane or its last-seen. A standing or
+* service record has no session to judge; a stopped unit's session was ended on purpose, so neither
+* a missing pane nor an old last-seen says anything about it — and flipping it to `exited` would make
+* its handle unaddressable, stranding the mail its id still receives. */
+function isPrunable(rec) {
+	return !isSessionIndependent(rec) && rec.status !== "exited" && rec.status !== "stopped";
+}
 /**
 * Whether a unit's session is still there, as far as its backend can tell. "Cannot rule out alive"
 * must never become grounds to replace an owner — the same fail-closed policy `store/lock.ts` takes
@@ -5432,7 +5439,7 @@ function isSessionIndependent(rec) {
 * "gone". An exited record is never live.
 */
 function sessionLive(ctx, rec) {
-	if (rec.status === "exited") return false;
+	if (rec.status === "exited" || rec.status === "stopped") return false;
 	if (!rec.pane) return true;
 	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec);
 	if (panes.length === 0) return true;
@@ -5509,8 +5516,7 @@ function reconcile(ctx, opts) {
 	const live = new Set(panes.map((p) => p.id));
 	const changed = [];
 	for (const rec of listAgents(ctx.store)) {
-		if (isSessionIndependent(rec)) continue;
-		if (rec.status === "exited") continue;
+		if (!isPrunable(rec)) continue;
 		if (!rec.pane) continue;
 		if (rec.pane.mux !== cur.mux) continue;
 		if (!live.has(rec.pane.id)) {
@@ -5530,8 +5536,7 @@ function prune(ctx) {
 	const now = ctx.now?.() ?? Date.now();
 	const changed = reconcile(ctx);
 	for (const rec of listAgents(ctx.store)) {
-		if (isSessionIndependent(rec)) continue;
-		if (rec.status === "exited") continue;
+		if (!isPrunable(rec)) continue;
 		const paneGone = rec.pane ? !PANE_ADAPTERS[rec.pane.mux].paneExists(exec, { id: rec.pane.id }) : false;
 		const stale = now - new Date(rec.lastSeen).getTime() > STALE_MS;
 		if (paneGone || stale) {
@@ -5892,10 +5897,7 @@ function spawn(ctx, input) {
 	const id = randomId();
 	const primaryRoot = resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
-	const launchLine = () => {
-		const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
-		return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(sessionAdapter.name)}${launch}`;
-	};
+	const launchLine = () => composeLaunchLine(ctx, sessionAdapter.name, id, launch);
 	const from = callerPane(sessionAdapter, normalizedEnv);
 	let cwd;
 	let worktree;
@@ -5966,6 +5968,7 @@ function spawn(ctx, input) {
 		createdAt: ts,
 		lastSeen: ts,
 		brief: paths.briefFile(ctx.store.root, id),
+		launch,
 		...resolveSelfId(ctx) ? { spawnedBy: resolveSelfId(ctx) } : {}
 	};
 	saveAgent(ctx.store, rec);
@@ -6024,6 +6027,16 @@ function labelFor(at, input, brief, id) {
 		handle: input.handle,
 		id
 	}) };
+}
+/**
+* The line typed into a unit's new pane: the PATH shim that re-invokes this CLI (when the caller
+* supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
+* as a side effect, so call it only past every refusal, right before the session opens. Shared by
+* `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+*/
+function composeLaunchLine(ctx, muxName, id, launch) {
+	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
+	return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
 }
 /**
 * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
@@ -6431,6 +6444,84 @@ function readCommandOutput(format, result) {
 	return format === "json" ? JSON.stringify(result, null, 2) : result.output;
 }
 //#endregion
+//#region src/message.ts
+/** Write one message into the recipient's inbox. Collision-free by <epochMs>-<hex>. */
+function send(ctx, input) {
+	const toId = resolveRecipient(ctx.store, input.to);
+	const from = loadAgent(ctx.store, input.fromId);
+	const ts = ctx.now?.() ?? Date.now();
+	const msg = {
+		id: `${ts}-${randomBytes(3).toString("hex")}`,
+		from: input.fromId,
+		fromHandle: from?.handle ?? input.fromId,
+		to: toId,
+		...input.subject ? { subject: input.subject } : {},
+		body: input.body,
+		...input.thread ? { thread: input.thread } : {},
+		...input.replyTo ? { replyTo: input.replyTo } : {},
+		ts,
+		sentAt: new Date(ts).toISOString()
+	};
+	ctx.store.putMessage(toId, msg);
+	return msg;
+}
+/** Resolve a message body from the --body flag, a --body-file path, or stdin (--body-file -). */
+function resolveBody(body, bodyFile, readStdin = () => readFileSync(0, "utf8")) {
+	if (body != null) return body;
+	if (bodyFile) return bodyFile === "-" ? readStdin() : readFileSync(bodyFile, "utf8");
+	throw new Error("provide --body <text> or --body-file <path|->");
+}
+/** List the caller's mail, chronological (lexical id sort == time order). */
+function inbox(ctx, q) {
+	const snap = ctx.store.listInbox(q.meId);
+	const unread = snap.unread.map((m) => ({
+		...m,
+		read: false
+	}));
+	const acked = q.unread ? [] : snap.read.map((m) => ({
+		...m,
+		read: true
+	}));
+	let items = [...unread, ...acked];
+	if (q.from) items = items.filter((m) => m.from === q.from || m.fromHandle === q.from);
+	if (q.thread) items = items.filter((m) => m.thread === q.thread);
+	return items.sort((a, b) => a.id.localeCompare(b.id));
+}
+/** Peek at a message (unread or already-acked) without changing its state. */
+function peek(ctx, meId, msgId) {
+	const snap = ctx.store.listInbox(meId);
+	return [...snap.unread, ...snap.read].find((m) => m.id === msgId);
+}
+/** Acknowledge a message by moving it out of the unread set. Errors if not currently unread. */
+function ack(ctx, meId, msgId) {
+	return ctx.store.ackMessage(meId, msgId);
+}
+/** Read and consume a message in one atomic step: returns the body and acks it if still unread.
+* Idempotent — an already-acked message is returned with `acked: false` rather than erroring (unlike
+* bare `ack`); an unknown message id throws. Backs `mail read --ack`. */
+function readAck(ctx, meId, msgId) {
+	const snap = ctx.store.listInbox(meId);
+	if (snap.unread.some((m) => m.id === msgId)) return {
+		msg: ctx.store.ackMessage(meId, msgId),
+		acked: true
+	};
+	const already = snap.read.find((m) => m.id === msgId);
+	if (already) return {
+		msg: already,
+		acked: false
+	};
+	throw new Error(`"${msgId}" is not a message in this inbox`);
+}
+/** Permanently remove a message (unread or already-acked) from the caller's inbox. */
+function deleteMessage(ctx, meId, msgId) {
+	ctx.store.removeMessage(meId, msgId);
+}
+/** Delete an address's whole mailbox, read and unread — for an address going away for good (`unit
+* close`). The caller names the address; where and how its mail is stored stays this side's concern. */
+function deleteMailbox(store, id) {
+	store.removeMailbox(id);
+}
+//#endregion
 //#region src/decommission.ts
 /**
 * Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses
@@ -6439,7 +6530,10 @@ function readCommandOutput(format, result) {
 * is tolerated, but a genuine worktree-removal failure aborts and leaves the record intact so the
 * operation is retryable.
 *
-* `keepWorktree` reaps everything else — pane, record, pane pointer, brief — and leaves the
+* The reap covers the record, pane pointer, stored brief, and mailbox. To end only the session and keep
+* the unit, `stopUnit` (`unit-runtime.ts`) is the non-destructive counterpart.
+*
+* `keepWorktree` reaps everything else — pane, record, pane pointer, brief, mailbox — and leaves the
 * checkout on disk, reporting it as `retainedWorktree`.
 */
 function decommission(ctx, input) {
@@ -6466,6 +6560,7 @@ function decommission(ctx, input) {
 	ctx.store.removeAgent(input.id);
 	if (pane) ctx.store.removePaneIndex(pane);
 	ctx.store.removeAgentData(input.id);
+	deleteMailbox(ctx.store, input.id);
 	return {
 		agent: rec,
 		worktreeRoot,
@@ -6581,79 +6676,6 @@ function upsertCursor(settings, event, command) {
 	}
 	list.push({ command });
 	return "registered";
-}
-//#endregion
-//#region src/message.ts
-/** Write one message into the recipient's inbox. Collision-free by <epochMs>-<hex>. */
-function send(ctx, input) {
-	const toId = resolveRecipient(ctx.store, input.to);
-	const from = loadAgent(ctx.store, input.fromId);
-	const ts = ctx.now?.() ?? Date.now();
-	const msg = {
-		id: `${ts}-${randomBytes(3).toString("hex")}`,
-		from: input.fromId,
-		fromHandle: from?.handle ?? input.fromId,
-		to: toId,
-		...input.subject ? { subject: input.subject } : {},
-		body: input.body,
-		...input.thread ? { thread: input.thread } : {},
-		...input.replyTo ? { replyTo: input.replyTo } : {},
-		ts,
-		sentAt: new Date(ts).toISOString()
-	};
-	ctx.store.putMessage(toId, msg);
-	return msg;
-}
-/** Resolve a message body from the --body flag, a --body-file path, or stdin (--body-file -). */
-function resolveBody(body, bodyFile, readStdin = () => readFileSync(0, "utf8")) {
-	if (body != null) return body;
-	if (bodyFile) return bodyFile === "-" ? readStdin() : readFileSync(bodyFile, "utf8");
-	throw new Error("provide --body <text> or --body-file <path|->");
-}
-/** List the caller's mail, chronological (lexical id sort == time order). */
-function inbox(ctx, q) {
-	const snap = ctx.store.listInbox(q.meId);
-	const unread = snap.unread.map((m) => ({
-		...m,
-		read: false
-	}));
-	const acked = q.unread ? [] : snap.read.map((m) => ({
-		...m,
-		read: true
-	}));
-	let items = [...unread, ...acked];
-	if (q.from) items = items.filter((m) => m.from === q.from || m.fromHandle === q.from);
-	if (q.thread) items = items.filter((m) => m.thread === q.thread);
-	return items.sort((a, b) => a.id.localeCompare(b.id));
-}
-/** Peek at a message (unread or already-acked) without changing its state. */
-function peek(ctx, meId, msgId) {
-	const snap = ctx.store.listInbox(meId);
-	return [...snap.unread, ...snap.read].find((m) => m.id === msgId);
-}
-/** Acknowledge a message by moving it out of the unread set. Errors if not currently unread. */
-function ack(ctx, meId, msgId) {
-	return ctx.store.ackMessage(meId, msgId);
-}
-/** Read and consume a message in one atomic step: returns the body and acks it if still unread.
-* Idempotent — an already-acked message is returned with `acked: false` rather than erroring (unlike
-* bare `ack`); an unknown message id throws. Backs `mail read --ack`. */
-function readAck(ctx, meId, msgId) {
-	const snap = ctx.store.listInbox(meId);
-	if (snap.unread.some((m) => m.id === msgId)) return {
-		msg: ctx.store.ackMessage(meId, msgId),
-		acked: true
-	};
-	const already = snap.read.find((m) => m.id === msgId);
-	if (already) return {
-		msg: already,
-		acked: false
-	};
-	throw new Error(`"${msgId}" is not a message in this inbox`);
-}
-/** Permanently remove a message (unread or already-acked) from the caller's inbox. */
-function deleteMessage(ctx, meId, msgId) {
-	ctx.store.removeMessage(meId, msgId);
 }
 //#endregion
 //#region src/output.ts
@@ -7449,6 +7471,12 @@ var FileStore = class {
 		}
 		throw new Error(`"${msgId}" is not a message in this inbox`);
 	}
+	removeMailbox(id) {
+		rmSync(paths.inboxDir(this.root, id), {
+			recursive: true,
+			force: true
+		});
+	}
 	putAgent(rec) {
 		writeJson(paths.agentFile(this.root, rec.id), rec);
 	}
@@ -7535,6 +7563,255 @@ var FileStore = class {
 		return withLock(this.root, name, fn);
 	}
 };
+//#endregion
+//#region src/unit-runtime.ts
+/** A standing or service record is an address with no runtime of its own — nothing to stop or start. */
+function assertHasRuntime(rec, ref) {
+	if (rec.kind === "standing" || rec.kind === "service") throw new Error(`"${ref}" is a ${rec.kind} record — it has no runtime to stop, restart, or rebind`);
+}
+function assertNotSelf(ctx, rec, verb) {
+	if (resolveSelfId(ctx) === rec.id) throw new Error(`a unit cannot ${verb} its own session — run unit ${verb} ${rec.handle} from another session`);
+}
+/** The pane a unit's runtime lives in: its record's own locator, else the pane pointer keyed by its
+* id (a herdr peer stores its pane only there). */
+function runtimePane(ctx, rec) {
+	return rec.pane?.id ?? ctx.store.findPaneByAgentId(rec.id);
+}
+/** The adapter that owns a unit's pane: the record's own multiplexer when it names one, else the
+* backend this environment selects. Undefined when neither is available. */
+function paneAdapter(ctx, rec) {
+	if (ctx.adapter) return ctx.adapter;
+	if (rec.pane?.mux === "tmux") return tmuxMuxAdapter;
+	if (rec.pane?.mux === "herdr") return herdrMuxAdapter;
+	try {
+		return selectSessionAdapter(ctx.env ?? process.env, ctx.exec ?? realExec);
+	} catch {
+		return;
+	}
+}
+/** Record a deliberate end of the runtime: status `stopped`, no pane, the pane pointer dropped so a
+* later session in that pane (a recycled id) never resolves to this unit. Everything else is kept. */
+function markStopped(ctx, rec, pane) {
+	const stopped = {
+		...rec,
+		status: "stopped",
+		pane: null
+	};
+	saveAgent(ctx.store, stopped);
+	if (pane) ctx.store.removePaneIndex(pane);
+	return stopped;
+}
+/** Tear down a resolved unit's runtime and record it stopped, or throw when the backend still lists
+* the pane — never recording a stop that did not happen. Shared by `stopUnit` and `restartUnit`. */
+function stopRuntime(ctx, rec) {
+	const pane = runtimePane(ctx, rec);
+	if (!pane) return {
+		agent: markStopped(ctx, rec, void 0),
+		verified: false
+	};
+	const exec = ctx.exec ?? realExec;
+	const adapter = paneAdapter(ctx, rec);
+	if (!adapter) return {
+		agent: markStopped(ctx, rec, pane),
+		pane,
+		verified: false
+	};
+	try {
+		adapter.teardown(exec, { id: pane });
+	} catch {}
+	const listed = adapter.listPanes(exec);
+	if (listed.some((p) => p.id === pane)) throw new Error(`stop did not take effect — the backend still lists pane ${pane} for unit "${rec.handle}"; its record is unchanged`);
+	return {
+		agent: markStopped(ctx, rec, pane),
+		pane,
+		verified: listed.length > 0
+	};
+}
+/**
+* End a unit's runtime and keep the unit: tear down its pane, confirm the backend no longer lists
+* it, and mark the record `stopped` (pane-less, prune-exempt, still addressable by handle). The id,
+* handle, inbox, brief, worktree, and last-seen are left as they were.
+*/
+function stopUnit(ctx, ref) {
+	const rec = resolveAgent(ctx.store, ref);
+	assertHasRuntime(rec, ref);
+	assertNotSelf(ctx, rec, "stop");
+	if (rec.status === "stopped") return {
+		agent: rec,
+		verified: true,
+		alreadyStopped: true
+	};
+	return {
+		...stopRuntime(ctx, rec),
+		alreadyStopped: false
+	};
+}
+/**
+* Give a unit a fresh runtime and keep the unit: stop a still-running session (the same verified stop
+* as `stopUnit`), open a new session at the unit's cwd with the launch it was spawned with, bind the
+* record to the new pane, and ring it to read its brief — a rebrief, since a new session starts with
+* an empty context. Every refusal runs before anything is torn down.
+*
+* The unit is recorded `stopped` before the open, so a restart interrupted between the two leaves an
+* ordinary stopped unit and a rerun recovers it; nothing needs a separate repair path.
+*/
+async function restartUnit(ctx, ref, options = {}) {
+	const rec = resolveAgent(ctx.store, ref);
+	assertHasRuntime(rec, ref);
+	assertNotSelf(ctx, rec, "restart");
+	const harness = rec.harness;
+	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`unit "${rec.handle}" has harness "${rec.harness ?? ""}", not in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")}) — cannot restart it`);
+	if (!existsSync(rec.cwd)) throw new Error(`unit "${rec.handle}" cannot restart — its cwd ${rec.cwd} is gone; spawn a new unit instead`);
+	let stopped = rec;
+	let previousPane;
+	if (rec.status !== "stopped") {
+		const res = stopRuntime(ctx, rec);
+		stopped = res.agent;
+		previousPane = res.pane;
+	}
+	const env = ctx.env ?? process.env;
+	const exec = ctx.exec ?? realExec;
+	const launch = stopped.launch ?? LAUNCH_MAP[harness];
+	const at = stopped.worktree ? "workspace" : "tab";
+	let target;
+	let adapter;
+	try {
+		adapter = ctx.adapter ?? selectSessionAdapter(env, exec);
+		const label = at === "workspace" ? { label: deriveWorkspaceLabel({
+			brief: ctx.store.readBrief(rec.id) ?? "",
+			handle: rec.handle,
+			id: rec.id
+		}) } : {};
+		target = adapter.open(exec, {
+			cwd: stopped.cwd,
+			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch),
+			at,
+			from: callerPane(adapter, normalizeMuxEnv(env)),
+			...label
+		});
+	} catch (err) {
+		throw new Error(`restart could not open a session — unit "${rec.handle}" is stopped, with its inbox, brief, and worktree kept; rerun unit restart ${rec.handle}: ${err instanceof Error ? err.message : String(err)}`);
+	}
+	const mux = adapter.name;
+	const bound = {
+		...stopped,
+		status: "active",
+		pane: mux === "tmux" || mux === "herdr" ? {
+			mux,
+			id: target.id
+		} : null,
+		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString()
+	};
+	saveAgent(ctx.store, bound);
+	ctx.store.putPaneIndex(target.id, rec.id);
+	const briefPath = bound.brief;
+	const wake = await wakeSpawn(() => adapter, exec, {
+		target,
+		briefPath: briefPath ?? "",
+		noWake: options.noWake || !briefPath
+	}, options.nudgeOpts);
+	return {
+		agent: bound,
+		...previousPane ? { previousPane } : {},
+		pane: target.id,
+		launch,
+		rung: wake.rung,
+		...wake.warning ? { warning: wake.warning } : {}
+	};
+}
+function probeLiveness(ctx, rec) {
+	if (rec.kind === "standing" || rec.kind === "service") return "none";
+	if (rec.status === "stopped") return "stopped";
+	if (rec.status === "exited") return "exited";
+	const pane = runtimePane(ctx, rec);
+	const adapter = pane ? paneAdapter(ctx, rec) : void 0;
+	if (!pane || !adapter) return "unknown";
+	const listed = adapter.listPanes(ctx.exec ?? realExec);
+	if (listed.length === 0) return "unknown";
+	return listed.some((p) => p.id === pane) ? "live" : "gone";
+}
+/**
+* Bind a unit to the calling pane — for a session a person started by hand (with its harness's own
+* resume flag, say) that should be this unit rather than a new one. Never takes a pane another live
+* unit holds, and never binds a unit whose runtime may still be running elsewhere: two sessions
+* answering as one unit is the failure this refuses.
+*/
+function rebindUnit(ctx, ref) {
+	const rec = resolveAgent(ctx.store, ref);
+	assertHasRuntime(rec, ref);
+	const cur = storablePane(ctx.env ?? process.env);
+	if (!cur) throw new Error("unit rebind needs to run inside a tmux or herdr pane — there is no pane to bind");
+	const oldPane = runtimePane(ctx, rec);
+	if (rec.pane?.mux === cur.mux && rec.pane.id === cur.pane && ctx.store.resolvePaneId(cur.pane) === rec.id) return rec;
+	const holderId = ctx.store.resolvePaneId(cur.pane);
+	const holder = holderId && holderId !== rec.id ? loadAgent(ctx.store, holderId) : void 0;
+	if (holder && holder.status !== "stopped" && holder.status !== "exited") throw new Error(`this pane belongs to unit "${holder.handle}" (${holder.id}) — rebind never takes another unit's pane`);
+	const liveness = probeLiveness(ctx, rec);
+	if (oldPane && oldPane !== cur.pane && (liveness === "live" || liveness === "unknown")) throw new Error(`unit "${rec.handle}" may still be running in pane ${oldPane} — stop it first (unit stop ${rec.handle})`);
+	const bound = {
+		...rec,
+		status: "active",
+		pane: {
+			mux: cur.mux,
+			id: cur.pane
+		},
+		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString()
+	};
+	saveAgent(ctx.store, bound);
+	if (oldPane && oldPane !== cur.pane) ctx.store.removePaneIndex(oldPane);
+	ctx.store.putPaneIndex(cur.pane, rec.id);
+	return bound;
+}
+function hasHonestReset(harness) {
+	if (!harness) return false;
+	try {
+		resetCommandFor(harness);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** The controls that work on this runtime, from the record and the probed liveness — never from a
+* pane's display name, which any session can set. */
+function controlsFor(ctx, rec, liveness) {
+	if (liveness === "none") return [];
+	const controls = [];
+	if (liveness === "live") {
+		controls.push("focus", "nudge", "read");
+		if (hasHonestReset(rec.harness)) controls.push("clear");
+	}
+	if (runtimePane(ctx, rec) !== void 0 && (liveness === "live" || liveness === "gone" || liveness === "unknown")) controls.push("stop");
+	if (rec.harness && rec.harness in LAUNCH_MAP && existsSync(rec.cwd)) controls.push("restart");
+	if (liveness === "stopped" || liveness === "exited" || liveness === "gone") controls.push("rebind");
+	controls.push("close");
+	return controls;
+}
+/**
+* The read-only runtime view an observing client polls: where the runtime is, whether the backend
+* lists it right now, and what can be done with it. Writes nothing — not the target's record, not a
+* client registration — so any number of clients can watch and reconnect without owning anything.
+*/
+function showUnit(ctx, ref) {
+	const rec = resolveAgent(ctx.store, ref);
+	const liveness = probeLiveness(ctx, rec);
+	const pane = runtimePane(ctx, rec);
+	const mux = rec.pane?.mux ?? (pane ? paneAdapter(ctx, rec)?.name : void 0);
+	return {
+		id: rec.id,
+		handle: rec.handle,
+		...rec.harness ? { harness: rec.harness } : {},
+		status: rec.status,
+		liveness,
+		pane: pane && mux ? {
+			mux,
+			id: pane
+		} : null,
+		cwd: rec.cwd,
+		worktree: rec.worktree ?? null,
+		lastSeen: rec.lastSeen,
+		controls: controlsFor(ctx, rec, liveness)
+	};
+}
 //#endregion
 //#region src/wake/await.ts
 /** Internal poll interval — not user-facing (the round-trip cost of one `mail await` cycle). */
@@ -7871,6 +8148,74 @@ withGlobals(unit.command("close")).description("tear down a unit's worktree + se
 			pane: res.pane ?? "-"
 		}),
 		json: res
+	});
+});
+withGlobals(unit.command("stop")).description("end a unit's session and keep the unit — its id, handle, inbox, brief, and worktree stay (unit close destroys them)").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+	const ctx = ctxOf(opts);
+	touch(ctx);
+	const res = stopUnit(ctx, ref);
+	emit(formatOf(opts), {
+		toon: toonObject({
+			stopped: res.agent.id,
+			pane: res.pane ?? "-",
+			verified: res.verified,
+			already: res.alreadyStopped
+		}),
+		json: {
+			stopped: res.agent.id,
+			pane: res.pane ?? null,
+			verified: res.verified,
+			alreadyStopped: res.alreadyStopped
+		}
+	});
+	if (!res.alreadyStopped) nextStep(`cyberlegion unit restart ${res.agent.handle}`);
+});
+withGlobals(unit.command("restart")).description("give a unit a fresh session and keep the unit — stops a running session, relaunches it, and rebriefs it").argument("<ref>", "unit id, handle, or worktree branch/CR ref").option("--no-wake", "do not ring the new session to read its brief (the caller briefs it by mail)").action(async (ref, opts) => {
+	const ctx = ctxOf(opts);
+	touch(ctx);
+	const res = await restartUnit(ctx, ref, { noWake: opts.wake === false });
+	emit(formatOf(opts), {
+		toon: toonObject({
+			restarted: res.agent.id,
+			previous: res.previousPane ?? "-",
+			pane: res.pane,
+			rung: res.rung
+		}),
+		json: res
+	});
+	if (res.warning) nextStep(`warning: ${res.warning}`);
+});
+withGlobals(unit.command("rebind")).description("bind a stopped unit to the calling pane — for a session started by hand that should be this unit").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+	const rec = rebindUnit(ctxOf(opts), ref);
+	emit(formatOf(opts), {
+		toon: toonObject({
+			rebound: rec.id,
+			pane: rec.pane?.id ?? "-"
+		}),
+		json: {
+			rebound: rec.id,
+			pane: rec.pane
+		}
+	});
+});
+withGlobals(unit.command("show")).description("show a unit's runtime: where it is, whether it is live now, and the controls that work on it (read-only)").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+	const ctx = ctxOf(opts);
+	touch(ctx);
+	const view = showUnit(ctx, ref);
+	emit(formatOf(opts), {
+		toon: toonObject({
+			id: view.id,
+			handle: view.handle,
+			harness: view.harness ?? "-",
+			status: view.status,
+			liveness: view.liveness,
+			pane: view.pane ? `${view.pane.mux}:${view.pane.id}` : "-",
+			cwd: view.cwd,
+			worktree: view.worktree?.root ?? "-",
+			lastSeen: view.lastSeen,
+			controls: view.controls.join(",") || "-"
+		}),
+		json: view
 	});
 });
 withGlobals(unit.command("focus")).description("move input focus to a peer's session").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {

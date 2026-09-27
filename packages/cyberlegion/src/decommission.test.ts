@@ -187,6 +187,22 @@ describe('reap the record', () => {
 	})
 })
 
+describe("close deletes the unit's mailbox through the mail side", () => {
+	const msg = (id: string) => ({ id, from: 'x', fromHandle: 'x', to: 'y', body: 'b', ts: 1, sentAt: 'x' })
+
+	it("close deletes the unit's mailbox, read and unread", () => {
+		registerUnit({ id: 'mb1' })
+		registerUnit({ id: 'mb2', worktree: null, cwd: worktreeRoot, pane: { mux: 'tmux', id: '%8' } })
+		store.putMessage('mb1', msg('m-unread'))
+		store.putMessage('mb1', msg('m-read'))
+		store.ackMessage('mb1', 'm-read')
+		store.putMessage('mb2', msg('m-other'))
+		decommission({ store, env: { TMUX: 't' }, exec: makeExec().exec }, { id: 'mb1' })
+		expect(store.listInbox('mb1')).toEqual({ unread: [], read: [] })
+		expect(store.listInbox('mb2').unread.map((m) => m.id)).toEqual(['m-other'])
+	})
+})
+
 describe('a unit no pane can be resolved for', () => {
 	it('reaps it, tearing nothing down and touching no other unit pane pointer', () => {
 		// No pane on the record and no index entry of its own. The index is NOT empty — it holds

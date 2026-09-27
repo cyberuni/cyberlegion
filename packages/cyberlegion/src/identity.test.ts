@@ -199,6 +199,14 @@ describe('spec:cyberlegion/identity', () => {
 			expect(changed).toEqual([])
 			expect(loadAgent(store, rec.id)?.status).toBe('active')
 		})
+
+		it('prune leaves a stopped unit untouched however stale its last-seen', () => {
+			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'paused' }), { handle: 'paused', harness: 'claude' })
+			saveAgent(store, { ...(loadAgent(store, rec.id) as AgentRecord), status: 'stopped', pane: null })
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
+			expect(changed).toEqual([])
+			expect(loadAgent(store, rec.id)?.status).toBe('stopped')
+		})
 	})
 
 	describe('reconcile: mux-scoped cull against the live pane set', () => {
@@ -738,6 +746,10 @@ describe('spec:cyberlegion/service — owner liveness fails closed', () => {
 
 	it('a reachable backend listing the owner pane keeps it live', () => {
 		expect(sessionLive(ctx({}, listing('%7\tclaude\t/x\t\th\t0')), owner())).toBe(true)
+	})
+
+	it('a stopped owner is never live, even with no pane to probe', () => {
+		expect(sessionLive(ctx({}, listing(null)), { ...owner(), status: 'stopped', pane: null })).toBe(false)
 	})
 
 	it('an exited owner is never live', () => {

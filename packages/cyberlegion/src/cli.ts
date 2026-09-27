@@ -48,6 +48,7 @@ import {
 } from './service.ts'
 import { clearUnit, focusUnit, nudgeUnit, readUnit, selfInvocation, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
+import { rebindUnit, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
 
@@ -359,6 +360,92 @@ withGlobals(unit.command('close'))
 				pane: res.pane ?? '-',
 			}),
 			json: res,
+		})
+	})
+
+withGlobals(unit.command('stop'))
+	.description(
+		"end a unit's session and keep the unit — its id, handle, inbox, brief, and worktree stay (unit close destroys them)",
+	)
+	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.action((ref, opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		const res = stopUnit(ctx, ref)
+		emit(formatOf(opts), {
+			toon: toonObject({
+				stopped: res.agent.id,
+				pane: res.pane ?? '-',
+				verified: res.verified,
+				already: res.alreadyStopped,
+			}),
+			json: {
+				stopped: res.agent.id,
+				pane: res.pane ?? null,
+				verified: res.verified,
+				alreadyStopped: res.alreadyStopped,
+			},
+		})
+		if (!res.alreadyStopped) nextStep(`cyberlegion unit restart ${res.agent.handle}`)
+	})
+
+withGlobals(unit.command('restart'))
+	.description(
+		'give a unit a fresh session and keep the unit — stops a running session, relaunches it, and rebriefs it',
+	)
+	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.option('--no-wake', 'do not ring the new session to read its brief (the caller briefs it by mail)')
+	.action(async (ref, opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		const res = await restartUnit(ctx, ref, { noWake: opts.wake === false })
+		emit(formatOf(opts), {
+			toon: toonObject({
+				restarted: res.agent.id,
+				previous: res.previousPane ?? '-',
+				pane: res.pane,
+				rung: res.rung,
+			}),
+			json: res,
+		})
+		if (res.warning) nextStep(`warning: ${res.warning}`)
+	})
+
+withGlobals(unit.command('rebind'))
+	.description('bind a stopped unit to the calling pane — for a session started by hand that should be this unit')
+	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.action((ref, opts) => {
+		const ctx = ctxOf(opts)
+		const rec = rebindUnit(ctx, ref)
+		emit(formatOf(opts), {
+			toon: toonObject({ rebound: rec.id, pane: rec.pane?.id ?? '-' }),
+			json: { rebound: rec.id, pane: rec.pane },
+		})
+	})
+
+withGlobals(unit.command('show'))
+	.description(
+		"show a unit's runtime: where it is, whether it is live now, and the controls that work on it (read-only)",
+	)
+	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
+	.action((ref, opts) => {
+		const ctx = ctxOf(opts)
+		touch(ctx)
+		const view = showUnit(ctx, ref)
+		emit(formatOf(opts), {
+			toon: toonObject({
+				id: view.id,
+				handle: view.handle,
+				harness: view.harness ?? '-',
+				status: view.status,
+				liveness: view.liveness,
+				pane: view.pane ? `${view.pane.mux}:${view.pane.id}` : '-',
+				cwd: view.cwd,
+				worktree: view.worktree?.root ?? '-',
+				lastSeen: view.lastSeen,
+				controls: view.controls.join(',') || '-',
+			}),
+			json: view,
 		})
 	})
 

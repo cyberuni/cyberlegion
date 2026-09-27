@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { loadAgent, resolveRecipient } from './identity.ts'
-import type { Message, Store } from './store/store.ts'
+import type { MailboxStore, Message, Store } from './store/store.ts'
 
 export type { Message } from './store/store.ts'
 
@@ -102,4 +102,10 @@ export function readAck(ctx: MsgContext, meId: string, msgId: string): { msg: Me
 /** Permanently remove a message (unread or already-acked) from the caller's inbox. */
 export function deleteMessage(ctx: MsgContext, meId: string, msgId: string): void {
 	ctx.store.removeMessage(meId, msgId)
+}
+
+/** Delete an address's whole mailbox, read and unread — for an address going away for good (`unit
+ * close`). The caller names the address; where and how its mail is stored stays this side's concern. */
+export function deleteMailbox(store: MailboxStore, id: string): void {
+	store.removeMailbox(id)
 }

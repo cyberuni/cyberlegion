@@ -4,7 +4,7 @@ description: 'CLI reference for cyberlegion unit: register, discover, spawn, and
 ---
 
 ```sh
-npx cyberlegion unit <register|claim|whoami|who|prune|spawn|close|focus|nudge|read|clear> ...
+npx cyberlegion unit <register|claim|whoami|who|prune|spawn|close|stop|restart|rebind|show|focus|nudge|read|clear> ...
 ```
 
 `unit` owns the instance registry and session lifecycle, the middle noun of [the
@@ -142,7 +142,9 @@ npx cyberlegion unit close <id> [--force] [--keep-worktree]
 ```
 
 Tear down a unit's worktree and session and reap its state, the inverse of `spawn`. `<id>` may be
-a unit id, handle, or worktree branch/CR ref.
+a unit id, handle, or worktree branch/CR ref. The reap deletes the unit's record, pane pointer,
+brief, and mailbox. `close` is the only destructive way to end a unit: to end just its session and
+keep the work, use [`stop`](#stop).
 
 | Option | Meaning |
 |---|---|
@@ -161,6 +163,90 @@ Because nothing is deleted, `--keep-worktree` skips the dirty-worktree refusal: 
 only to protect uncommitted work from `git worktree remove`. The primary-checkout refusal is *not*
 relaxed — it protects the session and record of the checkout you are sitting in, not just its files —
 so neither `--force` nor `--keep-worktree` overrides it.
+
+## stop
+
+```sh
+npx cyberlegion unit stop <ref>
+```
+
+End a unit's session and keep the unit. `stop` tears down the pane and then checks that the
+backend no longer lists it. After that it marks the record `stopped`: the record has no pane, but
+its id, handle, inbox, brief, worktree, and last-seen time stay as they were. A stopped unit is
+never pruned, and it is still addressable by handle, so mail sent to it while it has no session
+lands in its inbox.
+
+Output: `stopped` (id), `pane`, `verified`, `already`. `verified: false` means the backend gave no
+pane list to check against: the stop is recorded but not confirmed. If the backend still lists the
+pane after the teardown, `stop` fails and leaves the record unchanged. It refuses a standing or
+service record (it has no runtime) and the caller's own session.
+
+## restart
+
+```sh
+npx cyberlegion unit restart <ref> [--no-wake]
+```
+
+Give a unit a fresh session and keep the unit. `restart` first stops a session that is still
+running, using the same verified stop. It then opens a new session at the unit's cwd with the
+launch command the unit was spawned with (the harness default for older records). It binds the
+record to the new pane and rings the session to read its brief. A unit with a worktree opens in its
+own workspace. A `--cwd` unit opens in a tab.
+
+| Option | Meaning |
+|---|---|
+| `--no-wake` | do not ring the new session; the caller briefs it by mail |
+
+Output: `restarted` (id), `previous` (pane), `pane`, `rung`. A restarted session always starts
+with an empty context: it is rebriefed from its brief file, and its pending mail is still in its
+inbox. If the new session cannot be opened, the unit is left `stopped`, and running `restart`
+again recovers it. `restart` refuses a unit whose cwd is gone, because that unit needs replacing.
+
+## rebind
+
+```sh
+npx cyberlegion unit rebind <ref>
+```
+
+Run inside a pane where you started the harness by hand, for example with the harness's own resume
+flag. `rebind` binds the unit to that pane, so the session is this unit, with its inbox and brief.
+It refuses a pane that another live unit holds, and it refuses a unit that may still be running in
+another pane (stop it first).
+
+## show
+
+```sh
+npx cyberlegion unit show <ref> [--format json]
+```
+
+The read-only runtime view for dashboards and controllers. Output: `id`, `handle`, `harness`,
+`status` (as recorded), `liveness` (probed now), `pane`, `cwd`, `worktree`, `lastSeen` (as
+recorded), and `controls`. `show` writes nothing, so any number of clients can watch and reconnect
+without owning anything, and closing a client leaves every runtime running.
+
+| `liveness` | Meaning |
+|---|---|
+| `live` | the backend lists the unit's pane |
+| `gone` | the backend answered, and the pane is not in its list; the recorded status is left as it was |
+| `unknown` | no pane is known, or the backend gave no answer |
+| `stopped` / `exited` | read from the record |
+| `none` | a standing or service record, which has no runtime |
+
+`controls` is worked out from the record and the probed liveness. It never comes from a pane's
+display name. `focus`/`nudge`/`read` appear only when the unit is `live`, and `clear` needs a
+harness with an honest reset. `stop` needs a known pane, `restart` a launchable harness and an
+existing cwd, and `rebind` a `stopped`, `exited`, or `gone` runtime.
+
+### Backend recovery
+
+| Backend | stop | restart | rebind |
+|---|---|---|---|
+| tmux | kills the pane, then verifies with the pane list | opens a fresh window at the unit's cwd | from inside a tmux pane |
+| herdr | closes the pane, then verifies with the pane list | opens a fresh workspace or tab at the unit's cwd | from inside a herdr pane |
+| no multiplexer | no pane to stop; the record is marked stopped | refused, because no backend can open a session | refused, because there is no pane to bind |
+
+No harness resumes its prior conversation through these verbs. Every restart is a fresh session
+plus a rebrief. A unit whose worktree or cwd is gone needs a new unit (`spawn`) and a new brief.
 
 ## focus
 
