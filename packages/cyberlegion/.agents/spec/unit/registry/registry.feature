@@ -120,6 +120,13 @@ Feature: unit registry — register, discover, and prune legion units
     Then that agent's status remains unchanged
     And the pruned list is empty
 
+  Scenario: prune leaves a stopped unit untouched however stale its last-seen
+    Given a registered unit with status stopped and no pane
+    And the unit's lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then that unit's status remains stopped
+    And the pruned list is empty
+
   # ── Self-identity recovery ──
 
   Scenario: a later call recovers the agent's own id from its pane
