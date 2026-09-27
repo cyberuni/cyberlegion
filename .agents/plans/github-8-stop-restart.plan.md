@@ -8,11 +8,11 @@ todos:
   - content: "spec gate: cold spec-judge, structural diff (expect addOnly on frozen suites), ledger gate line"
     status: completed
   - content: "deliver: MailboxStore seam + removeMailbox; stopped status; runtime module; CLI verbs; docs"
-    status: in_progress
+    status: completed
   - content: "impl gate: cold impl-judge over the frozen scenarios; pnpm verify green"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (Closes #8), changeset, mail operator"
-    status: pending
+    status: completed
 ---
 
 # github-8 — separate runtime stop/restart from destructive decommission
@@ -40,5 +40,6 @@ out of `Store`. Sibling pod `cl-7-inbox-isolation` (#7) was told about the seam.
 
 ## NEXT
 
-Spec gate self-asserted (round 3 ALIGNED). Deliver: commit the implementation (built during
-explore), rebase onto main, then the cold impl-judge over the frozen scenarios.
+Landed as a PR against main (Closes #8): spec gate (round 3) and impl gate (round 1) self-asserted,
+provisional pending the owner's ratification at the PR. Four backlog follow-ups are recorded in the
+CR's ledger shard. No resume action remains.
