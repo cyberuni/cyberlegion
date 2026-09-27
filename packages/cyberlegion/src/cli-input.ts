@@ -33,9 +33,9 @@ export interface SpawnCommandOptions {
 export function spawnCommandInput(opts: SpawnCommandOptions): {
 	input: SpawnInput
 	noWake: boolean
-	launched: { model?: string; effort?: string }
+	launched: { model?: string; effort?: string; effortNotApplied?: string }
 } {
-	const { harness, command, model, effort, briefInstructions } = resolveSpawnLaunch({
+	const { harness, command, model, effort, effortNotApplied, briefInstructions } = resolveSpawnLaunch({
 		agent: opts.agent,
 		agentFile: opts.agentFile,
 		harness: opts.harness,
@@ -59,7 +59,7 @@ export function spawnCommandInput(opts: SpawnCommandOptions): {
 		// Commander sets `wake: false` for `--no-wake`; anything else means ring.
 		noWake: opts.wake === false,
 		// What the launch carries, from whichever source won — absent where the harness default applies.
-		launched: { model, effort },
+		launched: { model, effort, effortNotApplied },
 	}
 }
 

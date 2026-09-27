@@ -6302,11 +6302,11 @@ function withCursorEffort(model, effort) {
 	return `${model.slice(0, open)}[${[...params, `effort=${effort}`].join(",")}]`;
 }
 /** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
-* `--effort`, codex only a config override, cursor only a parameter on the model — so a cursor
-* effort with no model has nowhere to go and throws rather than launching at the default effort. */
+* `--effort`, codex only a config override, cursor only a parameter on a named model. Cursor refuses
+* an effort on its default (`auto[effort=high]` is not a model it accepts), so a cursor effort with
+* no model is left off and `realizeLaunch` reports it as not applied. */
 function modelAndEffortArgs(harness, model, effort) {
 	if (harness === "cursor") {
-		if (effort && !model) throw new Error(`cursor carries effort only as a parameter on the model; set a model to launch with effort "${effort}"`);
 		if (!model) return [];
 		return ["--model", shellQuote(effort ? withCursorEffort(model, effort) : model)];
 	}
@@ -6348,11 +6348,12 @@ function realizeLaunch(def, opts = {}) {
 		...instructionArgs(harness, def.instructions)
 	];
 	const briefInstructions = harness === "cursor" && def.instructions ? def.instructions : void 0;
+	const notApplied = harness === "cursor" && effort && !model ? effort : void 0;
 	return {
 		harness,
 		command: parts.join(" "),
 		model,
-		effort,
+		...notApplied ? { effortNotApplied: notApplied } : { effort },
 		...briefInstructions ? { briefInstructions } : {}
 	};
 }
@@ -6398,7 +6399,7 @@ function resolveSpawnLaunch(input) {
 * Throws when no harness can be resolved, so the CLI's own `fail()` still renders it.
 */
 function spawnCommandInput(opts) {
-	const { harness, command, model, effort, briefInstructions } = resolveSpawnLaunch({
+	const { harness, command, model, effort, effortNotApplied, briefInstructions } = resolveSpawnLaunch({
 		agent: opts.agent,
 		agentFile: opts.agentFile,
 		harness: opts.harness,
@@ -6422,7 +6423,8 @@ function spawnCommandInput(opts) {
 		noWake: opts.wake === false,
 		launched: {
 			model,
-			effort
+			effort,
+			effortNotApplied
 		}
 	};
 }
@@ -7809,6 +7811,17 @@ withGlobals(unit.command("prune")).description("mark dead units exited and sweep
 });
 /** What a model/effort/harness field reads when no source set it and the harness's own default applies. */
 const HARNESS_DEFAULT = "(harness default)";
+/** The effort a spawn reports: what launched, or the level asked for marked not applied. */
+function reportedEffort(launched) {
+	if (launched.effortNotApplied) return `${launched.effortNotApplied} (not applied)`;
+	return launched.effort ?? HARNESS_DEFAULT;
+}
+/** Warn on stderr when the launch dropped an effort it could not carry (cursor with no model). */
+function warnEffortNotApplied(spawnInput) {
+	const level = spawnInput.launched.effortNotApplied;
+	if (!level) return;
+	console.error(`${spawnInput.input.harness} carries effort only as a parameter on a named model and none was set; effort "${level}" not applied — launching at the harness default model and effort (pass --model to apply it)`);
+}
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd) {
 	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
@@ -7828,6 +7841,7 @@ function defineSpawn(cmd) {
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err));
 		}
+		warnEffortNotApplied(spawnInput);
 		const res = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake });
 		if (res.warning) console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`);
 		emit(formatOf(opts), {
@@ -7836,7 +7850,7 @@ function defineSpawn(cmd) {
 				handle: res.agent.handle,
 				harness: res.agent.harness,
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
-				effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+				effort: reportedEffort(spawnInput.launched),
 				worktree: res.agent.worktree?.root,
 				pane: res.pane,
 				rung: res.rung
@@ -7846,7 +7860,7 @@ function defineSpawn(cmd) {
 				pane: res.pane,
 				launch: res.launch,
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
-				effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+				effort: reportedEffort(spawnInput.launched),
 				rung: res.rung
 			}
 		});
@@ -8109,6 +8123,7 @@ withSpawnOptions(service.command("start")).description("resolve the healthy owne
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}
+	warnEffortNotApplied(spawnInput);
 	let warning;
 	let res;
 	try {

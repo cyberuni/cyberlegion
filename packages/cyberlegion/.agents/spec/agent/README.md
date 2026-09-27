@@ -66,9 +66,12 @@ surface that inspects a def before that:
   --effort <level>`; codex's config override `-c model_reasoning_effort="<level>"` (it has no
   dedicated flag); cursor's bracket parameter on the model, `--model '<model>[effort=<level>]'`,
   merged into any bracket list the model already carries and replacing an `effort=` already there.
-  Cursor has no effort control apart from the model, so a cursor def with an `effort` but no `model`
-  **throws** rather than launching — a warn-and-ignore would start a session that looks configured
-  and runs at the harness default effort, the silent drop this rule exists to prevent. A def with no
+  Cursor has no effort control apart from the model, and none that names no model: checked live
+  against cursor-agent 2026.09.26 (#63), `auto[effort=high]` and the local config's default id
+  `default[effort=high]` are both refused as unknown models. So a cursor def with an `effort` but no
+  `model` **launches at the harness default without the effort** and says so: the realized launch
+  carries no effort (`effort` absent) and names the dropped level in `effortNotApplied`, for the
+  caller to warn about and report. It never throws — cursor always has a default model to launch. A def with no
   `effort` carries no effort control at all; the harness default applies. A def's `instructions`
   body likewise travels through each harness's own instruction channel, since only claude has an
   append-to-system-prompt flag: `claude --append-system-prompt '<body>'`; codex's config override
@@ -110,7 +113,7 @@ Every scenario in [`agent.feature`](./agent.feature) maps to one of these behavi
 | **resolve an exact file** | `agent resolve --file` / `unit spawn --agent-file` / `file` bypasses name search; plugin-scoped defs |
 | **frontmatter tags parse into typed fields** | model/effort/harness/warm/interactive; folded block scalar; missing tags stay undefined |
 | **a def missing model is not an error** | resolution succeeds; harness default applies later |
-| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's missing-model refusal, effort override; per-harness instruction channel, cursor's instructions handed to the brief |
+| **realizeLaunch** | per-harness channel launch command; explicit override precedence; per-harness effort control, cursor's effort-not-applied launch with no model, effort override; per-harness instruction channel, cursor's instructions handed to the brief |
 | **agent list / show / resolve / path** | empty state; truncation + `--full`; JSON payload; bad-name fail-loud |
 
 ## Control Flow
@@ -185,7 +188,7 @@ graph TD
   EFFORT -->|yes, claude| CLAUDE[--effort level]
   EFFORT -->|yes, codex| CODEX[-c model_reasoning_effort=level]
   KIND -->|cursor| CURSOR{effort and model?}
-  CURSOR -->|effort, no model| REFUSE[throw naming cursor and the missing model]
+  CURSOR -->|effort, no model| DROPPED[no --model, no effort; effortNotApplied names the level]
   CURSOR -->|no effort| NOEFFORT
   CURSOR -->|effort and a bare model| BRACKET[--model model with effort=level]
   CURSOR -->|effort and a bracketed model| MERGE[effort merged into the bracket list, replacing any effort= there]
@@ -194,6 +197,7 @@ graph TD
   CODEX --> INSTR
   BRACKET --> INSTR
   MERGE --> INSTR
+  DROPPED --> INSTR
   INSTR -->|empty body, any harness| NOINSTR[no instruction argument, nothing handed to the brief]
   INSTR -->|claude| APPEND[--append-system-prompt body, single-quoted so shell syntax is inert]
   INSTR -->|codex| DEVINSTR[-c developer_instructions=body as one TOML basic string, single-quoted]
@@ -288,7 +292,7 @@ different path class.
 | `EFFORT → {CLAUDE, CODEX}`, `CURSOR → BRACKET` | each harness in turn, a model and an effort | `realizeLaunch carries the def's effort in the harness's own effort control` |
 | `EFFORT → NOEFFORT`, `CURSOR → NOEFFORT` | each harness in turn, a model and no effort | `a def with no effort launches with no effort control on any harness` |
 | `CURSOR → MERGE` | cursor, an effort, and a model already carrying a bracket list | `a cursor effort merges into a model that already carries bracket parameters` |
-| `CURSOR → REFUSE` | cursor, an effort, and no model | `a cursor effort with no model refuses rather than launching at the default effort` |
+| `CURSOR → DROPPED` | cursor, an effort, and no model | `a cursor effort with no model launches at the harness default and reports the effort not applied` |
 | `INSTR → {APPEND, DEVINSTR}` | each of claude and codex, a one-line body | `realizeLaunch carries the def's instructions in the harness's own instruction channel` |
 | `INSTR → DEVINSTR`, barred `INSTR → APPEND` | codex, a one-line body | `a codex def's instructions never reach codex as the claude-only flag` |
 | `INSTR → DEVINSTR` | codex, a two-line body with a double quote and a backslash | `codex instructions spanning lines with quotes and backslashes arrive as one exact TOML string` |

@@ -147,11 +147,12 @@ Feature: agent — resolve reusable agent definitions
       | claude-opus-4-8[effort=low]   | claude-opus-4-8[effort=high]              |
       | gpt-5[context=1m,effort=low]  | gpt-5[context=1m,effort=high]             |
 
-  Scenario: a cursor effort with no model refuses rather than launching at the default effort
+  Scenario: a cursor effort with no model launches at the harness default and reports the effort not applied
     Given a resolved def whose frontmatter carries exactly two tags, harness "cursor" and effort "high"
     When realizeLaunch runs with no overrides
-    Then it throws an error naming cursor and the missing model
-    And it returns no launch command, so no session starts at the harness default effort
+    Then it returns a launch command rather than throwing
+    And the command contains no "--model" and no "effort=" text
+    And the realized launch reports no applied effort and names "high" as the effort not applied
 
   Scenario: an explicit effort override wins over the def's own effort
     Given a resolved def with harness "claude", model "sonnet" and effort "low"
