@@ -68,13 +68,19 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When unit spawn runs
     Then the spawn output reports model "(harness default)" and effort "(harness default)"
 
-  Scenario: --effort on a cursor spawn with no model refuses before anything is created
+  Scenario: --effort on a cursor spawn with no model launches at the harness default and says the effort was not applied
     Given the command line is exactly unit spawn --harness cursor --effort high --task t
     When unit spawn runs
-    Then it throws naming cursor and the missing model
-    And no worktree is created
-    And no session is opened
-    And no unit is registered
+    Then the peer is spawned with a launch command containing no "--model" and no "effort=" text
+    And stderr carries a warning naming cursor, the effort "high", and the missing model
+    And the spawn output reports effort "high (not applied)"
+
+  Scenario: a cursor def's effort with no model from any source launches at the harness default and says the effort was not applied
+    Given an agent def with harness cursor and effort high and no model
+    When a caller runs unit spawn --agent <name> --task t
+    Then the peer is spawned with a launch command containing no "--model" and no "effort=" text
+    And stderr carries a warning naming cursor, the effort "high", and the missing model
+    And the spawn output reports effort "high (not applied)"
 
   Scenario: --effort on a cursor spawn with a model launches with the effort on that model
     Given the command line is exactly unit spawn --harness cursor --model gpt-5 --effort high --task t
