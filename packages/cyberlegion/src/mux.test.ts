@@ -2,6 +2,10 @@ import { type Exec, herdrMuxAdapter, probeMultiplexer, tmuxMuxAdapter } from 'cy
 import { describe, expect, it } from 'vitest'
 import { normalizeMuxEnv } from './mux-env.ts'
 
+// cyber-mux (>=0.8.0) prefixes every tmux call with `-u`; cyberlegion's own direct tmux calls do not.
+// Fakes answer by the tmux verb, wherever it sits.
+const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args[0])
+
 // spec: mux/mux.feature — the boundary this suite exists to close. cyberlegion consumes
 // probeMultiplexer/tmuxMuxAdapter/herdrMuxAdapter straight from cyber-mux with no fork of its own;
 // upstream's own test suite protects THAT package's behavior, not this project's frozen contract —
@@ -36,13 +40,13 @@ describe('spec:cyberlegion/mux', () => {
 
 	it('tmux reports a pane focused when an attached client is currently viewing it', () => {
 		const exec: Exec = (cmd, args) =>
-			cmd === 'tmux' && args[0] === 'list-panes' ? '%1 0 1 1\n%3 1 1 1\n%7 0 0 0' : null
+			cmd === 'tmux' && tmuxVerb(args) === 'list-panes' ? '%1 0 1 1\n%3 1 1 1\n%7 0 0 0' : null
 		expect(tmuxMuxAdapter.isPaneFocused(exec, { id: '%3' })).toBe(true)
 	})
 
 	it('tmux reports a pane not focused when no attached client is viewing it', () => {
 		const exec: Exec = (cmd, args) =>
-			cmd === 'tmux' && args[0] === 'list-panes' ? '%1 0 1 1\n%3 0 1 1\n%7 1 0 1\n%9 1 1 0' : null
+			cmd === 'tmux' && tmuxVerb(args) === 'list-panes' ? '%1 0 1 1\n%3 0 1 1\n%7 1 0 1\n%9 1 1 0' : null
 		// not the active pane of its window
 		expect(tmuxMuxAdapter.isPaneFocused(exec, { id: '%3' })).toBe(false)
 		// window not current

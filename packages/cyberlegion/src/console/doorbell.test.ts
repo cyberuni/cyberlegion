@@ -84,6 +84,17 @@ function fakeAdapter(
 		paneExists: () => true,
 		isPaneFocused: () => focused,
 		listPanes: () => [],
+		focusOnOpen: 'preserved',
+		setPaneZoom: () => {
+			throw new Error('not used')
+		},
+		isPaneZoomed: () => undefined,
+		movePane: () => {
+			throw new Error('not used')
+		},
+		breakPane: () => {
+			throw new Error('not used')
+		},
 	}
 	return { adapter, sendCalls, submitCalls }
 }
