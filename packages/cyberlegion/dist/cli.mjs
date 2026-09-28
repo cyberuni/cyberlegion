@@ -3046,7 +3046,7 @@ const { program: program$1, createCommand, createArgument, createOption, Command
 	exports.InvalidOptionArgumentError = InvalidArgumentError;
 })))(), 1)).default;
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.5.0/node_modules/cyber-mux/dist/worktree-hHuFZkpW.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.8.0_typescript@7.0.2/node_modules/cyber-mux/dist/worktree-Bj6IgHv7.mjs
 const nodeExec = (cmd, args) => {
 	try {
 		const out = execFileSync(cmd, args, {
@@ -3149,20 +3149,30 @@ function assertDistinctFromPrimary(worktreeRoot, primaryRoot) {
 	if (resolve(worktreeRoot) === resolve(primaryRoot)) throw new WorktreeGitError("refusing to run in the primary checkout — spawn a worktree distinct from the primary checkout");
 }
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.5.0/node_modules/cyber-mux/dist/backend-DjX6RlAG.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.8.0_typescript@7.0.2/node_modules/cyber-mux/dist/backend-Dg5JGbd3.mjs
 /**
-* The env-prefix fallback — the one compensation for a route that could not set env at birth.
+* The launch-line fallbacks — the compensations for what a creating route could not set natively.
 *
-* env is native at every tier on both backends EXCEPT herdr's worktree `create`/`open`, which take
-* no env parameter (0.7.4 answers `--env` with `unknown option`). A route that hit that wall carries
-* env the only way left: as an `env KEY=VALUE` prefix on the command the pane runs. It is a LAST
-* resort — the values land in `ps` output and the pane's shell history — and it only works when there
-* IS a command to ride; with none, the honest outcome is to warn, never to drop silently.
+* Two things a caller can ask for may have no native flag on the verb that opens a pane: the env the
+* pane starts with, and the directory it starts in. Both are then delivered the only way left, by
+* composing them onto the command line the pane runs — an `env K=V` prefix, a `cd <dir> &&` prefix,
+* or both. They compose in ONE order (`cd '/x' && env K=V cmd`, the env INSIDE the `&&`), because the
+* other order sets the variables on `cd` and leaves the command without them.
 *
-* This lives in one module, called by both routes that can lose env (the CLI worktree verbs and the
-* template walk's root pane), so the rule cannot be wired on one and forgotten on the other. Only a
-* route that lost env may call it: prefixing over a natively-set env would push the values into `ps`
-* and shell history on every route, the exact cost the prefix exists to pay only when it must.
+* The routes that lose env are herdr's worktree `create`/`open` (0.7.4 answers `--env` with `unknown
+* option`) and every cmux and otty creating verb. The routes that lose cwd are cmux's `new-pane` and
+* otty's `tab new`. Each adapter's header records what it found; this module only composes.
+*
+* The env prefix is a LAST resort — the values land in `ps` output and the pane's shell history — and
+* it only works when there IS a command to ride; with none, the honest outcome is to warn, never to
+* drop silently. A `cd` needs no command to ride, so a route with a cwd and no launch still lands in
+* the right directory.
+*
+* This lives in one module, called by every route that can lose either, so the rule cannot be wired
+* on one and forgotten on another — and so the ordering the two must agree about is written once.
+* Only a route that actually lost the native flag may call it: prefixing over a natively-set value
+* would push it into `ps` and shell history on every route, the exact cost these prefixes exist to
+* pay only when they must.
 */
 /**
 * Single-quote a value for a shell command line. Everything is literal inside single quotes, so the
@@ -3412,6 +3422,152 @@ function isReadTruncated(capture, deeper) {
 * CLI parses `--lines` as.
 */
 const FULL_SCROLLBACK_LINES = 1e6;
+const right = (rect) => rect.x + rect.width;
+const bottom = (rect) => rect.y + rect.height;
+const HORIZONTAL = {
+	direction: "right",
+	start: (r) => r.x,
+	end: right
+};
+const VERTICAL = {
+	direction: "down",
+	start: (r) => r.y,
+	end: bottom
+};
+/**
+* The lowest cut on this axis that separates the panes cleanly, or `undefined` if none does.
+*
+* Taking the LOWEST rather than any is what produces a right-comb for an n-ary row: three panes side
+* by side cut first into `[a][b c]`, then `[b][c]` — the exact tree `desugar`'s `comb` emits for
+* `arrange: even-horizontal`, reached from the opposite direction.
+*
+* A candidate is any pane's start edge. It separates cleanly when every pane lies wholly before it
+* or wholly after it, and both sides have something in them.
+*/
+function findCut(panes, axis) {
+	const candidates = [...new Set(panes.map((p) => axis.start(p.rect)))].sort((a, b) => a - b);
+	for (const at of candidates) {
+		const first = panes.filter((p) => axis.end(p.rect) <= at);
+		const second = panes.filter((p) => axis.start(p.rect) >= at);
+		if (first.length === 0 || second.length === 0) continue;
+		if (first.length + second.length !== panes.length) continue;
+		return {
+			direction: axis.direction,
+			ratio: ratioOf(panes, second, axis),
+			first,
+			second
+		};
+	}
+}
+/**
+* The fraction of the split region kept by `first` — the schema's `ratio`.
+*
+* Measured as the COMPLEMENT of what `second` occupies, over the whole region: `1 - second/total`.
+* The obvious `first / (first + second)` is subtly wrong on any backend that draws a divider, and
+* the arithmetic says why — tmux splitting a 50-row region reports 34 + 15, with the 51st row eaten
+* by the divider. `first / (first + second)` reads 34/49 = 0.69; the true split was 0.7, and the
+* divider row belongs to neither pane's height while still costing the region a row.
+*
+* Taking the complement puts that row back where the backend's own arithmetic puts it: tmux's `-l`
+* sizes the NEW pane, so `second` is exactly the fraction asked for and `first` keeps the rest,
+* divider included. That reads 1 - 15/50 = 0.7 — the number the split was actually made with. On a
+* backend with no divider (herdr) the two formulas agree, so nothing is traded for the fix.
+*
+* Both checked against live binaries: this recovers tmux's `-l 40%`/`-l 30%` splits as 0.6/0.7
+* exactly, and reproduces herdr's to within the cell it rounds to.
+*/
+function ratioOf(all, second, axis) {
+	const total = extent(all, axis);
+	if (total <= 0) return .5;
+	return 1 - extent(second, axis) / total;
+}
+/** How far a group of panes reaches along an axis — its bounding box on that axis. */
+function extent(panes, axis) {
+	const starts = panes.map((p) => axis.start(p.rect));
+	const ends = panes.map((p) => axis.end(p.rect));
+	return Math.max(...ends) - Math.min(...starts);
+}
+/**
+* Cut the region into a binary tree, recursively.
+*
+* **`right` is tried before `down`, and the order is load-bearing on a grid.** A 2x2 is genuinely
+* ambiguous — cutting it vertically first and horizontally first both describe the same screen, and
+* neither is more true. Columns-then-rows is the tie-break because that is what `desugar`'s `tiled`
+* emits, so a tiled pool exports back as the tree it was built from rather than its transpose.
+*
+* A region no cut separates cannot come out of a multiplexer: both backends build regions BY
+* splitting, so every region they can report is guillotine-cuttable by construction. Reaching the
+* throw means the geometry did not come from where we think it did — which is worth saying loudly
+* rather than papering over with a tree that misplaces the user's panes.
+*/
+function partition(panes) {
+	if (panes.length === 1) return {
+		type: "pane",
+		pane: panes[0]
+	};
+	const cut = findCut(panes, HORIZONTAL) ?? findCut(panes, VERTICAL);
+	if (!cut) throw new Error(`this region's panes do not form a splittable tree (${panes.length} panes: ${panes.map((p) => p.id).join(", ")}) — export can only capture a region built by splitting`);
+	return {
+		type: "split",
+		direction: cut.direction,
+		ratio: cut.ratio,
+		first: partition(cut.first),
+		second: partition(cut.second)
+	};
+}
+/**
+* The split a pane sits DIRECTLY inside, with the numbers a resize needs — or `undefined` when the
+* region has no split at all (a single-pane region: nothing to take a fraction of).
+*
+* **The target is always one WHOLE side of the split it encloses.** That falls out of the guillotine
+* derivation rather than being asserted: a leaf's parent is the last cut before it, so whichever side
+* of that cut the target lands on holds the target and nothing else. The OTHER side may be a group of
+* panes, which is why it is reported as an extent rather than a pane — a backend sizes the target, and
+* the group on the far side takes what is left.
+*
+* **Extents, not ratios alone, because the backends need different arithmetic.** tmux's
+* `resize-pane -x/-y` takes CELLS, so it needs the split region's extent to turn a fraction into one;
+* herdr's `pane resize --amount` takes a ratio DELTA, so it needs the fraction the split is at now.
+* Reporting both raw facts keeps the per-backend conversion in the adapter that owns it — the same
+* split `MuxOpenOptions.ratio` already makes, where the seam's number is one thing and each backend's
+* rendering of it is another.
+*
+* **`extent` includes the divider a backend draws.** It is the split region's own span, so on tmux
+* `targetExtent + otherExtent` falls one short of it and on herdr the two add up exactly. Neither
+* adapter hard-codes which: the divider is `extent - targetExtent - otherExtent`, measured from the
+* rects the backend just reported.
+*/
+function enclosingSplit(panes, paneId) {
+	if (!panes.some((p) => p.id === paneId)) throw new Error(`pane ${paneId} is not in the region described (${panes.map((p) => p.id).join(", ")})`);
+	let node = partition(panes);
+	while (node.type === "split") {
+		const split = node;
+		const targetIsFirst = holds(split.first, paneId);
+		const side = targetIsFirst ? split.first : split.second;
+		const other = targetIsFirst ? split.second : split.first;
+		if (side.type !== "pane") {
+			node = side;
+			continue;
+		}
+		const axis = split.direction === "right" ? HORIZONTAL : VERTICAL;
+		return {
+			direction: split.direction,
+			targetIsFirst,
+			firstRatio: split.ratio,
+			extent: extent(leaves(split), axis),
+			targetExtent: extent([side.pane], axis),
+			otherExtent: extent(leaves(other), axis)
+		};
+	}
+}
+/** Whether `paneId` is somewhere under `node`. */
+function holds(node, paneId) {
+	return leaves(node).some((p) => p.id === paneId);
+}
+/** Every pane under `node`, in order. */
+function leaves(node) {
+	return node.type === "pane" ? [node.pane] : [...leaves(node.first), ...leaves(node.second)];
+}
 /**
 * herdr backend — detected via `$HERDR_ENV`. herdr (https://herdr.dev) is an agent-aware terminal
 * multiplexer that also reports real busy-state (working / idle / blocked / done); this adapter
@@ -3422,16 +3578,72 @@ const FULL_SCROLLBACK_LINES = 1e6;
 * The pane lifecycle (split/run/read/close) is verified against a live herdr binary; `pane split`
 * returns a JSON `pane_info` envelope whose id is extracted in `parsePaneId`.
 *
-* **Verified against 0.8.0** (protocol 19), re-probed against a live server. Everything this adapter
-* drives held: the split/read/run/send-keys lifecycle, `pane wait-output`'s success and error
-* envelopes, `pane list`/`get`/`layout`, `workspace create`/`tab create`, and the `env` and worktree
-* parameter sets below. The per-claim markers that follow name the version each was LAST established
-* against — a claim still reading 0.7.4/0.7.5 is one 0.8.0 gave no occasion to re-measure (no attached
-* client, or no live agent in the pane), not one that failed.
+* **Verified against 0.8.2** (protocol 20), re-probed against a live server by re-running
+* `mux.herdr.integration.test.ts` — the real-boundary suite, not a hand check. Everything this
+* adapter drives held: the split/read/run/send-keys lifecycle, `pane wait-output`'s success and
+* error envelopes, `pane list`/`get`/`layout`, `workspace create`/`tab create`, and the `env` and
+* worktree parameter sets below. The per-claim markers that follow name the version each was LAST
+* established against — a claim still reading 0.7.4/0.7.5/0.8.0 is one a later release gave no
+* occasion to re-measure (no attached client, or no live agent in the pane), not one that failed.
+*
+* What 0.8.2 did NOT re-establish, stated so the claim above is not read wider than it is: the two
+* current-pane-context opens (`at:'tab'`, `at:'pane:right'`) skip when the suite runs INSIDE a herdr
+* pane, and they are the only cases that exercise `--current`. 0.8.2 fixed `pane current`, `pane
+* get`, and `pane layout --current` to resolve the CALLING pane rather than another client's focused
+* pane (herdr #2297, #2298) — but that fix names none of `pane split`, which is where this file's one
+* `--current` sits. So the 0.7.4 caveat on it below stands, unmeasured against 0.8.2 rather than
+* re-confirmed.
 */
 const herdrMuxAdapter = {
 	name: "herdr",
 	canSizeSplits: true,
+	/**
+	* Every creating verb this adapter issues carries `--no-focus`, so no open moves the user.
+	*
+	* `workspace create` and `tab create` have carried it from the start. `pane split` did NOT, and
+	* measuring it against a live 0.8.2 is what settled whether that was a hole: with the client
+	* focused on the pane being split, a bare `herdr pane split` left focus exactly where it was, and
+	* so did the same command with `--no-focus`. herdr's split simply does not activate what it
+	* creates. So the flag added there is a measured NO-OP today, and it is passed anyway — the seam
+	* now DECLARES this property, and a declaration backed by a backend default is one a future herdr
+	* release can falsify without anything here having to be wrong first. Every route saying what it
+	* wants is what makes the boolean above enforceable rather than incidental.
+	*
+	* No focus move to undo on top of that: `pane split <id>` names its target directly, so herdr
+	* never has to VISIT a pane to choose which one gets split.
+	*/
+	/**
+	* `true` — `herdr pane zoom <PANE_ID> --on|--off`, the one backend on this seam whose native verb is
+	* already ABSOLUTE rather than a toggle. Driven live on 0.9.0, and pinned to the 0.8.0 CI pin from
+	* that binary's OWN bundled schema rather than from a version guess: `herdr api schema --json` on
+	* 0.8.0 (protocol 19) carries `pane.zoom` with `PaneZoomParams { mode, pane_id }`, and its
+	* `PaneLayoutSnapshot` REQUIRES both `zoomed: boolean` and `focused_pane_id: string` — the two
+	* fields `isPaneZoomed` composes. So neither half of this member depends on a herdr newer than the
+	* one `pull-request.yml` drives. (0.8.0 could not be driven directly here: it answers a 0.9.0
+	* server with `protocol_mismatch`, and herdr has no throwaway-server mode to start an old one
+	* beside it.)
+	*/
+	canZoomPanes: true,
+	/**
+	* `true` for both, and herdr is the one backend that spells them as a SINGLE verb: `herdr pane
+	* move <PANE_ID>`, whose own usage prints three mutually exclusive forms —
+	* `--tab <id> --split right|down [--target-pane <id>]`, `--new-tab [--workspace <id>]`, and
+	* `--new-workspace`. Driven live on 0.9.0 in a throwaway workspace for all three.
+	*
+	* Pinned to the 0.8.0 CI pin against that binary directly rather than by a version guess: the
+	* v0.8.0 release binary's `pane move --help` lists exactly the same option set (`--tab --split
+	* --target-pane --ratio --new-tab --workspace --new-workspace --label --tab-label
+	* --focus --no-focus`), so neither member depends on a herdr newer than the one
+	* `pull-request.yml` drives.
+	*/
+	canMovePanes: true,
+	canBreakPanes: true,
+	/**
+	* `'preserved'`: `--no-focus` is a real flag on `workspace create`, `tab create` and `pane split`,
+	* and every route passes it. `pane split --pane` names the anchor directly, so no route has to
+	* focus a pane in order to choose one — there is nothing to undo on top of the suppression.
+	*/
+	focusOnOpen: "preserved",
 	open(exec, opts) {
 		const at = opts.at ?? "tab";
 		const label = opts.label ? ["--label", opts.label] : [];
@@ -3476,7 +3688,8 @@ const herdrMuxAdapter = {
 				"--cwd",
 				opts.cwd,
 				...size,
-				...env
+				...env,
+				"--no-focus"
 			]);
 			if (!out) throw new Error(withReason(exec, "herdr pane split failed"));
 			opened = parsePaneId(out);
@@ -3610,7 +3823,7 @@ const herdrMuxAdapter = {
 		return parseWaitOutput(out);
 	},
 	focus(exec, target) {
-		const { workspaceId, tabId } = parsePaneLocation$1(exec("herdr", [
+		const { workspaceId, tabId } = parsePaneLocation$2(exec("herdr", [
 			"pane",
 			"get",
 			target.id
@@ -3656,6 +3869,126 @@ const herdrMuxAdapter = {
 			return;
 		}
 	},
+	/**
+	* `pane zoom <id> --on|--off` — herdr is the only backend here whose own verb is absolute, so no
+	* toggle has to be composed. It is idempotent too: a second `--on` on an already-zoomed pane
+	* answered `{"changed":false,"focus_changed":false}` on a live 0.9.0.
+	*
+	* **The guard is still not optional, and this is the backend that proves why.** herdr's zoom is a
+	* TAB-tier fact — `pane layout` reports one `zoomed` for the whole tab — and `--off` names the pane
+	* to FOCUS, not the pane to unzoom. Measured on 0.9.0 in a throwaway workspace: with p2 zoomed,
+	* `herdr pane zoom p3 --off` unzoomed **p2** and moved focus to p3. So an unguarded
+	* `setPaneZoom(p3, false)` — a request that asks for nothing, since p3 was never zoomed — would
+	* silently unzoom a pane the caller never named. Reading first turns that into the no-op the seam
+	* promises.
+	*
+	* `--on` moves focus to the pane (`focus_changed: true` on the same probe), which
+	* `MuxAdapter.setPaneZoom` declares rather than compensates; `--off` on the zoomed pane moves
+	* nothing, since that pane already holds the focus.
+	*/
+	setPaneZoom(exec, target, zoomed) {
+		if (herdrMuxAdapter.isPaneZoomed(exec, target) === zoomed) return;
+		if (exec("herdr", [
+			"pane",
+			"zoom",
+			target.id,
+			zoomed ? "--on" : "--off"
+		]) == null) throw new Error(withReason(exec, `herdr could not ${zoomed ? "zoom" : "unzoom"} pane ${target.id}`));
+	},
+	/**
+	* `pane layout --pane <id>`, whose payload carries `zoomed` for the TAB plus `focused_pane_id` —
+	* so the per-pane answer the seam promises is the conjunction, tmux's shape under different key
+	* names. Verified live on 0.9.0.
+	*
+	* `pane list` is deliberately NOT the source, and its absence is why `LivePane` grew no `zoomed`
+	* column: a live 0.9.0 `herdr pane list` carries no zoom key on any record at all, so the only
+	* read herdr has costs one call PER TAB. See `MuxAdapter.isPaneZoomed`.
+	*
+	* Parsed defensively, exactly as `isPaneFocused` is: null output, an error envelope, a missing or
+	* non-boolean `zoomed`, or a parse failure all fold to `undefined` rather than a false `false`.
+	*/
+	isPaneZoomed(exec, target) {
+		const out = exec("herdr", [
+			"pane",
+			"layout",
+			"--pane",
+			target.id
+		]);
+		if (out == null) return void 0;
+		try {
+			const layout = JSON.parse(out)?.result?.layout;
+			if (typeof layout?.zoomed !== "boolean") return void 0;
+			return layout.zoomed === true && layout.focused_pane_id === target.id;
+		} catch {
+			return;
+		}
+	},
+	/**
+	* `pane move <src> --tab <dst tab> --split <side> --target-pane <dst> --no-focus`.
+	*
+	* The DESTINATION PANE's tab has to be resolved first, because `--tab` is not optional: herdr
+	* refuses the command outright without it (its usage line is `move <pane_id> --tab <tab_id>
+	* --split right|down …`, and the flagless form printed usage and did nothing on 0.9.0). The seam's
+	* destination is a pane, so `pane get <dst>` supplies the tab and the pane rides along as
+	* `--target-pane` — which is what makes the placement the caller's rather than herdr's, since
+	* `--tab` alone splits whichever pane that tab happens to have focused.
+	*
+	* `--no-focus` for the reason every other route here passes it: a driver moving a pane should not
+	* drag the human's view along. Measured on 0.9.0 — the destination tab's own focused pane was
+	* unchanged afterwards.
+	*
+	* herdr NO-OPS a move into the tab the pane is already in, `--target-pane` or not
+	* (`{"changed":false}` on 0.9.0, with the pane left exactly where it was). That is reported as it
+	* happened: the returned `OpenedPane` is the pane's real, unchanged location rather than the one
+	* the caller asked for.
+	*/
+	movePane(exec, target, destination, side) {
+		const { tabId } = parsePaneRecord(exec("herdr", [
+			"pane",
+			"get",
+			destination.id
+		]));
+		if (!tabId) throw new Error(`herdr could not resolve the tab of destination pane ${destination.id}`);
+		const out = exec("herdr", [
+			"pane",
+			"move",
+			target.id,
+			"--tab",
+			tabId,
+			"--split",
+			side,
+			"--target-pane",
+			destination.id,
+			"--no-focus"
+		]);
+		if (!out) throw new Error(withReason(exec, `herdr could not move pane ${target.id} to ${destination.id}`));
+		return parseMovedPane(out, "herdr pane move");
+	},
+	/**
+	* `pane move <src> --new-tab|--new-workspace --no-focus` — the same verb as `movePane`, a disjoint
+	* flag set, which is why the seam keeps them as two members rather than one.
+	*
+	* **`--new-workspace` REWRITES THE PANE ID**, and this is the backend that forced `breakPane` to
+	* return an `OpenedPane` at all: herdr ids are workspace-scoped, so on 0.9.0 `pane move wRT:p2
+	* --new-workspace` answered with the same terminal carrying the id `wRV:p1`. The old id keeps
+	* resolving as an alias and disappears from `pane list` — see `parseMovedPane`. `--new-tab` keeps
+	* the id and changes only the tab.
+	*
+	* Both forms mint a fresh space even when the pane is ALREADY alone in its tab — measured, a
+	* second `--new-tab` moved `wRD:t3` to `wRD:t4` — which is where herdr differs from tmux's no-op,
+	* a difference `MuxAdapter.breakPane` declares rather than hides.
+	*/
+	breakPane(exec, target, at) {
+		const out = exec("herdr", [
+			"pane",
+			"move",
+			target.id,
+			at === "workspace" ? "--new-workspace" : "--new-tab",
+			"--no-focus"
+		]);
+		if (!out) throw new Error(withReason(exec, `herdr could not break out pane ${target.id} into its own ${at}`));
+		return parseMovedPane(out, "herdr pane move");
+	},
 	listPanes(exec) {
 		const out = exec("herdr", ["pane", "list"]);
 		if (!out) return [];
@@ -3684,6 +4017,40 @@ const herdrMuxAdapter = {
 	regions: {
 		describeRegion(exec, target) {
 			return herdrRegionPanes(exec, target.id, herdrPaneDetails(exec));
+		},
+		/**
+		* `pane resize --direction <d> --amount <f>` — a signed DELTA on the enclosing split's ratio,
+		* which is why the current ratio has to be read first. herdr's `--direction` names where the
+		* DIVIDER moves, not which pane grows: `right`/`down` raise the split's ratio and `left`/`up`
+		* lower it, whichever side of it the `--pane` sits on. So the target's side never enters the
+		* direction — only the sign of the delta does.
+		*
+		* The current ratio is derived from the RECTS, not read off `layout.splits[].ratio`, for
+		* `describeRegion`'s reason exactly: the splits array is flat and its parent links live only in
+		* an undocumented id convention (`split_1_0`), so matching a pane to its split there would bet on
+		* a spelling herdr never promised. The rects say the same thing in a fact it does promise.
+		*
+		* Verified against a live herdr 0.8.2 (`mux.herdr.integration.test.ts`), which is also where the
+		* `--direction` semantics above were established: `--direction right --amount 0.1` moved a 0.5
+		* split to 0.6 whether the `--pane` was the left one or the right one, and on a nested region
+		* `--direction down` resized the enclosing stacked split rather than the outer one.
+		*/
+		resizePane(exec, target, ratio) {
+			const split = enclosingSplit(herdrRegionPanes(exec, target.id, herdrPaneDetails(exec)), target.id);
+			if (!split) throw new Error(`herdr pane ${target.id} is the only pane in its region — there is no split to resize`);
+			const delta = toHerdrResizeDelta(split, ratio);
+			if (delta === 0) return;
+			const direction = herdrResizeDirection(split.direction, delta);
+			if (exec("herdr", [
+				"pane",
+				"resize",
+				"--pane",
+				target.id,
+				"--direction",
+				direction,
+				"--amount",
+				String(Math.abs(delta))
+			]) === null) throw new Error(withReason(exec, `herdr could not resize pane ${target.id}`));
 		},
 		/**
 		* herdr HAS a workspace tier, so the workspace is a fact the backend holds rather than one
@@ -3882,6 +4249,34 @@ function envFlags(env) {
 	return env ? Object.entries(env).flatMap(([k, v]) => ["--env", `${k}=${v}`]) : [];
 }
 /**
+* The seam's `ratio` as the SIGNED delta `pane resize --amount` wants, in the same fraction-of-the-
+* split-region units herdr's own `--ratio` uses at birth.
+*
+* Both numbers are the FIRST side's fraction, so the target's side is folded in here (`1 - ratio` when
+* the target is the second side) and the direction below reads only the sign. Measured against the
+* split's current ratio as `region-tree.ts` derives it, never against `layout.splits[].ratio` — one
+* definition of "what this split is at" seam-wide is what makes a resize to the ratio a region was
+* just described at a no-op.
+*/
+function toHerdrResizeDelta(split, ratio) {
+	assertRatioInRange(ratio);
+	const delta = (split.targetIsFirst ? ratio : 1 - ratio) - split.firstRatio;
+	return Math.round(delta * 1e6) / 1e6;
+}
+/**
+* Which way herdr moves the divider for a delta of this sign, on a split of this axis.
+*
+* `right`/`down` RAISE the enclosing split's ratio and `left`/`up` lower it — established against a
+* live 0.8.2 rather than read off `--help`, which lists the four values and says nothing about what
+* they move. The axis picks the pair because herdr resolves `--direction` against the nearest ancestor
+* split on that axis: asking `right` of a pane inside a stacked split walks past it to the outer one,
+* which would resize a split the caller never named.
+*/
+function herdrResizeDirection(axis, delta) {
+	if (axis === "right") return delta > 0 ? "right" : "left";
+	return delta > 0 ? "down" : "up";
+}
+/**
 * `--ratio` takes the seam's number VERBATIM — herdr sizes the ORIGINAL pane, so no inversion, unlike
 * tmux's `-l` and wezterm's `--percent`. The guard is the same one those two render helpers call: the
 * seam refuses an out-of-range ratio here rather than pass `--ratio 5` (or `0`) through to a split herdr
@@ -4000,7 +4395,7 @@ function parseWaitOutput(out) {
 * The pane's workspace and tab, or a throw — so `focus` never issues a workspace/tab switch against a
 * pane it couldn't actually resolve.
 */
-function parsePaneLocation$1(out, id) {
+function parsePaneLocation$2(out, id) {
 	const { workspaceId, tabId } = parsePaneRecord(out);
 	if (!workspaceId || !tabId) throw new Error(`peer's pane ${id} could not be resolved to beam to`);
 	return {
@@ -4066,7 +4461,21 @@ function herdrWorktreeCapability() {
 				opts.primaryRoot
 			]));
 		},
-		releaseWorkspace(exec, workspace) {
+		releaseWorkspace(exec, workspace, opts) {
+			if (opts?.group === false) {
+				exec("herdr", [
+					"workspace",
+					"close",
+					workspace
+				]);
+				return;
+			}
+			if (exec("herdr", [
+				"workspace",
+				"close",
+				workspace,
+				"--group"
+			]) !== null) return;
 			exec("herdr", [
 				"workspace",
 				"close",
@@ -4104,10 +4513,20 @@ function parseOpenedPane(out, label, key) {
 	} catch {
 		throw new Error(`${label} returned unparseable output: ${out.slice(0, 200)}`);
 	}
+	return openedPaneFromRecord(pane, out, label, key);
+}
+/**
+* The `OpenedPane` inside one herdr pane record, split out of `parseOpenedPane` so the relocation
+* routes can reuse the validation without reusing the PATH: `pane move` reports its pane one level
+* deeper (`result.move_result.pane`) than every creating route does. `path` names where the record
+* came from so a failure says which field was missing, and `out` is carried only to quote the
+* envelope back.
+*/
+function openedPaneFromRecord(pane, out, label, path) {
 	const paneId = pane?.pane_id;
-	if (typeof paneId !== "string" || paneId === "") throw new Error(`${label} output had no result.${key}.pane_id: ${out.slice(0, 200)}`);
+	if (typeof paneId !== "string" || paneId === "") throw new Error(`${label} output had no result.${path}.pane_id: ${out.slice(0, 200)}`);
 	const tab = pane?.tab_id;
-	if (typeof tab !== "string" || tab === "") throw new Error(`${label} output had no result.${key}.tab_id: ${out.slice(0, 200)}`);
+	if (typeof tab !== "string" || tab === "") throw new Error(`${label} output had no result.${path}.tab_id: ${out.slice(0, 200)}`);
 	const workspace = pane?.workspace_id;
 	return typeof workspace === "string" && workspace !== "" ? {
 		id: paneId,
@@ -4117,6 +4536,26 @@ function parseOpenedPane(out, label, key) {
 		id: paneId,
 		tab
 	};
+}
+/**
+* The pane a `herdr pane move` answers with, at `result.move_result.pane` — the relocated pane's
+* CURRENT identity, which on herdr is not always the one that went in.
+*
+* Reading it is not bookkeeping: herdr pane ids are WORKSPACE-SCOPED, so a move that crosses a
+* workspace boundary rewrites the id (measured live on 0.9.0 — `pane move wRE:p1 --tab wRD:t1`
+* answered `wRD:p4`). The old id still RESOLVES afterwards, as an alias that reports the new one, so
+* a caller holding it is not obviously broken — it is simply absent from `pane list` (measured),
+* which is what makes a stale handle fail silently rather than loudly. This envelope is the only
+* place the new id appears.
+*/
+function parseMovedPane(out, label) {
+	let pane;
+	try {
+		pane = JSON.parse(out)?.result?.move_result?.pane;
+	} catch {
+		throw new Error(`${label} returned unparseable output: ${out.slice(0, 200)}`);
+	}
+	return openedPaneFromRecord(pane, out, label, "move_result.pane");
 }
 /**
 * `herdr worktree create` and `herdr worktree open` emit the same envelope: the root pane at
@@ -4221,6 +4660,46 @@ const TMUX_WORKSPACE_GROUP_OPTION = "@cm_ws";
 * cannot drift.
 */
 const TMUX_TAB_NAME_OPTION = "@cm_tab";
+/**
+* `-u`, led on EVERY tmux invocation this adapter makes.
+*
+* tmux(1): "-u  Write UTF-8 output to the terminal even if the first environment variable of LC_ALL,
+* LC_CTYPE, or LANG that is set does not contain \"UTF-8\" or \"UTF8\"." Without it — and a substring
+* test on those three variables is the whole of tmux's decision — the command client is not UTF-8, and
+* tmux SANITIZES what it prints: every byte outside printable ASCII becomes a literal `_`.
+*
+* That is not a cosmetic loss, it is this adapter's parser. The listing formats separate their fields
+* with a TAB, and a tab is 0x09. Measured on 3.7c, one binary, one isolated `-L` socket, only the
+* environment differing:
+*
+*     env -i PATH=… HOME=… tmux -L p list-panes -a -F '#{pane_id}<TAB>#{window_id}' | cat -A  ->  %0_@0
+*     env -i PATH=… HOME=… LANG=C.UTF-8 tmux …                                      | cat -A  ->  %0^I@0
+*     env -i PATH=… HOME=… tmux -u -L p list-panes …                                | cat -A  ->  %0^I@0
+*
+* So a caller with no locale — a systemd unit, a cron job, a container entrypoint, a non-interactive
+* ssh session — got N panes collapsed into ONE record whose id was the whole line. Not a throw and not
+* an empty result: a plausible wrong answer, which anything culling or reconciling on the listing then
+* acted on (#177).
+*
+* Uniform rather than scoped to the `-F` calls, for two reasons. The mangling is a whole CLASS, not
+* one separator: measured, EVERY byte below 0x20, plus 0x7f, plus every non-ASCII byte, comes back as
+* `_` — so `#{pane_title}` and `#{pane_current_path}` lose their non-ASCII content too, and a fix that
+* only re-picked the separator would leave that half of the bug standing. And a flag that is on some
+* invocations and not others is a flag someone eventually forgets; one choke point cannot be bypassed
+* by adding a call site.
+*
+* Chosen over pinning a locale on the child environment, which was the other candidate. `LC_ALL=C`
+* does NOT fix it (measured: still `_` — tmux wants the string "UTF-8", not any valid locale), so a
+* pin has to name a UTF-8 locale that the host actually has, and `C.UTF-8` is a glibc spelling that
+* macOS does not ship. It would also mean widening `Exec` to carry an environment, which it does not
+* do today. `-u` is tmux's own answer to exactly this question and needs neither.
+*
+* rmux was measured too and is NOT affected — it emits a real tab under `env -i` — so `mux.rmux.ts` is
+* deliberately left alone. See the `177-locale-safe-tmux-output` ADR.
+*/
+function runTmux(exec, args) {
+	return exec("tmux", ["-u", ...args]);
+}
 /** tmux backend — detected via `$TMUX`. */
 const tmuxMuxAdapter = {
 	name: "tmux",
@@ -4244,6 +4723,41 @@ const tmuxMuxAdapter = {
 	* it landed was 3.6b and had no `new-pane` to run it against.
 	*/
 	canFloatPanes: true,
+	/**
+	* `true` — `resize-pane -Z`, and it is one of the oldest things tmux does. Verified live on 3.7c:
+	* `list-commands` reports `resize-pane (resizep) [-DLMRTUZ] …`, and driving `-Z` against a
+	* three-pane window flipped `#{window_zoomed_flag}` and grew `#{pane_width}` from 40 to 80.
+	*
+	* Declared even though the verb is a TOGGLE and the seam's is absolute: what this flag answers is
+	* whether the backend can be made to honor `setPaneZoom` at all, and tmux can, because it also
+	* reports the state the toggle has to be guarded by (`isPaneZoomed`). A backend with the toggle and
+	* no read would have to omit this — that is otty's position, not tmux's.
+	*/
+	canZoomPanes: true,
+	/**
+	* `true` for both, against two commands tmux has had for as long as it has had windows. Verified
+	* live on 3.7c in a throwaway server: `move-pane -d -h -s %2 -t %1` carried %2 out of window @0
+	* and left it at `l=101` in @1 — to the RIGHT of %1, which is what makes `-h` the `'right'` side —
+	* and `break-pane -d -s %1 -P -F` answered `@2 %1` with %1 gone from @0.
+	*
+	* Neither verb has the ACTIVE-pane trap `setPaneZoom` had to work around: `-s` is honored as
+	* given. Measured, not assumed — with %0 active, `move-pane -s %1` moved %1 and left %0 where it
+	* was, and `break-pane -s %1` broke out %1 rather than the active pane.
+	*/
+	canMovePanes: true,
+	canBreakPanes: true,
+	/**
+	* Every route passes `-d`, so no open moves the attached client. tmux is the backend where this
+	* cost the most to make true: `-d` was already on `new-window`, but `split-window` and `new-pane`
+	* were issuing it nowhere, and both ACTIVATE what they create. Measured on 3.7c rather than read
+	* off the man page — a bare `split-window` in a session focused on %0 left %1 active, and a bare
+	* `new-pane` did the same for the float; with `-d` each left focus on %0 and still printed the new
+	* id through `-P -F`. So the flag costs the id report nothing, which is what makes it free to add.
+	*
+	* There is no focus move to undo on top of that, unlike zellij: `-t` targets the pane to split
+	* directly, so tmux never has to VISIT a pane to choose it.
+	*/
+	focusOnOpen: "preserved",
 	open(exec, opts) {
 		const at = opts.at ?? "tab";
 		const window = at === "workspace" || at === "tab";
@@ -4253,6 +4767,7 @@ const tmuxMuxAdapter = {
 		let args;
 		if (at === "pane:float") args = [
 			"new-pane",
+			"-d",
 			...opts.from ? ["-t", opts.from.id] : [],
 			...env,
 			"-c",
@@ -4276,6 +4791,7 @@ const tmuxMuxAdapter = {
 			const size = opts.ratio != null ? ["-l", toTmuxSize(opts.ratio)] : [];
 			args = [
 				"split-window",
+				"-d",
 				at === "pane:down" ? "-v" : "-h",
 				...from,
 				...size,
@@ -4288,7 +4804,7 @@ const tmuxMuxAdapter = {
 			];
 		}
 		if (window && opts.label) args.splice(1, 0, "-n", opts.label);
-		const out = exec("tmux", args);
+		const out = runTmux(exec, args);
 		if (!out) throw new Error(withReason(exec, `tmux ${args[0]} failed`));
 		const [pane, windowId] = splitOpenReport(out, args[0]);
 		const target = {
@@ -4302,7 +4818,7 @@ const tmuxMuxAdapter = {
 	},
 	rename(exec, target, tier, name) {
 		if (tier === "tab") {
-			exec("tmux", [
+			runTmux(exec, [
 				"rename-window",
 				"-t",
 				target.id,
@@ -4310,7 +4826,7 @@ const tmuxMuxAdapter = {
 			]);
 			return;
 		}
-		exec("tmux", [
+		runTmux(exec, [
 			"select-pane",
 			"-t",
 			target.id,
@@ -4319,7 +4835,7 @@ const tmuxMuxAdapter = {
 		]);
 	},
 	group(exec, target, group, name) {
-		exec("tmux", [
+		runTmux(exec, [
 			"set-option",
 			"-w",
 			"-t",
@@ -4327,7 +4843,7 @@ const tmuxMuxAdapter = {
 			TMUX_WORKSPACE_GROUP_OPTION,
 			group
 		]);
-		if (name !== void 0) exec("tmux", [
+		if (name !== void 0) runTmux(exec, [
 			"set-option",
 			"-w",
 			"-t",
@@ -4337,7 +4853,7 @@ const tmuxMuxAdapter = {
 		]);
 	},
 	sendText(exec, target, text) {
-		exec("tmux", [
+		runTmux(exec, [
 			"send-keys",
 			"-t",
 			target.id,
@@ -4346,7 +4862,7 @@ const tmuxMuxAdapter = {
 		]);
 	},
 	sendKeys(exec, target, keys) {
-		exec("tmux", [
+		runTmux(exec, [
 			"send-keys",
 			"-t",
 			target.id,
@@ -4355,7 +4871,7 @@ const tmuxMuxAdapter = {
 	},
 	submit(exec, target, text) {
 		if (!text) {
-			exec("tmux", [
+			runTmux(exec, [
 				"send-keys",
 				"-t",
 				target.id,
@@ -4364,7 +4880,7 @@ const tmuxMuxAdapter = {
 			return;
 		}
 		tmuxMuxAdapter.sendText(exec, target, text);
-		exec("tmux", [
+		runTmux(exec, [
 			"send-keys",
 			"-t",
 			target.id,
@@ -4387,42 +4903,42 @@ const tmuxMuxAdapter = {
 		return pollForOutput(tmuxMuxAdapter, exec, target, opts);
 	},
 	focus(exec, target) {
-		const { sessionName, windowId } = parsePaneLocation(exec("tmux", [
+		const { sessionName, windowId } = parsePaneLocation(runTmux(exec, [
 			"list-panes",
 			"-a",
 			"-F",
 			"#{pane_id} #{session_name} #{window_id}"
 		]), target.id);
-		exec("tmux", [
+		runTmux(exec, [
 			"switch-client",
 			"-t",
 			sessionName
 		]);
-		exec("tmux", [
+		runTmux(exec, [
 			"select-window",
 			"-t",
 			windowId
 		]);
-		exec("tmux", [
+		runTmux(exec, [
 			"select-pane",
 			"-t",
 			target.id
 		]);
 	},
 	teardown(exec, target) {
-		exec("tmux", [
+		runTmux(exec, [
 			"kill-pane",
 			"-t",
 			target.id
 		]);
 	},
 	paneExists(exec, target) {
-		if (exec("tmux", [
+		if (runTmux(exec, [
 			"has-session",
 			"-t",
 			target.id
 		]) !== null) return true;
-		return (exec("tmux", [
+		return (runTmux(exec, [
 			"list-panes",
 			"-a",
 			"-F",
@@ -4430,7 +4946,7 @@ const tmuxMuxAdapter = {
 		]) ?? "").split("\n").includes(target.id);
 	},
 	isPaneFocused(exec, target) {
-		const out = exec("tmux", [
+		const out = runTmux(exec, [
 			"list-panes",
 			"-a",
 			"-F",
@@ -4440,7 +4956,131 @@ const tmuxMuxAdapter = {
 		const line = out.split("\n").find((l) => l.split(" ")[0] === target.id);
 		if (!line) return void 0;
 		const [, paneActive, windowActive, sessionAttached] = line.split(" ");
-		return paneActive === "1" && windowActive === "1" && sessionAttached !== "0" && sessionAttached !== void 0;
+		if (paneActive === void 0 || windowActive === void 0 || sessionAttached === void 0) return void 0;
+		return paneActive === "1" && windowActive === "1" && sessionAttached !== "0";
+	},
+	/**
+	* `resize-pane -Z`, which is a TOGGLE — the seam's member is absolute, so the state is read first
+	* and the toggle issued only when it differs (`isPaneZoomed` below). All of it verified live on
+	* tmux 3.7c.
+	*
+	* **`select-pane` before `-Z`, and it is not redundant.** `resize-pane -Z -t <pane>` on a window
+	* that is ALREADY zoomed on a DIFFERENT pane does not transfer the zoom — it just unzooms, leaving
+	* the other pane active and nothing zoomed (measured: with %1 zoomed, `-Z -t %2` left `z=0` on
+	* every pane and %1 still active). Naming the pane is not enough on tmux; the zoom follows the
+	* ACTIVE pane. `select-pane -t <pane>` fixes both halves at once — it unzooms the window as a side
+	* effect of moving the active pane, and it makes the target the pane `-Z` will zoom.
+	*
+	* That `select-pane` is also why zooming MOVES FOCUS here, which `MuxAdapter.setPaneZoom`
+	* declares rather than compensates. It is not a cost this adapter chose: a bare `-Z -t <pane>` on
+	* an unfocused pane already makes that pane active on tmux, so there is no focus-preserving
+	* spelling to prefer.
+	*
+	* Unzooming needs no `select-pane`: the guard has already established that THIS pane is the zoomed
+	* one, so it is already the active pane and a bare `-Z` restores it in place, moving nothing.
+	*/
+	setPaneZoom(exec, target, zoomed) {
+		if (tmuxMuxAdapter.isPaneZoomed(exec, target) === zoomed) return;
+		if (zoomed && runTmux(exec, [
+			"select-pane",
+			"-t",
+			target.id
+		]) === null) throw new Error(withReason(exec, `tmux could not select pane ${target.id}`));
+		if (runTmux(exec, [
+			"resize-pane",
+			"-Z",
+			"-t",
+			target.id
+		]) === null) throw new Error(withReason(exec, `tmux could not ${zoomed ? "zoom" : "unzoom"} pane ${target.id}`));
+	},
+	/**
+	* `#{window_zoomed_flag}` AND `#{pane_active}`, because tmux's flag is per WINDOW: it reads `1` on
+	* every pane of a zoomed window, including the small ones behind the zoomed one (verified live on
+	* 3.7c — with %1 zoomed, all three panes reported `z=1`). The pane that is actually big is the
+	* window's ACTIVE pane, so the per-pane answer the seam promises is the conjunction.
+	*
+	* Read out of `list-panes -a`, the same server-wide listing `isPaneFocused` uses, rather than
+	* `display-message -p -t <pane>`: display-message answers a pane that no longer exists with a blank
+	* line and exit code 0 (measured on 3.7c), which is indistinguishable from a real answer whose
+	* fields did not expand. A missing LINE is unambiguous, and `undefined` is then the honest report
+	* rather than a false `false`.
+	*
+	* `#{session_attached}` is deliberately NOT part of this, unlike `isPaneFocused`'s answer: a pane
+	* is zoomed in its window whether or not any client is looking, and a detached session's zoom is
+	* still there when a client attaches.
+	*/
+	isPaneZoomed(exec, target) {
+		const out = runTmux(exec, [
+			"list-panes",
+			"-a",
+			"-F",
+			"#{pane_id} #{window_zoomed_flag} #{pane_active}"
+		]);
+		if (!out) return void 0;
+		const line = out.split("\n").find((l) => l.split(" ")[0] === target.id);
+		if (!line) return void 0;
+		const [, zoomedFlag, paneActive] = line.split(" ");
+		return zoomedFlag === "1" && paneActive === "1";
+	},
+	/**
+	* `move-pane -s <src> -t <dst>`, with `-h`/`-v` choosing the side. Measured on 3.7c: `-h` lands the
+	* moved pane to the RIGHT of the destination (`l=101` beside a destination at `l=0 w=100`) and
+	* `-v` lands it BELOW, which is the mapping this member's `'right'`/`'down'` takes.
+	*
+	* `-d` is not decoration: without it tmux SELECTS the destination window and makes the moved pane
+	* active, dragging an attached client to a window the caller never asked to look at (measured —
+	* a bare `move-pane` left the client on @1 with %1 active there). With it the client stays put and
+	* the destination's own active pane is untouched.
+	*
+	* The re-read afterwards is what turns tmux's `void` command into the seam's `OpenedPane`.
+	* `move-pane` has no `-P`/`-F` at all — unlike `break-pane` below — so the window the pane landed
+	* in has to be asked for, and asking doubles as the confirmation that the pane survived the move.
+	* No `workspace`: tmux has no such tier, and `open` reports none either.
+	*/
+	movePane(exec, target, destination, side) {
+		if (runTmux(exec, [
+			"move-pane",
+			"-d",
+			side === "down" ? "-v" : "-h",
+			"-s",
+			target.id,
+			"-t",
+			destination.id
+		]) === null) throw new Error(withReason(exec, `tmux could not move pane ${target.id} to ${destination.id}`));
+		return tmuxPaneLocation(exec, target.id, "move");
+	},
+	/**
+	* `break-pane -s <src> -P -F`, which reports the pane and its NEW window in the same call — so
+	* unlike `movePane` this needs no second read. Driven on 3.7c: with %0 active, `break-pane -d -s
+	* %1` answered `@2 %1` and left %0 alone in @0.
+	*
+	* `at` is ignored, and that is the tier collapse `open` already makes rather than a member
+	* ignoring its argument: tmux has no workspace tier, so `'tab'` and `'workspace'` are both a new
+	* Window here, exactly as `MuxPlacement`'s two space placements both are. The returned
+	* `OpenedPane` carries no `workspace`, which is how a caller sees the collapse rather than being
+	* told a false one.
+	*
+	* `-d` for `movePane`'s reason. Breaking out a pane that is already alone in its window is a
+	* no-op that reports its existing window (measured on 3.7c) — the seam declares that rather than
+	* spending a read to normalize it.
+	*/
+	breakPane(exec, target, _at) {
+		const out = runTmux(exec, [
+			"break-pane",
+			"-d",
+			"-s",
+			target.id,
+			"-P",
+			"-F",
+			"#{pane_id} #{window_id}"
+		]);
+		if (!out) throw new Error(withReason(exec, `tmux could not break out pane ${target.id}`));
+		const [pane, window] = out.trim().split(" ");
+		if (!pane || !window) throw new Error(`tmux break-pane did not report the pane and window of ${target.id}`);
+		return {
+			id: pane,
+			tab: window
+		};
 	},
 	/**
 	* Tab-separated, not space — the same rule `describeTmuxRegion` follows, and for the same reason:
@@ -4451,7 +5091,7 @@ const tmuxMuxAdapter = {
 	* A tab can appear in neither id nor command, and the two free-text fields are separated by one.
 	*/
 	listPanes(exec) {
-		const out = exec("tmux", [
+		const out = runTmux(exec, [
 			"list-panes",
 			"-a",
 			"-F",
@@ -4476,6 +5116,30 @@ const tmuxMuxAdapter = {
 			return describeTmuxRegion(exec, target.id);
 		},
 		/**
+		* `resize-pane -x/-y` in CELLS, never `-x <percent>`, and the difference is not cosmetic: tmux
+		* takes a percentage of the WINDOW, while the seam's `ratio` is a fraction of the pane's own
+		* SPLIT REGION. Those are the same number only in a two-pane window, so a nested layout would be
+		* sized against the wrong denominator — silently, and only for the users with more than one
+		* split. Cells computed from the rects tmux just reported are exact at every depth.
+		*
+		* Verified against a live tmux 3.7c (`mux.tmux.integration.test.ts`): `-x` sizes the target pane
+		* and its sibling absorbs the difference, `-y` does the same on a stacked split, and a resize
+		* inside a nested region leaves the outer divider where it was.
+		*/
+		resizePane(exec, target, ratio) {
+			const split = enclosingSplit(describeTmuxRegion(exec, target.id), target.id);
+			if (!split) throw new Error(`tmux pane ${target.id} is the only pane in its region — there is no split to resize`);
+			const flag = split.direction === "right" ? "-x" : "-y";
+			const cells = toTmuxResizeCells(split, ratio);
+			if (runTmux(exec, [
+				"resize-pane",
+				"-t",
+				target.id,
+				flag,
+				String(cells)
+			]) === null) throw new Error(withReason(exec, `tmux could not resize pane ${target.id}`));
+		},
+		/**
 		* tmux has NO workspace tier — `workspace` and `tab` both collapse onto a Window — so a workspace
 		* is not a fact this backend holds. What it holds is the grouping TAG the walk wrote
 		* (`MuxOpenOptions.workspaceGroup`, stored in a window user option), so the read here is
@@ -4491,7 +5155,7 @@ const tmuxMuxAdapter = {
 		* it costs no further call — the caller's own window is the whole workspace.
 		*/
 		describeWorkspace(exec, target) {
-			const out = exec("tmux", [
+			const out = runTmux(exec, [
 				"display-message",
 				"-p",
 				"-t",
@@ -4502,7 +5166,7 @@ const tmuxMuxAdapter = {
 			const [windowId, group, ownName, ...nameParts] = out.split("\n")[0].split("	");
 			if (!windowId) throw new Error(`tmux did not report the window around pane ${target.id}`);
 			if (!group) return [tmuxTab(exec, windowId, ownName, nameParts.join("	"))];
-			const listed = exec("tmux", [
+			const listed = runTmux(exec, [
 				"list-windows",
 				"-a",
 				"-F",
@@ -4555,7 +5219,7 @@ function tmuxTab(exec, windowId, ownName, windowName) {
 * splitting a path on spaces is how a directory with one in it silently becomes the wrong pane.
 */
 function describeTmuxRegion(exec, id) {
-	const out = exec("tmux", [
+	const out = runTmux(exec, [
 		"list-panes",
 		"-t",
 		id,
@@ -4618,6 +5282,54 @@ function splitOpenReport(out, command) {
 	return [pane, windowId];
 }
 /**
+* Where a pane lives NOW, as the `OpenedPane` a relocation has to answer with — the read `move-pane`
+* cannot give, because it has no `-P`/`-F` to report through.
+*
+* Server-wide `list-panes -a` rather than `display-message -p -t <pane>`, for `isPaneZoomed`'s
+* reason: display-message answers a pane that no longer exists with a blank line and exit code 0, so
+* a move that silently lost its pane would read as a successful one. A missing LINE is unambiguous,
+* and here it means the relocation did not land — which throws rather than reporting a false success.
+*
+* No `workspace` on the result: tmux has no such tier, so a relocation reports none exactly as an
+* `open` does.
+*/
+function tmuxPaneLocation(exec, id, verb) {
+	const line = (runTmux(exec, [
+		"list-panes",
+		"-a",
+		"-F",
+		"#{pane_id} #{window_id}"
+	]) ?? "").split("\n").find((l) => l.split(" ")[0] === id);
+	if (!line) throw new Error(`tmux could not resolve pane ${id} after the ${verb}`);
+	const [, windowId] = line.split(" ");
+	if (!windowId) throw new Error(`tmux did not report a window for pane ${id} after the ${verb}`);
+	return {
+		id,
+		tab: windowId
+	};
+}
+/**
+* The seam's `ratio` as the CELL count `resize-pane -x/-y` wants for the target pane.
+*
+* Computed through the SECOND side rather than the target directly, because that is the definition
+* `ratioOf` (`region-tree.ts`) reads a live split back with, and a write that used the other formula
+* would not round-trip: tmux eats a column for the divider, so `first / (first + second)` and
+* `1 - second / total` disagree by exactly that column. Going through the second side means a region
+* described at 0.6 and resized to 0.6 is a no-op, which is the property a caller restoring a drifted
+* layout depends on.
+*
+* The divider is MEASURED (`extent - targetExtent - otherExtent`) rather than assumed to be one
+* column: it is the same arithmetic on a backend that draws no divider, so nothing here is tmux-shaped
+* beyond the flag it renders into.
+*/
+function toTmuxResizeCells(split, ratio) {
+	assertRatioInRange(ratio);
+	const second = Math.round((split.targetIsFirst ? 1 - ratio : ratio) * split.extent);
+	if (!split.targetIsFirst) return second;
+	const divider = split.extent - split.targetExtent - split.otherExtent;
+	return split.extent - divider - second;
+}
+/**
 * `ratio` is the fraction kept by the ORIGINAL pane; tmux's `-l` sizes the NEW one. So this INVERTS
 * — `1 - ratio` — where herdr's `--ratio` passes the same number through untouched. The two backends
 * genuinely convert in opposite directions, and applying the inversion to both (or to neither) is
@@ -4656,7 +5368,7 @@ function capturePane(exec, target, lines) {
 	];
 	if (lines === "all") args.push("-S", "-");
 	else if (lines != null) args.push("-S", `-${lines}`);
-	return exec("tmux", args) ?? "";
+	return runTmux(exec, args) ?? "";
 }
 function toTmuxKey(key) {
 	return TMUX_KEY_RENAMES[key] ?? key;
@@ -4678,6 +5390,7 @@ function parsePaneLocation(out, id) {
 }
 const KNOWN_MUX = [
 	"tmux",
+	"rmux",
 	"herdr",
 	"wezterm",
 	"zellij",
@@ -4696,12 +5409,24 @@ function isKnownMux(v) {
 * fast-path extension `$TMUX_PANE`/`$HERDR_PANE_ID` already get; Zellij exports `$ZELLIJ_PANE_ID` in
 * every terminal pane (its own `terminal_N`/bare-`N` id) — per the issue that requested this backend
 * (#46); cmux exports `$CMUX_SURFACE_ID` in every terminal (its surface ref, e.g. `surface:7`) — per
-* the issue that requested this backend (#48). screen carries no per-pane env var. Both the ancestry
+* the issue that requested this backend (#48); otty exports `$OTTY_PANE_ID` in every pane, which is
+* also its only "inside otty" signal, so it doubles as the ancestry fallback's hint the way
+* `$WEZTERM_PANE` does. screen carries no per-pane env var. Both the ancestry
 * probe and the `currentPane` self-identity helper read the pane through this table so the two never
 * diverge on which env var a given mux uses.
+*
+* **rmux is the one entry whose ORDER against another matters**, and the reason is not cosmetic: an
+* rmux pane exports `$RMUX_PANE` AND `$TMUX_PANE`, both holding the same `%N` id, because rmux
+* reimplements the tmux command language and keeps tmux's env contract for anything that reads it
+* (probed live on rmux 0.10.0 — a pane's env carried `RMUX=<socket>,<pid>,<session>`,
+* `RMUX_PANE=%1`, `TMUX=<the same triple>`, `TMUX_PANE=%1`, `TERM_PROGRAM=rmux`). So `$TMUX_PANE`
+* is NOT evidence of tmux, and every read that walks this table must ask rmux BEFORE tmux, or an
+* rmux session self-identifies as tmux and gets driven with the wrong binary. The table itself is
+* unordered — `currentPane` and `discoverByAncestry` below each carry the ordering, and each says so.
 */
 const PANE_ENV = {
 	tmux: (env) => env["TMUX_PANE"],
+	rmux: (env) => env["RMUX_PANE"],
 	herdr: (env) => env["HERDR_PANE_ID"],
 	wezterm: (env) => env["WEZTERM_PANE"],
 	zellij: (env) => env["ZELLIJ_PANE_ID"],
@@ -4710,15 +5435,24 @@ const PANE_ENV = {
 };
 /**
 * Resolve THIS session's own pane from env alone (no `ps` walk): the `$CYBER_MUX_PANE` fast-path a
-* spawn propagates → `$TMUX_PANE` (tmux) → `$HERDR_PANE_ID` (herdr) → `$WEZTERM_PANE` (wezterm) →
-* `$ZELLIJ_PANE_ID` (zellij) → `$CMUX_SURFACE_ID` (cmux) → `$OTTY_PANE_ID` (otty). Returns the pane
-* tagged with its multiplexer, or undefined when the session is in no pane-carrying multiplexer.
-* This is the mux-agnostic self-identity key.
+* spawn propagates → `$RMUX_PANE` (rmux) → `$TMUX_PANE` (tmux) → `$HERDR_PANE_ID` (herdr) →
+* `$WEZTERM_PANE` (wezterm) → `$ZELLIJ_PANE_ID` (zellij) → `$CMUX_SURFACE_ID` (cmux) →
+* `$OTTY_PANE_ID` (otty). Returns the pane tagged with its multiplexer, or undefined when the
+* session is in no pane-carrying multiplexer. This is the mux-agnostic self-identity key.
+*
+* **rmux is asked before tmux, and that order is load-bearing** — an rmux pane sets `$TMUX_PANE`
+* too (see `PANE_ENV`), so the tmux question is not a question rmux answers `no` to. The reverse
+* order would report every rmux pane as tmux and hand `resolveMuxAdapter` the wrong binary.
 */
 function currentPane(env) {
 	if (env["CYBER_MUX_PANE"]) return {
-		mux: env["CYBER_MUX"] === "herdr" ? "herdr" : env["CYBER_MUX"] === "wezterm" ? "wezterm" : env["CYBER_MUX"] === "zellij" ? "zellij" : env["CYBER_MUX"] === "cmux" ? "cmux" : env["CYBER_MUX"] === "otty" ? "otty" : "tmux",
+		mux: env["CYBER_MUX"] === "rmux" ? "rmux" : env["CYBER_MUX"] === "herdr" ? "herdr" : env["CYBER_MUX"] === "wezterm" ? "wezterm" : env["CYBER_MUX"] === "zellij" ? "zellij" : env["CYBER_MUX"] === "cmux" ? "cmux" : env["CYBER_MUX"] === "otty" ? "otty" : "tmux",
 		pane: env["CYBER_MUX_PANE"]
+	};
+	const rmux = PANE_ENV.rmux(env);
+	if (rmux) return {
+		mux: "rmux",
+		pane: rmux
 	};
 	const tmux = PANE_ENV.tmux(env);
 	if (tmux) return {
@@ -4754,16 +5488,17 @@ function currentPane(env) {
 /**
 * Two-mode multiplexer detection.
 *
-* Fast-path: `$CYBER_MUX` (tmux | herdr | wezterm | zellij | screen | none) is trusted outright —
-* this also serves as an OVERRIDE (`=none` forces no-mux even inside a real multiplexer).
+* Fast-path: `$CYBER_MUX` (tmux | rmux | herdr | wezterm | zellij | cmux | otty | screen | none) is
+* trusted outright — this also serves as an OVERRIDE (`=none` forces no-mux even inside a real
+* multiplexer).
 * `$CYBER_MUX_PANE` carries the pane id alongside it. Detection RECOGNIZES `screen` (so an override
 * pinning it, or a real screen ancestor, is reported truthfully rather than silently ignored), but
 * `screen` is not a drivable backend — `resolveMuxAdapter` rejects it with a reason. Recognition is
 * not support.
 *
 * Discovery (else): walk the process ancestry from `$$` via `ps -o ppid=,comm= -p <pid>`, since the
-* tool's own shell may not be the human's pane. `$TMUX`/`$HERDR_ENV` are NOT trusted alone — they
-* are used only as a fast-positive hint the ancestry walk falls back to when the walk itself is
+* tool's own shell may not be the human's pane. `$RMUX`/`$TMUX`/`$HERDR_ENV` are NOT trusted alone —
+* they are used only as a fast-positive hint the ancestry walk falls back to when the walk itself is
 * inconclusive (e.g. `ps` unavailable), never as a substitute for it.
 */
 function probeMultiplexer(exec, env, opts = {}) {
@@ -4787,6 +5522,10 @@ const MUX_COMM = [
 		mux: "tmux"
 	},
 	{
+		re: /^rmux(-daemon|-server)?(:|$)/,
+		mux: "rmux"
+	},
+	{
 		re: /^herdr(:|$)/,
 		mux: "herdr"
 	},
@@ -4803,9 +5542,22 @@ const MUX_COMM = [
 		mux: "screen"
 	}
 ];
-/** The per-pane env var for a mux, via the shared `PANE_ENV` table; undefined for screen/none. */
+/** Narrows a `Mux` to a `PaneMux` by ASKING `PANE_ENV`, so membership has exactly one definition. */
+function isPaneMux(mux) {
+	return Object.hasOwn(PANE_ENV, mux);
+}
+/**
+* The per-pane env var for a mux, via the shared `PANE_ENV` table; undefined for screen/none.
+*
+* The guard is "does `PANE_ENV` have a row for this mux?", NOT a second hand-written list of the
+* muxes that have one. The hand-written list is what #169 was: `otty` had a `PANE_ENV` row and a
+* `discoverByAncestry` hint, but was missing from the list here, so an ancestry-discovered otty
+* session reported no pane while `$OTTY_PANE_ID` sat in its env, readable. `screen` and `none` still
+* answer undefined — now because they are genuinely absent from the table, which is the same reason
+* they were meant to answer undefined before.
+*/
 function paneFor(mux, env) {
-	return mux === "tmux" || mux === "herdr" || mux === "wezterm" || mux === "zellij" || mux === "cmux" ? PANE_ENV[mux](env) : void 0;
+	return isPaneMux(mux) ? PANE_ENV[mux](env) : void 0;
 }
 /**
 * An ancestry-discovered probe, OMITTING `pane` when the mux carries none — never carrying it as an
@@ -4847,6 +5599,7 @@ function walkAncestry(exec, env) {
 function discoverByAncestry(exec, env) {
 	const found = walkAncestry(exec, env);
 	if (found) return found;
+	if (env["RMUX"]) return ancestryProbe("rmux", env);
 	if (env["TMUX"]) return ancestryProbe("tmux", env);
 	if (env["HERDR_ENV"]) return ancestryProbe("herdr", env);
 	if (env["WEZTERM_PANE"]) return ancestryProbe("wezterm", env);
@@ -6315,11 +7068,11 @@ function withCursorEffort(model, effort) {
 	return `${model.slice(0, open)}[${[...params, `effort=${effort}`].join(",")}]`;
 }
 /** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
-* `--effort`, codex only a config override, cursor only a parameter on the model — so a cursor
-* effort with no model has nowhere to go and throws rather than launching at the default effort. */
+* `--effort`, codex only a config override, cursor only a parameter on a named model. Cursor refuses
+* an effort on its default (`auto[effort=high]` is not a model it accepts), so a cursor effort with
+* no model is left off and `realizeLaunch` reports it as not applied. */
 function modelAndEffortArgs(harness, model, effort) {
 	if (harness === "cursor") {
-		if (effort && !model) throw new Error(`cursor carries effort only as a parameter on the model; set a model to launch with effort "${effort}"`);
 		if (!model) return [];
 		return ["--model", shellQuote(effort ? withCursorEffort(model, effort) : model)];
 	}
@@ -6361,11 +7114,12 @@ function realizeLaunch(def, opts = {}) {
 		...instructionArgs(harness, def.instructions)
 	];
 	const briefInstructions = harness === "cursor" && def.instructions ? def.instructions : void 0;
+	const notApplied = harness === "cursor" && effort && !model ? effort : void 0;
 	return {
 		harness,
 		command: parts.join(" "),
 		model,
-		effort,
+		...notApplied ? { effortNotApplied: notApplied } : { effort },
 		...briefInstructions ? { briefInstructions } : {}
 	};
 }
@@ -6411,7 +7165,7 @@ function resolveSpawnLaunch(input) {
 * Throws when no harness can be resolved, so the CLI's own `fail()` still renders it.
 */
 function spawnCommandInput(opts) {
-	const { harness, command, model, effort, briefInstructions } = resolveSpawnLaunch({
+	const { harness, command, model, effort, effortNotApplied, briefInstructions } = resolveSpawnLaunch({
 		agent: opts.agent,
 		agentFile: opts.agentFile,
 		harness: opts.harness,
@@ -6435,7 +7189,8 @@ function spawnCommandInput(opts) {
 		noWake: opts.wake === false,
 		launched: {
 			model,
-			effort
+			effort,
+			effortNotApplied
 		}
 	};
 }
@@ -8086,6 +8841,17 @@ withGlobals(unit.command("prune")).description("mark dead units exited and sweep
 });
 /** What a model/effort/harness field reads when no source set it and the harness's own default applies. */
 const HARNESS_DEFAULT = "(harness default)";
+/** The effort a spawn reports: what launched, or the level asked for marked not applied. */
+function reportedEffort(launched) {
+	if (launched.effortNotApplied) return `${launched.effortNotApplied} (not applied)`;
+	return launched.effort ?? HARNESS_DEFAULT;
+}
+/** Warn on stderr when the launch dropped an effort it could not carry (cursor with no model). */
+function warnEffortNotApplied(spawnInput) {
+	const level = spawnInput.launched.effortNotApplied;
+	if (!level) return;
+	console.error(`${spawnInput.input.harness} carries effort only as a parameter on a named model and none was set; effort "${level}" not applied — launching at the harness default model and effort (pass --model to apply it)`);
+}
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd) {
 	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
@@ -8105,6 +8871,7 @@ function defineSpawn(cmd) {
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err));
 		}
+		warnEffortNotApplied(spawnInput);
 		const res = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake });
 		if (res.warning) console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`);
 		emit(formatOf(opts), {
@@ -8113,7 +8880,7 @@ function defineSpawn(cmd) {
 				handle: res.agent.handle,
 				harness: res.agent.harness,
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
-				effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+				effort: reportedEffort(spawnInput.launched),
 				worktree: res.agent.worktree?.root,
 				pane: res.pane,
 				rung: res.rung
@@ -8123,7 +8890,7 @@ function defineSpawn(cmd) {
 				pane: res.pane,
 				launch: res.launch,
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
-				effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+				effort: reportedEffort(spawnInput.launched),
 				rung: res.rung
 			}
 		});
@@ -8454,6 +9221,7 @@ withSpawnOptions(service.command("start")).description("resolve the healthy owne
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}
+	warnEffortNotApplied(spawnInput);
 	let warning;
 	let res;
 	try {

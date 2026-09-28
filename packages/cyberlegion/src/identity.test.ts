@@ -26,6 +26,10 @@ import {
 } from './identity.ts'
 import { FileStore } from './store/file-store.ts'
 
+// cyber-mux (>=0.8.0) prefixes every tmux call with `-u`; cyberlegion's own direct tmux calls do not.
+// Fakes answer by the tmux verb, wherever it sits.
+const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args[0])
+
 let store: FileStore
 beforeEach(() => {
 	store = new FileStore(join(mkdtempSync(join(tmpdir(), 'cl-')), 'hub'))
@@ -144,9 +148,9 @@ describe('spec:cyberlegion/identity', () => {
 			(livePanes: string[]): Exec =>
 			(cmd, args) => {
 				if (cmd !== 'tmux') return null
-				if (args[0] === 'has-session') return null // never a session name in these fixtures
-				if (args[0] === 'list-panes') return livePanes.join('\n')
-				if (args[0] === 'display-message') return '@1' // window id lookup during register
+				if (tmuxVerb(args) === 'has-session') return null // never a session name in these fixtures
+				if (tmuxVerb(args) === 'list-panes') return livePanes.join('\n')
+				if (tmuxVerb(args) === 'display-message') return '@1' // window id lookup during register
 				return null
 			}
 		// paneExists(herdr): live iff `herdr pane read` returns non-null (dead panes fail → null).
@@ -215,8 +219,8 @@ describe('spec:cyberlegion/identity', () => {
 			(lines: string[]): Exec =>
 			(cmd, args) => {
 				if (cmd !== 'tmux') return null
-				if (args[0] === 'list-panes') return lines.join('\n')
-				if (args[0] === 'display-message') return '@1'
+				if (tmuxVerb(args) === 'list-panes') return lines.join('\n')
+				if (tmuxVerb(args) === 'display-message') return '@1'
 				return null
 			}
 		const herdrListExec =
@@ -298,7 +302,7 @@ describe('spec:cyberlegion/identity', () => {
 			(lines: string[]): Exec =>
 			(cmd, args) => {
 				if (cmd !== 'tmux') return null
-				if (args[0] === 'list-panes') return lines.join('\n')
+				if (tmuxVerb(args) === 'list-panes') return lines.join('\n')
 				return null
 			}
 		const herdrEnv = { HERDR_ENV: '1', HERDR_PANE_ID: 'w0:p0' }
@@ -734,7 +738,7 @@ describe('spec:cyberlegion/service — owner liveness fails closed', () => {
 	const listing =
 		(panes: string | null): Exec =>
 		(cmd, args) =>
-			cmd === 'tmux' && args[0] === 'list-panes' ? panes : null
+			cmd === 'tmux' && tmuxVerb(args) === 'list-panes' ? panes : null
 
 	it('a backend the caller cannot reach cannot declare the owner gone', () => {
 		expect(sessionLive(ctx({}, listing(null)), owner())).toBe(true)

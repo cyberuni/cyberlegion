@@ -97,12 +97,12 @@ describe('spec:cyberlegion/agent', () => {
 		}
 	})
 
-	it('a cursor effort with no model refuses rather than launching at the default effort', () => {
-		let result: unknown
-		expect(() => {
-			result = realizeLaunch(def({ harness: 'cursor', effort: 'high', instructions: '' }))
-		}).toThrow(/cursor.*model/)
-		expect(result).toBeUndefined()
+	it('a cursor effort with no model launches at the harness default and reports the effort not applied', () => {
+		const realized = realizeLaunch(def({ harness: 'cursor', effort: 'high', instructions: '' }))
+		expect(realized.command).not.toContain('--model')
+		expect(realized.command).not.toContain('effort=')
+		expect(realized.effort).toBeUndefined()
+		expect(realized.effortNotApplied).toBe('high')
 	})
 
 	it("an explicit effort override wins over the def's own effort", () => {

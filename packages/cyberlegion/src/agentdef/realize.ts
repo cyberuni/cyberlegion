@@ -31,6 +31,9 @@ export interface RealizedLaunch {
 	 * harness default applies. */
 	model?: string
 	effort?: string
+	/** An effort asked for that the launch cannot carry — cursor with no model — so the caller can warn
+	 * and report it rather than let it drop silently. The launch runs at the harness default instead. */
+	effortNotApplied?: string
 	/** The def's instructions, for a harness whose CLI cannot take them (cursor): `unit spawn` writes
 	 * them in front of the brief instead. Absent when the command carries them, or there are none. */
 	briefInstructions?: string
@@ -50,15 +53,11 @@ function withCursorEffort(model: string, effort: string): string {
 }
 
 /** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
- * `--effort`, codex only a config override, cursor only a parameter on the model — so a cursor
- * effort with no model has nowhere to go and throws rather than launching at the default effort. */
+ * `--effort`, codex only a config override, cursor only a parameter on a named model. Cursor refuses
+ * an effort on its default (`auto[effort=high]` is not a model it accepts), so a cursor effort with
+ * no model is left off and `realizeLaunch` reports it as not applied. */
 function modelAndEffortArgs(harness: Harness, model?: string, effort?: string): string[] {
 	if (harness === 'cursor') {
-		if (effort && !model) {
-			throw new Error(
-				`cursor carries effort only as a parameter on the model; set a model to launch with effort "${effort}"`,
-			)
-		}
 		if (!model) return []
 		return ['--model', shellQuote(effort ? withCursorEffort(model, effort) : model)]
 	}
@@ -95,7 +94,14 @@ export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): R
 		...instructionArgs(harness, def.instructions),
 	]
 	const briefInstructions = harness === 'cursor' && def.instructions ? def.instructions : undefined
-	return { harness, command: parts.join(' '), model, effort, ...(briefInstructions ? { briefInstructions } : {}) }
+	const notApplied = harness === 'cursor' && effort && !model ? effort : undefined
+	return {
+		harness,
+		command: parts.join(' '),
+		model,
+		...(notApplied ? { effortNotApplied: notApplied } : { effort }),
+		...(briefInstructions ? { briefInstructions } : {}),
+	}
 }
 
 /**
@@ -117,7 +123,14 @@ export function resolveSpawnLaunch(input: {
 	effort?: string
 	cwd?: string
 	searchRoots?: string[]
-}): { harness?: string; command?: string; model?: string; effort?: string; briefInstructions?: string } {
+}): {
+	harness?: string
+	command?: string
+	model?: string
+	effort?: string
+	effortNotApplied?: string
+	briefInstructions?: string
+} {
 	const overrides = { harness: input.harness as Harness | undefined, model: input.model, effort: input.effort }
 	if (!input.agent && !input.agentFile) {
 		if (!input.harness || (!input.model && !input.effort)) return { harness: input.harness }

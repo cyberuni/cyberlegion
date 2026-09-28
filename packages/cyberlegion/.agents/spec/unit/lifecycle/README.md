@@ -176,10 +176,13 @@ cleanly — the deterministic inverse pair:
     def, which stays the one source of what an agent *is*. The flags also work without a def, on a
     bare `--harness`: they compose a launch from that harness's binary, where a spawn with neither flag
     keeps the harness's unadorned default. `--effort` goes through `agent/`'s per-harness effort
-    control, so a cursor `--effort` with no model from either source **refuses before anything is
-    created** — cursor carries effort only as a parameter on the model. The spawn output reports the
-    `model` and `effort` it launched with, from whichever source won, and `(harness default)` when no
-    source set one — so a caller can check the launch it asked for is the launch it got.
+    control. Cursor carries effort only as a parameter on a named model, so a cursor effort (from
+    `--effort` or the def) with no model from either source **launches at the harness default
+    without the effort**, warns on stderr naming cursor, the effort and the missing model, and reports
+    the effort as `<level> (not applied)` — it never throws, since cursor always has a default model.
+    The spawn output reports the `model` and `effort` it launched with, from whichever source won, and
+    `(harness default)` when no source set one — so a caller can check the launch it asked for is the
+    launch it got.
     - *Actors.* A dispatcher launching one brief on a different model or effort than the def's
       default, without writing a second def that differs in one line; and whoever reads the spawn
       result afterwards to confirm what actually launched.
@@ -353,7 +356,8 @@ graph TD
   SPMF -- yes --> SPA3["compose the launch from --harness with that model/effort (no --harness: nothing to compose, SPH refuses)"]
   SPA1 --> SPEF{"the effort realizable on the harness? cursor carries it only on a model"}
   SPA3 --> SPEF
-  SPEF -- no --> SPEF1["throw naming cursor and the missing model — no worktree, session or record"]
+  SPEF -- no --> SPEF1["drop the effort: launch at the harness default, warn on stderr, report effort (not applied)"]
+  SPEF1 --> SPH
   SPEF -- yes --> SPH
   SPA2 --> SPH{"a harness resolved, from either source?"}
   SPH -- no --> SPH1["throw: needs --harness, or --agent/--agent-file resolving one"]
@@ -579,7 +583,8 @@ column records. They are not gaps.
 | `SPA1` effort override wins | a def with its own effort, plus --effort | `--effort overrides the resolved def's own effort` |
 | `SPA1` → reported launch | a def with its own model and effort, no flag | `a def's own model and effort are reported when no flag overrides them` |
 | `SPA2` → reported launch | a plain --harness spawn, no def, no flag | `a spawn with no model or effort from any source reports the harness default for both` |
-| `SPEF -- no` | a cursor spawn with --effort and no model from any source | `--effort on a cursor spawn with no model refuses before anything is created` |
+| `SPA3 → SPEF -- no` | a cursor spawn with --effort and no model from any source | `--effort on a cursor spawn with no model launches at the harness default and says the effort was not applied` |
+| `SPA1 → SPEF -- no` | a cursor def with effort and no model from any source | `a cursor def's effort with no model from any source launches at the harness default and says the effort was not applied` |
 | `SPEF -- yes` | a cursor spawn with --effort and --model | `--effort on a cursor spawn with a model launches with the effort on that model` |
 
 ### spawn registers the peer it opened

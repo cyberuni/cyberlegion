@@ -297,14 +297,32 @@ describe('spec:cyberlegion/unit/lifecycle', () => {
 		expect(printed(log)).toContain('effort: (harness default)')
 	})
 
-	it('--effort on a cursor spawn with no model refuses before anything is created', async () => {
+	/** A cursor effort with no model launches at the harness default, warns, and says so in the output. */
+	function expectEffortNotApplied(log: ReturnType<typeof captureStdout>, err: ReturnType<typeof captureStdout>) {
+		expect(spawnAndWake).toHaveBeenCalledOnce()
+		expect(launched()).not.toContain('--model')
+		expect(launched()).not.toContain('effort=')
+		const warned = err.mock.calls.map((c) => String(c[0])).join('\n')
+		expect(warned).toMatch(/cursor/)
+		expect(warned).toMatch(/"high"/)
+		expect(warned).toMatch(/model/)
+		expect(printed(log)).toContain('effort: high (not applied)')
+	}
+
+	it('--effort on a cursor spawn with no model launches at the harness default and says the effort was not applied', async () => {
+		const log = captureStdout()
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-		await expect(cli(['unit', 'spawn', '--harness', 'cursor', '--effort', 'high', '--task', 't'])).rejects.toThrow(
-			/process\.exit/,
-		)
-		expect(err.mock.calls.map((c) => String(c[0])).join('\n')).toMatch(/cursor.*model/)
-		// the refusal is raised before spawn runs, so no worktree, session or unit exists
-		expect(spawnAndWake).not.toHaveBeenCalled()
+		await cli(['unit', 'spawn', '--harness', 'cursor', '--effort', 'high', '--task', 't'])
+		expectEffortNotApplied(log, err)
+	})
+
+	it("a cursor def's effort with no model from any source launches at the harness default and says the effort was not applied", async () => {
+		await withDef('harness: cursor\neffort: high', 'water daily', async () => {
+			const log = captureStdout()
+			const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+			await cli(['unit', 'spawn', '--agent', 'gardener', '--task', 't'])
+			expectEffortNotApplied(log, err)
+		})
 	})
 
 	it('--effort on a cursor spawn with a model launches with the effort on that model', async () => {

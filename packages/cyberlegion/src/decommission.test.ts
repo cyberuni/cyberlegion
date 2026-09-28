@@ -6,6 +6,10 @@ import { decommission } from './decommission.ts'
 import { type AgentRecord, type Exec, saveAgent } from './identity.ts'
 import { FileStore } from './store/file-store.ts'
 
+// cyber-mux (>=0.8.0) prefixes every tmux call with `-u`; cyberlegion's own direct tmux calls do not.
+// Fakes answer by the tmux verb, wherever it sits.
+const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args[0])
+
 let store: FileStore
 let worktreeRoot: string
 const primaryRoot = '/repo'
@@ -38,7 +42,7 @@ function makeExec(
 			}
 			return null
 		}
-		if (cmd === 'tmux' && args[0] === 'kill-pane') {
+		if (cmd === 'tmux' && tmuxVerb(args) === 'kill-pane') {
 			calls.tmuxKill.push(args)
 			return opts.tmuxKillPane ? opts.tmuxKillPane(args) : ''
 		}
@@ -84,7 +88,7 @@ describe('teardown worktree + session', () => {
 		// ...and it removes THIS unit's worktree. `arrayContaining` ignores the path argument, so a
 		// remove aimed at the parent directory — which holds every sibling unit's worktree — passes it.
 		expect(calls.worktreeRemove[0]).toContain(worktreeRoot)
-		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
+		expect(calls.tmuxKill[0]).toEqual(['-u', 'kill-pane', '-t', '%9'])
 	})
 
 	it('completes the reap when the session pane no longer exists', () => {
@@ -93,7 +97,7 @@ describe('teardown worktree + session', () => {
 		registerUnit({ id: 'gone1' })
 		const { exec: base } = makeExec()
 		const exec: Exec = (cmd, args) => {
-			if (cmd === 'tmux' && args[0] === 'kill-pane') throw new Error("can't find pane %9")
+			if (cmd === 'tmux' && tmuxVerb(args) === 'kill-pane') throw new Error("can't find pane %9")
 			return base(cmd, args)
 		}
 		expect(() => decommission({ store, env: { TMUX: 't' }, exec }, { id: 'gone1' })).not.toThrow()
@@ -138,7 +142,7 @@ describe('close on a --cwd unit removes no worktree', () => {
 		decommission({ store, env: { TMUX: 't' }, exec }, { id: 'cwd1' })
 		expect(calls.worktreeRemove).toHaveLength(0)
 		expect(existsSync(suppliedDir)).toBe(true)
-		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
+		expect(calls.tmuxKill[0]).toEqual(['-u', 'kill-pane', '-t', '%9'])
 		expect(store.getAgent('cwd1')).toBeUndefined()
 		expect(store.resolvePaneId('%9')).toBeUndefined()
 		expect(store.readBrief('cwd1')).toBeUndefined()
@@ -290,7 +294,7 @@ describe('keeping the worktree', () => {
 		// ...while every OTHER piece of the unit is reaped exactly as an ordinary close reaps it. A
 		// keep path that also skipped the reap would leave the record leaking, which is the very
 		// thing this flag exists to avoid.
-		expect(calls.tmuxKill[0]).toEqual(['kill-pane', '-t', '%9'])
+		expect(calls.tmuxKill[0]).toEqual(['-u', 'kill-pane', '-t', '%9'])
 		expect(store.getAgent('k1')).toBeUndefined()
 		expect(store.resolvePaneId('%9')).toBeUndefined()
 		expect(store.readBrief('k1')).toBeUndefined()

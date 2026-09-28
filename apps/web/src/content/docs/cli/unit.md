@@ -113,8 +113,10 @@ default. A flag never writes back to the def. The flags also work without a def,
 | `codex` | `-c model_reasoning_effort="<level>"` |
 | `cursor` | a parameter on the model, `--model '<model>[effort=<level>]'` |
 
-Cursor has no effort control apart from the model. A cursor spawn with an effort but no model, from
-either the flag or the def, therefore fails before anything is created.
+Cursor has no effort control apart from the model, and `cursor-agent` refuses an effort on its
+default model (`auto[effort=high]` is not a model it accepts). A cursor spawn with an effort but no
+model, from either the flag or the def, therefore launches at cursor's default without the effort.
+It warns on stderr and reports the effort as `<level> (not applied)`. Pass `--model` to apply it.
 
 An agent def's body (its instructions) also reaches each harness in a different way:
 

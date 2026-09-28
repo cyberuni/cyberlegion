@@ -267,6 +267,22 @@ withGlobals(unit.command('prune'))
 /** What a model/effort/harness field reads when no source set it and the harness's own default applies. */
 const HARNESS_DEFAULT = '(harness default)'
 
+/** The effort a spawn reports: what launched, or the level asked for marked not applied. */
+function reportedEffort(launched: { effort?: string; effortNotApplied?: string }): string {
+	if (launched.effortNotApplied) return `${launched.effortNotApplied} (not applied)`
+	return launched.effort ?? HARNESS_DEFAULT
+}
+
+/** Warn on stderr when the launch dropped an effort it could not carry (cursor with no model). */
+function warnEffortNotApplied(spawnInput: ReturnType<typeof spawnCommandInput>): void {
+	const level = spawnInput.launched.effortNotApplied
+	if (!level) return
+	console.error(
+		`${spawnInput.input.harness} carries effort only as a parameter on a named model and none was set; ` +
+			`effort "${level}" not applied — launching at the harness default model and effort (pass --model to apply it)`,
+	)
+}
+
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd: Command): Command {
 	return withGlobals(cmd)
@@ -307,6 +323,7 @@ function defineSpawn(cmd: Command): Command {
 			} catch (err) {
 				fail(err instanceof Error ? err.message : String(err))
 			}
+			warnEffortNotApplied(spawnInput)
 			// Spawn AND deliver the first turn — `spawnAndWake` owns both acts so the brief path the
 			// doorbell names is derived from the record spawn just wrote, never assembled here.
 			// `--no-wake` opts out (Commander sets opts.wake === false).
@@ -320,7 +337,7 @@ function defineSpawn(cmd: Command): Command {
 					handle: res.agent.handle,
 					harness: res.agent.harness,
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
-					effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+					effort: reportedEffort(spawnInput.launched),
 					worktree: res.agent.worktree?.root,
 					pane: res.pane,
 					rung: res.rung,
@@ -330,7 +347,7 @@ function defineSpawn(cmd: Command): Command {
 					pane: res.pane,
 					launch: res.launch,
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
-					effort: spawnInput.launched.effort ?? HARNESS_DEFAULT,
+					effort: reportedEffort(spawnInput.launched),
 					rung: res.rung,
 				},
 			})
@@ -742,6 +759,7 @@ withSpawnOptions(service.command('start'))
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}
+		warnEffortNotApplied(spawnInput)
 		let warning: string | undefined
 		let res: Awaited<ReturnType<typeof startService>>
 		try {
