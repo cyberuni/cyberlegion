@@ -10,6 +10,9 @@ import { LAUNCH_MAP } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 import { type RuntimeContext, rebindUnit, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
 
+// Fakes answer by the tmux verb, wherever it sits.
+const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args[0])
+
 let store: FileStore
 let unitDir: string
 
@@ -27,18 +30,18 @@ function tmux(opts: { live?: string[]; liveAfterKill?: string[] | null; killThro
 	const exec: Exec = (cmd, args) => {
 		calls.push([cmd, ...args])
 		if (cmd !== 'tmux') return null
-		if (args[0] === 'kill-pane') {
+		if (tmuxVerb(args) === 'kill-pane') {
 			killed = true
 			if (opts.killThrows) throw new Error("can't find pane")
 			return ''
 		}
-		if (args[0] === 'list-panes') {
+		if (tmuxVerb(args) === 'list-panes') {
 			const live = killed && opts.liveAfterKill !== undefined ? opts.liveAfterKill : (opts.live ?? [])
 			return live === null ? null : live.map((id) => `${id}\tclaude\t/x\t\th\t0`).join('\n')
 		}
 		return null
 	}
-	return { exec, calls, kills: () => calls.filter((c) => c[1] === 'kill-pane') }
+	return { exec, calls, kills: () => calls.filter((c) => tmuxVerb(c.slice(1)) === 'kill-pane') }
 }
 
 function ctx(exec: Exec, env: NodeJS.ProcessEnv = { TMUX: 't' }): IdContext {
@@ -84,7 +87,7 @@ describe('spec:cyberlegion/unit/runtime — unit stop', () => {
 		store.writeBrief('u1', 'the brief')
 		const { exec, kills } = tmux({ live: ['%1', '%9'], liveAfterKill: ['%1'] })
 		const res = stopUnit(ctx(exec), 'u1')
-		expect(kills()).toEqual([['tmux', 'kill-pane', '-t', '%9']])
+		expect(kills()).toEqual([['tmux', '-u', 'kill-pane', '-t', '%9']])
 		const after = loadAgent(store, 'u1') as AgentRecord
 		expect(after.status).toBe('stopped')
 		expect(after.pane).toBeNull()
