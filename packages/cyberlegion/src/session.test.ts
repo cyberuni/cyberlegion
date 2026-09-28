@@ -19,6 +19,10 @@ import {
 } from './session.ts'
 import { FileStore } from './store/file-store.ts'
 
+// cyber-mux (>=0.8.0) prefixes every tmux call with `-u`; cyberlegion's own direct tmux calls do not.
+// Fakes answer by the tmux verb, wherever it sits.
+const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args[0])
+
 /**
  * Every path the text names as a LOCATION — a token introduced by a locative cue. Trailing sentence
  * punctuation is stripped; nothing else is.
@@ -90,8 +94,8 @@ const fakeExec: Exec = (cmd, args) => {
 		}
 		return null
 	}
-	if (args[0] === 'split-window' || args[0] === 'new-window') return '%9\t@1'
-	if (args[0] === 'send-keys') sent.push(args)
+	if (tmuxVerb(args) === 'split-window' || tmuxVerb(args) === 'new-window') return '%9\t@1'
+	if (tmuxVerb(args) === 'send-keys') sent.push(args)
 	return null
 }
 
@@ -163,8 +167,8 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// The ring probes the pane's liveness before typing; the shared fakeExec answers neither probe,
 		// so it would abort as "pane gone" before sending anything. Answer them here only.
 		const wakeExec: Exec = (cmd, args) => {
-			if (cmd === 'tmux' && args[0] === 'list-panes') return '%9'
-			if (cmd === 'tmux' && args[0] === 'has-session') return ''
+			if (cmd === 'tmux' && tmuxVerb(args) === 'list-panes') return '%9'
+			if (cmd === 'tmux' && tmuxVerb(args) === 'has-session') return ''
 			return fakeExec(cmd, args)
 		}
 		const res = await spawnAndWake(
@@ -208,11 +212,11 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// a pane that keeps the doorbell staged forever — the ring exhausts its cap
 		let staged = ''
 		const stuckExec: Exec = (cmd, args) => {
-			if (cmd === 'tmux' && args[0] === 'list-panes') return '%9'
-			if (cmd === 'tmux' && args[0] === 'has-session') return ''
+			if (cmd === 'tmux' && tmuxVerb(args) === 'list-panes') return '%9'
+			if (cmd === 'tmux' && tmuxVerb(args) === 'has-session') return ''
 			// the pane echoes back whatever was typed and never consumes it — a booting harness
-			if (cmd === 'tmux' && args[0] === 'capture-pane') return `> ${staged}`
-			if (cmd === 'tmux' && args[0] === 'send-keys' && args.includes('-l')) staged = args.at(-1) ?? ''
+			if (cmd === 'tmux' && tmuxVerb(args) === 'capture-pane') return `> ${staged}`
+			if (cmd === 'tmux' && tmuxVerb(args) === 'send-keys' && args.includes('-l')) staged = args.at(-1) ?? ''
 			return fakeExec(cmd, args)
 		}
 		const res = await spawnAndWake(
@@ -266,11 +270,11 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 				}
 				return null
 			}
-			if (args[0] === 'split-window' || args[0] === 'new-window') {
+			if (tmuxVerb(args) === 'split-window' || tmuxVerb(args) === 'new-window') {
 				opened = true
 				return '%9\t@1'
 			}
-			if (args[0] === 'send-keys') sent.push(args)
+			if (tmuxVerb(args) === 'send-keys') sent.push(args)
 			return null
 		}
 		const TASK = 'seal the north greenhouse vents'
@@ -288,8 +292,8 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 	it('--no-wake spawns and writes the brief file but delivers no first-turn doorbell', async () => {
 		const TASK = 'reply to alice about the migration'
 		const wakeExec: Exec = (cmd, args) => {
-			if (cmd === 'tmux' && args[0] === 'list-panes') return '%9'
-			if (cmd === 'tmux' && args[0] === 'has-session') return ''
+			if (cmd === 'tmux' && tmuxVerb(args) === 'list-panes') return '%9'
+			if (cmd === 'tmux' && tmuxVerb(args) === 'has-session') return ''
 			return fakeExec(cmd, args)
 		}
 		const res = await spawnAndWake(
@@ -302,8 +306,8 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(res.rung).toBe(false)
 		expect(sent.flat().join(' ')).not.toContain(res.agent.brief)
 		expect(sent).toEqual([
-			['send-keys', '-t', '%9', '-l', 'CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude'],
-			['send-keys', '-t', '%9', 'Enter'],
+			['-u', 'send-keys', '-t', '%9', '-l', 'CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude'],
+			['-u', 'send-keys', '-t', '%9', 'Enter'],
 		])
 		// ...but the spawn itself still landed in full: registered peer, pane, brief on disk
 		expect(loadAgent(store, res.agent.id)).toBeTruthy()
@@ -404,8 +408,15 @@ describe('per-harness launch', () => {
 		// inherits it and never re-runs its own ancestry discovery. cyber-mux's `submit(text)` composes
 		// two tmux calls (no atomic literal-text-plus-Enter primitive): a literal `-l` type, then a
 		// bare Enter.
-		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', `CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE ${launch}`])
-		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
+		expect(sent.at(-2)).toEqual([
+			'-u',
+			'send-keys',
+			'-t',
+			'%9',
+			'-l',
+			`CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE ${launch}`,
+		])
+		expect(sent.at(-1)).toEqual(['-u', 'send-keys', '-t', '%9', 'Enter'])
 	})
 })
 
@@ -476,7 +487,7 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 				if (args.includes('worktree')) return ''
 				return null
 			}
-			if (args[0] === 'split-window') {
+			if (tmuxVerb(args) === 'split-window') {
 				openCalls.push(args)
 				return '%9\t@1'
 			}
@@ -487,7 +498,17 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			{ harness: 'claude', task: 't', at: 'pane:right' },
 		)
 		const expectedPath = expectedWorktreePath(res.agent.id)
-		expect(openCalls[0]).toEqual(['split-window', '-h', '-c', expectedPath, '-P', '-F', '#{pane_id}\t#{window_id}'])
+		expect(openCalls[0]).toEqual([
+			'-u',
+			'split-window',
+			'-d',
+			'-h',
+			'-c',
+			expectedPath,
+			'-P',
+			'-F',
+			'#{pane_id}\t#{window_id}',
+		])
 	})
 
 	it('accepts an explicit --branch and --worktree-path', () => {
@@ -519,7 +540,7 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 				}
 				return null
 			}
-			if (args[0] === 'split-window') {
+			if (tmuxVerb(args) === 'split-window') {
 				openCalls.push(args)
 				return '%9\t@1'
 			}
@@ -615,7 +636,7 @@ describe('spawn picks its worktree-creation route from the backend AND the place
 				}
 				return null
 			}
-			if (args[0] === 'new-window') {
+			if (tmuxVerb(args) === 'new-window') {
 				openCalls.push(args)
 				return '%42\t@2'
 			}
@@ -703,7 +724,7 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
 				return null
 			}
-			if (args[0] === 'split-window') {
+			if (tmuxVerb(args) === 'split-window') {
 				openCalls.push(args)
 				return '%9\t@1'
 			}
@@ -714,7 +735,9 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 			{ harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' },
 		)
 		expect(openCalls[0]).toEqual([
+			'-u',
 			'split-window',
+			'-d',
 			'-h',
 			'-c',
 			resolve(existingDir),
@@ -778,7 +801,7 @@ describe('spec:cyberlegion/mux', () => {
 					if (args.includes('worktree')) return ''
 					return null
 				}
-				if (args[0] === 'split-window') {
+				if (tmuxVerb(args) === 'split-window') {
 					openCalls.push(args)
 					return '%9\t@1'
 				}
@@ -791,7 +814,17 @@ describe('spec:cyberlegion/mux', () => {
 				{ harness: 'claude', task: 't', at: 'pane:right' },
 			)
 			expect(openCalls[0]).toEqual(
-				expect.arrayContaining(['split-window', '-h', '-t', '%caller', '-P', '-F', '#{pane_id}\t#{window_id}']),
+				expect.arrayContaining([
+					'-u',
+					'split-window',
+					'-d',
+					'-h',
+					'-t',
+					'%caller',
+					'-P',
+					'-F',
+					'#{pane_id}\t#{window_id}',
+				]),
 			)
 		})
 
@@ -818,7 +851,16 @@ describe('spec:cyberlegion/mux', () => {
 				{ store, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:pCaller' }, exec, now: () => 1 },
 				{ harness: 'claude', task: 't', at: 'pane:down' },
 			)
-			expect(herdrCalls[0]).toEqual(['pane', 'split', 'w1:pCaller', '--direction', 'down', '--cwd', expect.any(String)])
+			expect(herdrCalls[0]).toEqual([
+				'pane',
+				'split',
+				'w1:pCaller',
+				'--direction',
+				'down',
+				'--cwd',
+				expect.any(String),
+				'--no-focus',
+			])
 			expect(herdrCalls[0]).not.toContain('--current')
 		})
 
@@ -830,7 +872,7 @@ describe('spec:cyberlegion/mux', () => {
 					if (args.includes('worktree')) return ''
 					return null
 				}
-				if (args[0] === 'split-window') {
+				if (tmuxVerb(args) === 'split-window') {
 					openCalls.push(args)
 					return '%9\t@1'
 				}
@@ -866,7 +908,16 @@ describe('spec:cyberlegion/mux', () => {
 			}
 			const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't', at: 'pane:right' })
 			expect(res.pane).toBe('herdr-pane-1')
-			expect(herdrCalls[0]).toEqual(['pane', 'split', '--current', '--direction', 'right', '--cwd', res.agent.cwd])
+			expect(herdrCalls[0]).toEqual([
+				'pane',
+				'split',
+				'--current',
+				'--direction',
+				'right',
+				'--cwd',
+				res.agent.cwd,
+				'--no-focus',
+			])
 			expect(herdrCalls[1]).toEqual(['pane', 'run', 'herdr-pane-1', 'CYBER_MUX=herdr claude'])
 			// The herdr spawn now tags its pane locator with the mux (previously left null) — so the
 			// unit's own `prune` runs the herdr liveness check, never a tmux one.
@@ -1007,13 +1058,13 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 				return null
 			}
 			calls.push(args)
-			if (args[0] === 'new-window') return '%42\t@2'
+			if (tmuxVerb(args) === 'new-window') return '%42\t@2'
 			return null
 		}
 		const res = spawn({ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
 		// `-d` (background, visible) is asserted by presence, not position: a workspace spawn also
 		// carries a label now, and where the backend orders `-n <label>` against `-d` is its own affair.
-		expect(calls[0]![0]).toBe('new-window')
+		expect(tmuxVerb(calls[0]!)).toBe('new-window')
 		expect(calls[0]).toContain('-d')
 		expect(calls.some((c) => c[0] === 'new-session')).toBe(false)
 		expect(res.pane).toBe('%42')
@@ -1108,14 +1159,16 @@ describe('clear injects the harness reset into a warm peer and tears nothing dow
 		expect(res).toEqual({ agent: expect.objectContaining({ id: 'w1' }), pane: '%9', command: '/clear' })
 		expect(existsSync(liveWorktree)).toBe(true)
 		// cyber-mux's `submit(text)` composes two tmux calls: a literal `-l` type, then a bare Enter.
-		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', '/clear'])
-		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
+		expect(sent.at(-2)).toEqual(['-u', 'send-keys', '-t', '%9', '-l', '/clear'])
+		expect(sent.at(-1)).toEqual(['-u', 'send-keys', '-t', '%9', 'Enter'])
 		// nothing torn down — no teardown or worktree removal was even ISSUED. Asserting only that
 		// the record still looks right cannot see a kill-pane or a `git worktree remove` that the
 		// fake backend happily accepts.
-		expect(allCalls.some((c) => c[0] === 'tmux' && ['kill-pane', 'kill-session', 'kill-window'].includes(c[1]!))).toBe(
-			false,
-		)
+		expect(
+			allCalls.some(
+				(c) => c[0] === 'tmux' && ['kill-pane', 'kill-session', 'kill-window'].includes(tmuxVerb(c.slice(1))!),
+			),
+		).toBe(false)
 		expect(allCalls.some((c) => c[0] === 'git' && c.includes('worktree') && c.includes('remove'))).toBe(false)
 		// the pane POINTER survives too — the record can look untouched while the index that
 		// addresses it is dropped, which strands the unit exactly as a teardown would
@@ -1136,8 +1189,8 @@ describe('clear resolves each harness own fresh-context command from the per-har
 		registerUnit({ id: `h-${harness}`, harness: harness as Harness })
 		const res = clearUnit(ctx(), `h-${harness}`)
 		expect(res.command).toBe(command)
-		expect(sent.at(-2)).toEqual(['send-keys', '-t', '%9', '-l', command])
-		expect(sent.at(-1)).toEqual(['send-keys', '-t', '%9', 'Enter'])
+		expect(sent.at(-2)).toEqual(['-u', 'send-keys', '-t', '%9', '-l', command])
+		expect(sent.at(-1)).toEqual(['-u', 'send-keys', '-t', '%9', 'Enter'])
 	})
 })
 
@@ -1254,7 +1307,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 			calls.push([cmd, ...args])
 			if (cmd !== 'tmux') return null
 			// `paneExists` probes with a bare pane-id format; `focus` asks for the full location.
-			if (args[0] === 'list-panes') {
+			if (tmuxVerb(args) === 'list-panes') {
 				return args.includes('#{pane_id} #{session_name} #{window_id}')
 					? (opts.locations ?? LOCATIONS)
 					: (opts.locations ?? LOCATIONS)
@@ -1262,8 +1315,8 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 							.map((l) => l.split(' ')[0])
 							.join('\n')
 			}
-			if (args[0] === 'has-session') return ''
-			if (args[0] === 'capture-pane') return captures.length > 1 ? (captures.shift() ?? '') : (captures[0] ?? '')
+			if (tmuxVerb(args) === 'has-session') return ''
+			if (tmuxVerb(args) === 'capture-pane') return captures.length > 1 ? (captures.shift() ?? '') : (captures[0] ?? '')
 			return null
 		}
 		saveAgent(store, {
@@ -1279,14 +1332,15 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		return { calls, ctx: { store, env: { TMUX: 't', CYBERLEGION_AGENT_ID: 'caller' }, exec } as IdContext }
 	}
 
-	const tmuxArgs = (calls: string[][], verb: string) => calls.filter((c) => c[0] === 'tmux' && c[1] === verb)
+	const tmuxArgs = (calls: string[][], verb: string) =>
+		calls.filter((c) => c[0] === 'tmux' && tmuxVerb(c.slice(1)) === verb)
 	/** The pane an argv is aimed at — read by name, since -t sits at a different index per verb. */
 	const targetOf = (argv: string[] | undefined) => (argv ? argv[argv.indexOf('-t') + 1] : undefined)
 
 	it('focus moves input focus to a peer pane', () => {
 		const { calls, ctx } = peerCtx()
 		expect(focusUnit(ctx, 'peer').pane).toBe(PANE)
-		expect(tmuxArgs(calls, 'select-pane').at(-1)).toEqual(['tmux', 'select-pane', '-t', PANE])
+		expect(tmuxArgs(calls, 'select-pane').at(-1)).toEqual(['tmux', '-u', 'select-pane', '-t', PANE])
 	})
 
 	it('focus beams the attached client across workspace and tab, in that order, to the peer pane', () => {
@@ -1297,8 +1351,11 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		// ...then switches workspace, then tab, then lands focus — the order is the contract, and it
 		// targets the PEER's session/window, never no-opping in the caller's own.
 		const order = calls
-			.filter((c) => c[0] === 'tmux' && ['switch-client', 'select-window', 'select-pane'].includes(c[1]))
-			.map((c) => [c[1], c[3]])
+			.filter(
+				(c) =>
+					c[0] === 'tmux' && ['switch-client', 'select-window', 'select-pane'].includes(tmuxVerb(c.slice(1)) ?? ''),
+			)
+			.map((c) => [tmuxVerb(c.slice(1)), c[c.indexOf('-t') + 1]])
 		expect(order).toEqual([
 			['switch-client', 'peersession'],
 			['select-window', '@3'],
@@ -1333,7 +1390,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		// order, so the keyword bar alone does not settle the clause.
 		expect(res.message).not.toMatch(/\b(?:do not|don'?t|never|ignore|skip|avoid)\s+check\b/i)
 		// ...and it is delivered to THE PEER'S pane, not merely typed somewhere
-		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
+		const ring = calls.find((c) => tmuxVerb(c.slice(1)) === 'send-keys' && c.includes('-l'))
 		expect(targetOf(ring)).toBe(PANE)
 		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
 	})
@@ -1374,7 +1431,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		const { calls, ctx } = peerCtx({ captures: ['idle, nothing staged'] })
 		const res = await nudgeUnit(ctx, 'peer', { message: '', nudgeOpts: { sleep: async () => {} } })
 		expect(res.message).toBe(DELIVERY_DOORBELL)
-		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
+		const ring = calls.find((c) => tmuxVerb(c.slice(1)) === 'send-keys' && c.includes('-l'))
 		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
 		expect(targetOf(ring)).toBe(PANE)
 	})
@@ -1388,8 +1445,8 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		const goneCtx: IdContext = {
 			...ctx,
 			exec: (cmd, args) => {
-				if (cmd === 'tmux' && args[0] === 'has-session') return null
-				if (cmd === 'tmux' && args[0] === 'list-panes') return '%1'
+				if (cmd === 'tmux' && tmuxVerb(args) === 'has-session') return null
+				if (cmd === 'tmux' && tmuxVerb(args) === 'list-panes') return '%1'
 				return null
 			},
 		}
@@ -1410,7 +1467,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(typed).toContain('ship the release')
 		expect(typed).not.toContain(DELIVERY_DOORBELL) // the default is replaced, not appended
 		// ...delivered to the peer's pane, not merely typed somewhere
-		const ring = calls.find((c) => c[1] === 'send-keys' && c.includes('-l'))
+		const ring = calls.find((c) => tmuxVerb(c.slice(1)) === 'send-keys' && c.includes('-l'))
 		expect(targetOf(ring)).toBe(PANE)
 		expect(ring?.at(-1)).toBe('ship the release')
 	})
@@ -1439,7 +1496,9 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
 		// the literal text is typed exactly once; the recovery is a bare Enter, so the peer's turn
 		// carries the message once rather than twice
-		const typedLiteral = calls.filter((c) => c[0] === 'tmux' && c[1] === 'send-keys' && c.includes('-l'))
+		const typedLiteral = calls.filter(
+			(c) => c[0] === 'tmux' && tmuxVerb(c.slice(1)) === 'send-keys' && c.includes('-l'),
+		)
 		expect(typedLiteral).toHaveLength(1)
 	})
 
@@ -1457,7 +1516,9 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	/** Acts ON a pane. A backend probe or capability query is not one, and the contract permits it. */
 	const paneActs = (calls: string[][]) =>
 		calls.filter((c) =>
-			['send-keys', 'capture-pane', 'select-pane', 'select-window', 'switch-client', 'kill-pane'].includes(c[1] ?? ''),
+			['send-keys', 'capture-pane', 'select-pane', 'select-window', 'switch-client', 'kill-pane'].includes(
+				tmuxVerb(c.slice(1)) ?? '',
+			),
 		)
 
 	it.each([
@@ -1539,7 +1600,7 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 	it('writes the shim before the session opens, so the harness never boots without it', () => {
 		let shimAtOpen: boolean | undefined
 		const exec: Exec = (cmd, args) => {
-			if (cmd === 'tmux' && args[0] === 'send-keys' && shimAtOpen === undefined) {
+			if (cmd === 'tmux' && tmuxVerb(args) === 'send-keys' && shimAtOpen === undefined) {
 				const data = join(store.root, 'data')
 				shimAtOpen =
 					existsSync(data) && readdirSync(data).some((id) => existsSync(join(data, id, 'bin', 'cyberlegion')))

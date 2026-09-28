@@ -424,10 +424,11 @@ describe('spec:cyberlegion/unit/lifecycle — --task - reads the brief from stdi
 		git('commit', '-q', '--allow-empty', '-m', 'init')
 		const binDir = join(container, 'bin')
 		mkdirSync(binDir, { recursive: true })
-		// tmux's `open` asks for `#{pane_id}\t#{window_id}`; everything else is a no-op success.
+		// tmux's `open` asks for `#{pane_id}\t#{window_id}`; everything else is a no-op success. cyber-mux
+		// prefixes every call with `-u`, so the verb is the first argument after it.
 		writeFileSync(
 			join(binDir, 'tmux'),
-			'#!/bin/sh\ncase "$1" in\n  new-window|split-window) printf \'%%9\\t@1\\n\' ;;\n  *) : ;;\nesac\nexit 0\n',
+			'#!/bin/sh\n[ "$1" = -u ] && shift\ncase "$1" in\n  new-window|split-window) printf \'%%9\\t@1\\n\' ;;\n  *) : ;;\nesac\nexit 0\n',
 			{ mode: 0o755 },
 		)
 		return { repo, binDir }
