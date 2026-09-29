@@ -7,6 +7,13 @@ Mail is cyberlegion's durable, non-authoritative communication plane. See [Archi
 planes](/cyberlegion/concepts/architecture/#two-planes-mail-vs-mux) for how it contrasts with the authoritative
 mux plane. This page is the mail model itself.
 
+:::note[Moving to cynapse]
+cyberlegion's messaging layer is being extracted into a peer package,
+[cynapse](https://github.com/cyberuni/cynapse) ([docs](https://cyberuni.github.io/cynapse/)).
+cynapse is at the scaffold stage, and its prototype is in progress. Until it ships, mail works as
+this page describes.
+:::
+
 ## In email terms
 
 `to` and `thread` are different fields with different jobs: one is the envelope address, one is
