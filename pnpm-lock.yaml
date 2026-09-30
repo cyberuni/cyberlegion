@@ -39,8 +39,8 @@ importers:
         specifier: ^2.10.8
         version: 2.10.11
       universal-plugin:
-        specifier: ^0.10.0
-        version: 0.10.0
+        specifier: ^0.11.0
+        version: 0.11.0
 
   apps/web:
     dependencies:
@@ -490,6 +490,10 @@ packages:
 
   '@cucumber/messages@33.0.4':
     resolution: {integrity: sha512-i6P1a0bnmhecOHfvIW0rhMxv/gMKfBKwDMxmD9/Uo1HSqpQ17ocHms1JwWW6uTMLAopqqWlcz7l6Pax+qUOTzg==}
+
+  '@cyberuni/agent-harness@0.1.0':
+    resolution: {integrity: sha512-EFi1GZpZ2ziQ+GoE7Fyu0dIn881IVUdxQNXSMDkSCsliz2O8P3hnCxBinLaJYtgN4CuqeE0o9twSLzqD1OIrgQ==}
+    engines: {node: '>=22'}
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -2955,8 +2959,8 @@ packages:
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
 
-  universal-plugin@0.10.0:
-    resolution: {integrity: sha512-4vuqG5qH2RQ/7KO4Mji+m4uVGliFR4+Ey65xyntZQMTJiLqLCsK3TPzVUWlQ08ghswC356fMqVB7TmOLeRawbQ==}
+  universal-plugin@0.11.0:
+    resolution: {integrity: sha512-j6bjAJQlkG3YNzHcwwXiNttNTpIY0btgwFz1rlgNWXdTsLX53o85YsNxZtM2lztiuykcM6PnTydNM9g82QR2Jw==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -3660,6 +3664,8 @@ snapshots:
       '@cucumber/messages': 33.0.4
 
   '@cucumber/messages@33.0.4': {}
+
+  '@cyberuni/agent-harness@0.1.0': {}
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -6031,8 +6037,9 @@ snapshots:
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
 
-  universal-plugin@0.10.0:
+  universal-plugin@0.11.0:
     dependencies:
+      '@cyberuni/agent-harness': 0.1.0
       '@repobuddy/upx': 0.1.1
       '@toon-format/toon': 4.1.1
       commander: 14.0.3
