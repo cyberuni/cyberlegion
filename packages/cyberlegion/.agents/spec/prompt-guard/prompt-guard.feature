@@ -1,3 +1,4 @@
+@frozen
 Feature: prompt-guard — never type over a human's unsent draft
   Before the CLI types into a peer's input box (the delivery doorbell, the spawn first-turn
   doorbell, unit nudge, unit clear), it reads that box off the pane's plain-text scrape with the
