@@ -5643,6 +5643,8 @@ function migrateStore(from, to) {
 //#region src/paths.ts
 /** The tracked marker file that makes a hub root initialized (see ensureMarker). */
 const MARKER_FILE = "config.json";
+/** Where `spawn` stamps that marker inside a worktree it creates, relative to the worktree root. */
+const WORKTREE_MARKER = `.agents/cyberlegion/${MARKER_FILE}`;
 /** Walk up from `cwd` to the nearest git repo root; fall back to `cwd`. */
 function projectRoot(cwd = process.cwd()) {
 	let dir = resolve(cwd);
@@ -7409,13 +7411,22 @@ function decommission(ctx, input) {
 		pane
 	};
 }
+/**
+* Whether the worktree holds work a removal would discard. The marker `spawn` stamps into every
+* worktree it creates is cyberlegion's own file, not the unit's work: in a project that does not
+* track it, it shows as untracked in every spawned worktree, and counting it would make a plain close
+* of a finished unit always demand `--force`. Only that exact untracked path is set aside — listed
+* per file, so anything else the unit left under `.agents/` still counts.
+*/
 function isDirty(exec, worktreeRoot) {
-	return !!exec("git", [
+	const status = exec("git", [
 		"-C",
 		worktreeRoot,
 		"status",
-		"--porcelain"
+		"--porcelain",
+		"--untracked-files=all"
 	]);
+	return !!status && status.split("\n").some((line) => line && line !== `?? ${WORKTREE_MARKER}`);
 }
 //#endregion
 //#region src/install.ts

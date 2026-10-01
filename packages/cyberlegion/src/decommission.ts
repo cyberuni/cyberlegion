@@ -4,6 +4,7 @@ import { gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, realExec } from './identity.ts'
 import { deleteMailbox } from './message.ts'
 import { selectSessionAdapter } from './mux-select.ts'
+import { WORKTREE_MARKER } from './paths.ts'
 
 export interface DecommissionInput {
 	id: string
@@ -116,6 +117,14 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 	}
 }
 
+/**
+ * Whether the worktree holds work a removal would discard. The marker `spawn` stamps into every
+ * worktree it creates is cyberlegion's own file, not the unit's work: in a project that does not
+ * track it, it shows as untracked in every spawned worktree, and counting it would make a plain close
+ * of a finished unit always demand `--force`. Only that exact untracked path is set aside — listed
+ * per file, so anything else the unit left under `.agents/` still counts.
+ */
 function isDirty(exec: Exec, worktreeRoot: string): boolean {
-	return !!exec('git', ['-C', worktreeRoot, 'status', '--porcelain'])
+	const status = exec('git', ['-C', worktreeRoot, 'status', '--porcelain', '--untracked-files=all'])
+	return !!status && status.split('\n').some((line) => line && line !== `?? ${WORKTREE_MARKER}`)
 }
