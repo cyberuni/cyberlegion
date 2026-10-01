@@ -7486,9 +7486,13 @@ const PIN_TOKEN = /^[0-9A-Za-z][0-9A-Za-z._+-]*$/;
 function validatePin(pin) {
 	if (!PIN_TOKEN.test(pin)) throw new Error(`invalid --pin "${pin}" — expected a version or dist-tag token like 0.2.0 or latest (no spaces, ranges, or shell metacharacters)`);
 }
-const hookCommand = (event, pin) => pin ? `npx cyberlegion@${pin} mail hook --event ${event}` : `npx cyberlegion mail hook --event ${event}`;
+const hookCommand = (event, pin) => `if command -v cyberlegion >/dev/null 2>&1; then cyberlegion mail hook --event ${event}; else npx -y cyberlegion${pin ? `@${pin}` : ""} mail hook --event ${event}; fi`;
+const HOOK_GENERATIONS = [/^(?:npx (?:-y )?cyberlegion(?:@\S+)?|cyberlegion) mail hook --event (\w+)$/, /^if command -v cyberlegion >\/dev\/null 2>&1; then cyberlegion mail hook --event (\w+); else npx -y cyberlegion(?:@\S+)? mail hook --event \1; fi$/];
 function hookTarget(command) {
-	return command.match(/^(?:npx cyberlegion(?:@[^\s]+)?|cyberlegion) (mail hook --event \S+)$/)?.[1];
+	for (const generation of HOOK_GENERATIONS) {
+		const event = command.match(generation)?.[1];
+		if (event) return event;
+	}
 }
 const VENDORS = {
 	claude: {
@@ -7497,12 +7501,14 @@ const VENDORS = {
 		events: {
 			SessionStart: "SessionStart",
 			PostToolUse: "PostToolUse"
-		}
+		},
+		pluginHook: true
 	},
 	cursor: {
 		file: ".cursor/hooks.json",
 		shape: "cursor",
-		events: { SessionStart: "sessionStart" }
+		events: { SessionStart: "sessionStart" },
+		pluginHook: false
 	},
 	codex: {
 		file: ".codex/hooks.json",
@@ -7510,7 +7516,8 @@ const VENDORS = {
 		events: {
 			SessionStart: "SessionStart",
 			PostToolUse: "PostToolUse"
-		}
+		},
+		pluginHook: true
 	}
 };
 function readJson(file) {
@@ -7525,7 +7532,10 @@ function writeJson$1(file, data) {
 	mkdirSync(dirname(file), { recursive: true });
 	writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
 }
-/** Register the surfacing hook into one harness's config, idempotently. */
+/**
+* Make sure the surfacing hook fires for one harness, idempotently: leave it to the plugin where the
+* plugin ships it (removing an earlier project copy), otherwise register the PATH-first project hook.
+*/
 function install(harness, projectDir = process.cwd(), pin) {
 	const spec = VENDORS[harness];
 	if (!spec) throw new Error(`unknown harness "${harness}" (expected claude | cursor | codex)`);
@@ -7533,9 +7543,18 @@ function install(harness, projectDir = process.cwd(), pin) {
 	const file = join(projectDir, spec.file);
 	const settings = readJson(file);
 	const results = [];
+	let changed = false;
 	for (const [canonical, vendorEvent] of Object.entries(spec.events)) {
-		const command = hookCommand(canonical, pin);
-		const status = spec.shape === "claude" ? upsertClaude(settings, vendorEvent, command) : upsertCursor(settings, vendorEvent, command);
+		let status;
+		if (spec.pluginHook) {
+			const removed = spec.shape === "claude" ? removeClaude(settings, vendorEvent, canonical) : removeCursor(settings, vendorEvent, canonical);
+			status = removed ? "removed project hook" : "provided by plugin";
+			changed ||= removed;
+		} else {
+			const command = hookCommand(canonical, pin);
+			status = spec.shape === "claude" ? upsertClaude(settings, vendorEvent, command) : upsertCursor(settings, vendorEvent, command);
+			changed = true;
+		}
 		results.push({
 			harness,
 			event: canonical,
@@ -7544,7 +7563,7 @@ function install(harness, projectDir = process.cwd(), pin) {
 			status
 		});
 	}
-	writeJson$1(file, settings);
+	if (changed) writeJson$1(file, settings);
 	return results;
 }
 function upsertClaude(settings, event, command) {
@@ -7580,6 +7599,36 @@ function upsertCursor(settings, event, command) {
 	}
 	list.push({ command });
 	return "registered";
+}
+const isOurs = (command, event) => command !== void 0 && hookTarget(command) === event;
+function removeClaude(settings, event, canonical) {
+	const hooks = settings.hooks;
+	const groups = hooks?.[event];
+	if (!hooks || !groups) return false;
+	let removed = false;
+	const kept = [];
+	for (const g of groups) {
+		const entries = (g.hooks ?? []).filter((h) => !isOurs(h.command, canonical));
+		if (entries.length !== (g.hooks ?? []).length) removed = true;
+		if (entries.length > 0) kept.push({
+			...g,
+			hooks: entries
+		});
+	}
+	if (!removed) return false;
+	if (kept.length > 0) hooks[event] = kept;
+	else delete hooks[event];
+	return true;
+}
+function removeCursor(settings, event, canonical) {
+	const hooks = settings.hooks;
+	const list = hooks?.[event];
+	if (!hooks || !list) return false;
+	const kept = list.filter((h) => !isOurs(h.command, canonical));
+	if (kept.length === list.length) return false;
+	if (kept.length > 0) hooks[event] = kept;
+	else delete hooks[event];
+	return true;
 }
 //#endregion
 //#region src/output.ts
@@ -9750,7 +9799,7 @@ withGlobals(program.command("admin").description("hub-state maintenance").comman
 		json: res
 	});
 });
-withGlobals(program.command("init")).description("resolve this session harness, register the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version to pin the registered npx hook command to (e.g. the bundled plugin version)").action((opts) => {
+withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").action((opts) => {
 	const ctx = ctxOf(opts);
 	let harness;
 	try {

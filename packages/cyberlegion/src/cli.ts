@@ -1172,10 +1172,10 @@ withGlobals(admin.command('migrate'))
 // at binding the durable owner inbox. init owns hook installation directly (ADR-0024).
 // -------------------------------------------------------------------------------------------
 withGlobals(program.command('init'))
-	.description('resolve this session harness, register the Legion surfacing hook, and advise owner binding')
+	.description('resolve this session harness, set up the Legion surfacing hook, and advise owner binding')
 	.option('--agent <h>', 'claude | cursor | codex (else auto-detected)')
 	.option('--dir <path>', 'project dir to write config into', process.cwd())
-	.option('--pin <version>', 'version to pin the registered npx hook command to (e.g. the bundled plugin version)')
+	.option('--pin <version>', 'version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		let harness: Harness
