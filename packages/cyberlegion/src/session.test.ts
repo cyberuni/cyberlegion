@@ -434,6 +434,15 @@ describe('a caller-supplied launch command reaches the pane', () => {
 	})
 })
 
+describe("spawn records the launch command on the peer's record", () => {
+	it('records the launch the spawn reports, so restart can relaunch the unit the same way', () => {
+		const composed = "claude --model 'opus'"
+		const res = spawn(ctx(), { harness: 'claude', command: composed, task: 't', at: 'pane:right' })
+		expect(loadAgent(store, res.agent.id)?.launch).toBe(res.launch)
+		expect(res.launch).toBe(composed)
+	})
+})
+
 describe('spawn errors', () => {
 	it('errors on an unmapped harness without launching', () => {
 		expect(() => spawn(ctx(), { harness: 'grok', task: 't' })).toThrow(/launch map/)

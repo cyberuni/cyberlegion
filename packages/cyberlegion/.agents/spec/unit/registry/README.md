@@ -40,6 +40,11 @@ without being told it, and discovering its live peers:
   Liveness is checked **against the pane's own multiplexer** — a tmux locator via
   `tmux has-session`/`list-panes`, a herdr locator via a herdr pane-existence query — so a live herdr
   pane is never false-reaped by a tmux check (and vice versa).
+  - **A stopped unit is never pruned** — `unit stop` (`unit/runtime`) leaves a record with status
+    `stopped` and no pane, on purpose. Neither a pane check nor the staleness timer can say anything
+    about a runtime that was ended deliberately, so `prune` skips it however old its `lastSeen` is.
+    This is what keeps a stopped unit addressable by handle (a handle never resolves to an exited
+    unit), and so what keeps its mail arriving while it has no session.
 - **Self-identity recovery has one source of truth per context, no shared file** — `resolveSelfId`
   first tries the pane-keyed pointer when the session is in a multiplexer pane, resolving "my pane id"
   mux-agnostically through the shared current-pane helper (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`,
@@ -153,7 +158,7 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 | **whoami** | prints own record; errors when unregistered or record missing |
 | **who lists peers** | single list command (folded `session list`): TOON list with a `pane` field; aggregate "N units"; empty is "0 units"; `--all` includes exited; top-level alias |
 | **bare status (AXI #8)** | no-subcommand prints compact self+harness+unread+live-units; exit 0 unregistered with a register next-step, never help+error |
-| **prune** | marks dead-pane/stale agents exited; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents |
+| **prune** | marks dead-pane/stale agents exited; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents; never touches a `stopped` unit |
 | **self-identity recovery** | pane pointer first, resolving "my pane" mux-agnostically (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`, plus the `$CYBER_MUX_PANE` fast-path, and the legacy `$CYBERLEGION_MUX_PANE` transitionally); `$CYBERLEGION_AGENT_ID` only when in no multiplexer pane; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |

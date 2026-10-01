@@ -137,10 +137,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
 	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
-	const launchLine = (): string => {
-		const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
-		return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(sessionAdapter.name)}${launch}`
-	}
+	const launchLine = (): string => composeLaunchLine(ctx, sessionAdapter.name, id, launch)
 	// A pane placement splits the CALLER's own pane, never whichever pane the backend defaults to —
 	// each backend's own default tracks the pane a HUMAN is looking at, which diverges exactly when a
 	// program is driving, which spawn always is (mux.feature: "a pane placement splits the calling
@@ -220,6 +217,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		createdAt: ts,
 		lastSeen: ts,
 		brief: paths.briefFile(ctx.store.root, id),
+		launch,
 		...(resolveSelfId(ctx) ? { spawnedBy: resolveSelfId(ctx) } : {}),
 	}
 	saveAgent(ctx.store, rec)
@@ -287,6 +285,17 @@ export function labelFor(
 ): { label: string } | Record<string, never> {
 	if (at !== 'workspace') return {}
 	return { label: deriveWorkspaceLabel({ brief, handle: input.handle, id }) }
+}
+
+/**
+ * The line typed into a unit's new pane: the PATH shim that re-invokes this CLI (when the caller
+ * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
+ * as a side effect, so call it only past every refusal, right before the session opens. Shared by
+ * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+ */
+export function composeLaunchLine(ctx: IdContext, muxName: string, id: string, launch: string): string {
+	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
+	return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
 }
 
 /**

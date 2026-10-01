@@ -19,8 +19,9 @@ export interface Message {
 export type Harness = 'claude' | 'cursor' | 'codex'
 /** The statuses this version writes. `spawning` is retired: spawn registers a peer `active`
  * outright, since nothing flips it any more (the SessionStart hook injects no brief and mutates no
- * status — see `mail/surface`). */
-type AgentStatus = 'active' | 'idle' | 'stale' | 'exited' | 'paused'
+ * status — see `mail/surface`). `stopped` is a unit whose runtime was ended on purpose (`unit stop`):
+ * no pane, everything else kept, and never pruned — so it stays addressable while it has no session. */
+type AgentStatus = 'active' | 'idle' | 'stale' | 'exited' | 'paused' | 'stopped'
 
 export interface AgentRecord {
 	id: string
@@ -49,6 +50,10 @@ export interface AgentRecord {
 	createdAt: string
 	lastSeen: string
 	brief?: string
+	/** The harness launch command `spawn` ran (a def's model/instructions included, the PATH shim and
+	 * mux env prefix not) — what `unit restart` relaunches the unit with. Absent on a record that
+	 * predates it or that `spawn` did not write; restart then falls back to the harness default. */
+	launch?: string
 	spawnedBy?: string
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,
 	 * prune-exempt owner inbox minted by `unit register --standing`. 'service' = a project service's
@@ -102,16 +107,11 @@ export interface InboxSnapshot {
 	read: Message[]
 }
 
-/** The seam all mailbox + registry + brief access goes through. */
-export interface Store {
-	/** This store's root (for path-relative concerns the Store itself doesn't cover, e.g. spawning
-	 * a worktree under a project-local root distinct from this hub). */
-	readonly root: string
-
-	/** Ensure this store's root is initialized (tracked marker present). Idempotent. */
-	ensureMarker(): void
-
-	// -- mail --
+/** The mail half of the store: mailboxes keyed by an address id, independent of any runtime. A
+ * mailbox lives as long as its address, not as long as whatever session reads it — which is why
+ * stopping a unit's runtime needs no mail-side change at all. Split out of `Store` along the seam the
+ * messaging layer will leave by; unit/runtime code reaches a mailbox only through here. */
+export interface MailboxStore {
 	/** Write one message into `toId`'s inbox. Collision-free by `msg.id`. */
 	putMessage(toId: string, msg: Message): void
 	/** The full unread/read split for one agent's inbox. */
@@ -120,6 +120,19 @@ export interface Store {
 	ackMessage(id: string, msgId: string): Message
 	/** Permanently remove a message (unread or already-acked) from `id`'s inbox; throws if absent. */
 	removeMessage(id: string, msgId: string): void
+	/** Delete `id`'s whole mailbox, read and unread alike. A no-op when it has none. Only for an address
+	 * that is going away for good (a decommissioned unit) — never for a runtime change. */
+	removeMailbox(id: string): void
+}
+
+/** The seam all mailbox + registry + brief access goes through. */
+export interface Store extends MailboxStore {
+	/** This store's root (for path-relative concerns the Store itself doesn't cover, e.g. spawning
+	 * a worktree under a project-local root distinct from this hub). */
+	readonly root: string
+
+	/** Ensure this store's root is initialized (tracked marker present). Idempotent. */
+	ensureMarker(): void
 
 	// -- registry --
 	/** Upsert an agent record (keyed by `rec.id`). */

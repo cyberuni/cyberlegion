@@ -118,6 +118,11 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then the peer's record carries a handle equal to the first 6 characters of its id
     And the default worktree directory it created ends in that same 6-character slice
 
+  Scenario: spawn records the launch command on the peer's record
+    Given a caller running unit spawn --harness claude --model opus --task t
+    When unit spawn runs
+    Then the peer's record carries a launch field equal to the launch the spawn reports
+
   # ── The brief is delivered by file, never typed ──
 
   Scenario: the resolved brief is written to the peer's brief file, not into the launch command
@@ -599,6 +604,16 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit close <id>
     Then it throws that no unit is addressable under that id
     And no unit's record or stored data is removed
+
+  # ── close deletes the unit's mailbox through the mail side ──
+
+  Scenario: close deletes the unit's mailbox, read and unread
+    Given a registered unit with a live session pane
+    And the unit's inbox holds one unread message and one read message
+    And another registered unit whose inbox holds one unread message
+    When a caller runs unit close <id>
+    Then the closed unit's inbox lists no messages, read or unread
+    And the other unit's inbox still lists its message as unread
 
   # ── Reaps only the targeted unit ──
 

@@ -43,6 +43,10 @@ consume, or permanently remove it, without losing or duplicating anything:
 - **delete removes mail permanently** — `mail delete <msg-id>` removes a message (unread or already
   acked) from the caller's inbox; unlike `ack` it does not require the message to still be unread. An
   unknown message id errors rather than silently succeeding.
+    - **A mailbox lives as long as its address, not its runtime.** Mail is keyed by the recipient's id,
+      so stopping or restarting a unit's session (`unit/runtime`) needs no mail-side act. The only
+      whole-mailbox delete is the one `unit close` asks for when a unit is decommissioned
+      (`unit/lifecycle`); it removes read and unread mail together, through the mail store.
 - **The standing owner mailbox is readable and ackable from any session** — `mail send --to <owner>`
   resolves the standing record (standing-precedence, see `unit/registry`) and delivers into the owner
   inbox. `mail inbox`, `mail read`, and `mail ack` take an `--owner <handle>` selector that targets a

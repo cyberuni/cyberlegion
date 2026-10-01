@@ -22,7 +22,8 @@ cleanly — the deterministic inverse pair:
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
   primary checkout, opens a session backend (tmux or herdr, selected by environment — see `mux/`)
   with its cwd set to that worktree, then registers the peer (`status: active`, `spawnedBy` the
-  caller's own id when it has one) and writes its pane pointer and brief file. There is no
+  caller's own id when it has one, and the launch command it ran, so `unit restart` can relaunch the
+  unit the same way) and writes its pane pointer and brief file. There is no
   intermediate spawning status, and nothing later flips it (the hook injects no brief and mutates no
   status — `mail/surface`).
     - **Registration follows the launch, and no longer needs to precede it.** Under the retired
@@ -190,7 +191,12 @@ cleanly — the deterministic inverse pair:
       accepts them too, but reports nothing new.
 - **close tears down the worktree + session and reaps the state — spawn's deterministic inverse** —
   `unit close <ref>` removes the peer's git worktree, tears down its session pane, and reaps its
-  registry record, pane pointer, and stored data (brief).
+  registry record, pane pointer, stored data (brief), and **mailbox**. Close is the one destructive
+  end of a unit: to end only the session and keep the unit, use `unit stop` (`unit/runtime`).
+  - **The mailbox is deleted through the mail side, not by close** — close asks the mail store to
+    remove the unit's mailbox (read and unread messages alike) instead of deleting inbox files
+    itself, so where a mailbox lives stays the mail side's concern. Only the closed unit's mailbox
+    goes; every other unit's inbox is untouched.
   - **Refuses the primary checkout even with --force** — a unit whose worktree root equals the
     primary checkout is refused; `--force` never overrides this refusal.
   - **Refuses a dirty worktree unless --force** — uncommitted changes in the worktree abort the
@@ -381,7 +387,7 @@ graph TD
   SPBK -- yes --> SPBK1["throw — fires AFTER creation; nothing rolls it back"]
   SPBK -- no --> SPL["stamp the new worktree's own .agents/cyberlegion marker"]
   SPO --> SPN
-  SPL --> SPN["register: status active, handle, harness, cwd, worktree, pane locator, brief path, spawnedBy when the caller has an id"]
+  SPL --> SPN["register: status active, handle, harness, cwd, worktree, pane locator, brief path, launch command, spawnedBy when the caller has an id"]
   SPN --> SPIB{"the realized launch hands the def's instructions to the brief? — cursor only"}
   SPIB -- yes --> SPIB1["write the brief FILE: '## Agent instructions' + the instructions, then '## Brief' + the task (the label already read the task alone)"]
   SPIB -- no --> SPIB2["write the brief FILE: the task as given"]
@@ -472,7 +478,7 @@ graph TD
   CL7 -- no --> CL8["no teardown attempted, no pane-index entry removed, the result names no pane"]
   CL7 -- yes --> CL9["tear the pane down — a backend failure here is SWALLOWED; the reap proceeds"]
   CL8 --> CL10
-  CL9 --> CL10["reap THIS unit only: its record, its pane index entry, its stored brief"]
+  CL9 --> CL10["reap THIS unit only: its record, its pane index entry, its stored brief, its mailbox (via the mail store)"]
 ```
 
 ### focus / nudge / read / clear — the shared live-target prelude, then the verb
@@ -589,6 +595,7 @@ column records. They are not gaps.
 | `SPN` spawnedBy omitted | a spawn by a caller that is no registered unit | `a spawn by a caller with no unit id of its own records no spawnedBy at all` |
 | `SPN` handle from --handle | a spawn given --handle | `--handle names the unit on its own record` |
 | `SPN` handle defaulted | a spawn with no --handle | `a spawn with no --handle defaults the handle to the unit's 6-character short id` |
+| `SPN` launch recorded | any spawn | `spawn records the launch command on the peer's record` |
 
 ### The brief is delivered by file, never typed
 
@@ -699,6 +706,7 @@ column records. They are not gaps.
 | `CL7 -- no` → `CL8` | a unit with no pane locator and a pane index holding another unit’s entry | `close reaps a unit no pane can be resolved for, tearing nothing down` |
 | `CL5 -- no` → `CL5X` | a unit with a live pane whose worktree removal genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
 | `CL1 -- no` | an id that resolves to no unit, with one other unit registered | `closing an unresolvable id errors` |
+| `CL10` mailbox | a unit with read and unread mail, and a second unit with mail | `close deletes the unit's mailbox, read and unread` |
 | `CL10` reaps only the target | two registered units, one closed | `close leaves another unit's state untouched` |
 
 ### focus, nudge and read drive a live pane

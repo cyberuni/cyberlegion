@@ -42,7 +42,7 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 | Node | Concern |
 |---|---|
 | [`mux/`](./mux/README.md) | the unit-agnostic pane abstraction — backend selection, placement, multiplexer detection |
-| [`unit/`](./unit/registry/README.md) | the instance registry (`unit/registry`) + warm session lifecycle (`unit/lifecycle`) |
+| [`unit/`](./unit/registry/README.md) | the instance registry (`unit/registry`) + warm session lifecycle (`unit/lifecycle`) + runtime stop/restart/rebind and the read-only runtime view (`unit/runtime`) |
 | [`mail/`](./mail/README.md) | durable inter-agent messaging — plain send/inbox/read/ack/delete (`mail/core`), thread correlation and bounded await/watch (`mail/wait`), hook injection and owner-mail surfacing / the pull side (`mail/surface`), waking the recipient on delivery / the push-side doorbell (`mail/doorbell`) |
 | [`prompt-guard/`](./prompt-guard/README.md) | every ring into a peer's input box first waits out a human's unsent draft — typed around it once it sits idle, never typed over while it changes |
 | [`agent/`](./agent/README.md) | resolve reusable agent definitions |
@@ -67,6 +67,6 @@ mailbox + registry access goes through a domain `Store` interface (a `FileStore`
 
 | Concept | Facets |
 |---|---|
-| `cyberlegion` | `admin/` (behavior) · `agent/` (behavior) · `attach/` (behavior) · `init/` (behavior) · `mail/` (index) · `mail/core/` (behavior) · `mail/doorbell/` (behavior) · `mail/surface/` (behavior) · `mail/wait/` (behavior) · `metaphor-free/` (behavior) · `mux/` (behavior) · `unit/lifecycle/` (behavior) · `unit/registry/` (behavior) |
+| `cyberlegion` | `admin/` (behavior) · `agent/` (behavior) · `attach/` (behavior) · `init/` (behavior) · `mail/` (index) · `mail/core/` (behavior) · `mail/doorbell/` (behavior) · `mail/surface/` (behavior) · `mail/wait/` (behavior) · `metaphor-free/` (behavior) · `mux/` (behavior) · `unit/lifecycle/` (behavior) · `unit/registry/` (behavior) · `unit/runtime/` (behavior) |
 
 <!-- END generated: by-concept -->
