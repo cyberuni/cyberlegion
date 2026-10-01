@@ -1159,12 +1159,12 @@ describe('resetCommandFor — the per-harness reset map', () => {
 })
 
 describe('clear injects the harness reset into a warm peer and tears nothing down', () => {
-	it('sends "/clear" to a claude peer, leaving its record, pane, and worktree unchanged', () => {
+	it('sends "/clear" to a claude peer, leaving its record, pane, and worktree unchanged', async () => {
 		// A REAL worktree on disk, so "no worktree is removed" is observed on the filesystem and not
 		// only as an un-issued git command.
 		const liveWorktree = mkdtempSync(join(tmpdir(), 'cl-warm-'))
 		registerUnit({ id: 'w1', worktree: { root: liveWorktree, branch: 'cyberlegion/unit-w1' } })
-		const res = clearUnit(ctx(), 'w1')
+		const res = await clearUnit(ctx(), 'w1')
 		expect(res).toEqual({ agent: expect.objectContaining({ id: 'w1' }), pane: '%9', command: '/clear' })
 		expect(existsSync(liveWorktree)).toBe(true)
 		// cyber-mux's `submit(text)` composes two tmux calls: a literal `-l` type, then a bare Enter.
@@ -1188,15 +1188,34 @@ describe('clear injects the harness reset into a warm peer and tears nothing dow
 	})
 })
 
+describe('clear does not type over a human draft in the peer pane', () => {
+	it('gives up without sending the reset while the draft keeps changing', async () => {
+		registerUnit({ id: 'w2' })
+		const rule = '─'.repeat(40)
+		const keys: string[][] = []
+		let n = 0
+		const exec: Exec = (cmd, args) => {
+			if (cmd !== 'tmux') return null
+			if (tmuxVerb(args) === 'send-keys') keys.push(args)
+			if (tmuxVerb(args) === 'capture-pane') return [rule, `❯\u00a0typing ${n++}`, rule].join('\n')
+			return ''
+		}
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await expect(clearUnit({ ...ctx(), exec }, 'w2', { guardOpts: clock })).rejects.toThrow(/draft/)
+		expect(keys).toEqual([])
+	})
+})
+
 describe('clear resolves each harness own fresh-context command from the per-harness map', () => {
 	it.each([
 		['claude', '/clear'],
 		['codex', '/clear'],
 		['copilot', '/clear'],
 		['cursor', '/new-chat'],
-	])('sends "%s" for harness %s', (harness, command) => {
+	])('sends "%s" for harness %s', async (harness, command) => {
 		registerUnit({ id: `h-${harness}`, harness: harness as Harness })
-		const res = clearUnit(ctx(), `h-${harness}`)
+		const res = await clearUnit(ctx(), `h-${harness}`)
 		expect(res.command).toBe(command)
 		expect(sent.at(-2)).toEqual(['-u', 'send-keys', '-t', '%9', '-l', command])
 		expect(sent.at(-1)).toEqual(['-u', 'send-keys', '-t', '%9', 'Enter'])
@@ -1204,43 +1223,43 @@ describe('clear resolves each harness own fresh-context command from the per-har
 })
 
 describe('clear fails loud on a harness whose reset would not truly empty the context', () => {
-	it('throws naming gemini and sends nothing to its pane', () => {
+	it('throws naming gemini and sends nothing to its pane', async () => {
 		registerUnit({ id: 'gem1', harness: 'gemini' as Harness })
-		expect(() => clearUnit(ctx(), 'gem1')).toThrow(/gemini/)
+		await expect(clearUnit(ctx(), 'gem1')).rejects.toThrow(/gemini/)
 		expect(sent).toHaveLength(0)
 	})
 })
 
 describe('clear errors on an unmapped harness rather than guessing a command', () => {
-	it('throws naming the reset map and sends nothing to its pane', () => {
+	it('throws naming the reset map and sends nothing to its pane', async () => {
 		registerUnit({ id: 'grok1', harness: 'grok' as Harness })
-		expect(() => clearUnit(ctx(), 'grok1')).toThrow(/reset map/)
+		await expect(clearUnit(ctx(), 'grok1')).rejects.toThrow(/reset map/)
 		expect(sent).toHaveLength(0)
 	})
 })
 
 describe('clear on a record with an empty harness field fails loud before resolving a command', () => {
-	it('throws that the unit has no harness on record and sends nothing to any pane', () => {
+	it('throws that the unit has no harness on record and sends nothing to any pane', async () => {
 		// An empty string is not an unmapped harness: `resetCommandFor('')` would report "not in the
 		// reset map", naming nothing the operator can act on. And a falsy harness passed through to a
 		// lookup that defaulted would type SOME reset into a live pane.
 		registerUnit({ id: 'nohar1', harness: '' as Harness })
-		expect(() => clearUnit(ctx(), 'nohar1')).toThrow(/no harness on record/)
+		await expect(clearUnit(ctx(), 'nohar1')).rejects.toThrow(/no harness on record/)
 		expect(sent).toHaveLength(0)
 	})
 })
 
 describe('clear on an unresolvable ref errors and sends nothing', () => {
-	it('throws that no unit is addressable under that ref', () => {
-		expect(() => clearUnit(ctx(), 'ghost')).toThrow(/no agent addressable/)
+	it('throws that no unit is addressable under that ref', async () => {
+		await expect(clearUnit(ctx(), 'ghost')).rejects.toThrow(/no agent addressable/)
 		expect(sent).toHaveLength(0)
 	})
 })
 
 describe('clear on a unit with no known session pane errors and sends nothing', () => {
-	it('throws that the unit has no known session pane', () => {
+	it('throws that the unit has no known session pane', async () => {
 		registerUnit({ id: 'nopane1', pane: null })
-		expect(() => clearUnit(ctx(), 'nopane1')).toThrow(/no known session pane/)
+		await expect(clearUnit(ctx(), 'nopane1')).rejects.toThrow(/no known session pane/)
 		expect(sent).toHaveLength(0)
 	})
 })
@@ -1445,6 +1464,18 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(targetOf(ring)).toBe(PANE)
 	})
 
+	it('nudge does not type over a draft the human keeps editing — it gives up and says why', async () => {
+		const rule = '─'.repeat(40)
+		const captures = Array.from({ length: 200 }, (_, i) => [rule, `❯\u00a0typing ${i}`, rule, '  footer'].join('\n'))
+		const { calls, ctx } = peerCtx({ captures })
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await expect(nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} }, guardOpts: clock })).rejects.toThrow(
+			/draft/,
+		)
+		expect(tmuxArgs(calls, 'send-keys')).toEqual([])
+	})
+
 	it('nudge on a pane the backend no longer knows fails naming the gone pane', async () => {
 		// A gone pane and a booting one are different failures with different fixes, so the retry cap
 		// must not absorb the first: `paneExists` is probed up front and rejected outright.
@@ -1494,15 +1525,16 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	})
 
 	it('nudge re-submits when the harness boot swallows the first submit', async () => {
-		// first read shows the text still staged at the prompt, second shows it taken
-		const { ctx } = peerCtx({ captures: [`> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
+		// the draft guard's pre-ring read sees no input box; then the text still staged, then taken
+		const { ctx } = peerCtx({ captures: ['peer output', `> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
 		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
 		expect(res.resubmits).toBeGreaterThan(0) // reports success only once no longer staged
 	})
 
 	it('a boot-race re-submit flushes the staged buffer rather than re-typing the message', async () => {
-		const { calls, ctx } = peerCtx({ captures: [`> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
-		await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		const { calls, ctx } = peerCtx({ captures: ['peer output', `> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
+		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		expect(res.resubmits).toBeGreaterThan(0) // the boot race actually happened
 		// the literal text is typed exactly once; the recovery is a bare Enter, so the peer's turn
 		// carries the message once rather than twice
 		const typedLiteral = calls.filter(

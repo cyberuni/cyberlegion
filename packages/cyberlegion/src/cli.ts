@@ -509,12 +509,12 @@ withGlobals(unit.command('clear'))
 		"reset a warm peer's context to cold by injecting its own harness fresh-context command — keeps the pane/session warm; tears down nothing",
 	)
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
-	.action((ref, opts) => {
+	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		let res: ReturnType<typeof clearUnit>
+		let res: Awaited<ReturnType<typeof clearUnit>>
 		try {
-			res = clearUnit(ctx, ref)
+			res = await clearUnit(ctx, ref)
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}

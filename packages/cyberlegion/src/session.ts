@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
+import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import {
 	type AgentRecord,
 	type Harness,
@@ -254,7 +255,12 @@ export async function spawnAndWake(
 	const wake = await wakeSpawn(
 		() => selectSessionAdapter(env, exec),
 		exec,
-		{ target: { id: res.pane }, briefPath: briefPath ?? '', noWake: options.noWake || !briefPath },
+		{
+			target: { id: res.pane },
+			briefPath: briefPath ?? '',
+			noWake: options.noWake || !briefPath,
+			harness: res.agent.harness,
+		},
 		options.nudgeOpts,
 	)
 	return { ...res, rung: wake.rung, ...(wake.warning ? { warning: wake.warning } : {}) }
@@ -373,22 +379,27 @@ export function focusUnit(ctx: IdContext, ref: string): { agent: AgentRecord; pa
  * Ring a peer's session as a **taken turn**, not fire-and-forget: `nudge` submits, reads the pane
  * back to confirm the text is no longer staged, and flushes the staged buffer (never re-typing) up
  * to a bounded cap — then throws if the peer never took the turn. A doorbell must carry text; an
- * empty ring is a no-op, so the default points the peer at its inbox.
+ * empty ring is a no-op, so the default points the peer at its inbox. The ring waits out a human's
+ * unsent draft in the peer's input box first (`withDraftGuard`).
  */
 export async function nudgeUnit(
 	ctx: IdContext,
 	ref: string,
-	options: { message?: string; nudgeOpts?: NudgeOptions } = {},
+	options: { message?: string; nudgeOpts?: NudgeOptions; guardOpts?: DraftGuardOptions } = {},
 ): Promise<{ agent: AgentRecord; pane: string; message: string; resubmits: number }> {
 	const { agent, target } = paneTargetOf(ctx, ref)
 	const exec = ctx.exec ?? realExec
 	const message = options.message || DELIVERY_DOORBELL
-	const result = await nudge(
-		selectSessionAdapter(ctx.env ?? process.env, exec),
+	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec)
+	const result = await withDraftGuard(
+		adapter,
 		exec,
 		target,
-		message,
-		options.nudgeOpts,
+		() => nudge(adapter, exec, target, message, options.nudgeOpts),
+		{
+			...options.guardOpts,
+			harness: agent.harness,
+		},
 	)
 	return { agent, pane: target.id, message, resubmits: result.resubmits }
 }
@@ -411,9 +422,14 @@ export function readUnit(
  * Warmth is the unit (pane/process stays warm — no cold-start), coldness is the context. The
  * command is resolved (and any false-friend/unmapped harness throws) BEFORE anything is sent, so
  * a fail-loud harness never has anything typed into its pane. Touches neither the registry record
- * nor the worktree — `close` (`decommission`) owns teardown.
+ * nor the worktree — `close` (`decommission`) owns teardown. The reset waits out a human's unsent
+ * draft in the peer's input box first (`withDraftGuard`) — typed onto one, it would submit both.
  */
-export function clearUnit(ctx: IdContext, ref: string): ClearResult {
+export async function clearUnit(
+	ctx: IdContext,
+	ref: string,
+	options: { guardOpts?: DraftGuardOptions } = {},
+): Promise<ClearResult> {
 	const { agent, target } = paneTargetOf(ctx, ref)
 	const pane = target.id
 	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`)
@@ -427,7 +443,11 @@ export function clearUnit(ctx: IdContext, ref: string): ClearResult {
 	// typed the reset command AND pressed Enter atomically. A one-shot reset command has to actually
 	// run, so `submit(exec, target, text)` — "type text, then always press Enter" — is the equivalent
 	// primitive here, not `sendText`.
-	selectSessionAdapter(env, exec).submit(exec, { id: pane }, command)
+	const adapter = selectSessionAdapter(env, exec)
+	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
+		...options.guardOpts,
+		harness: agent.harness,
+	})
 	return { agent, pane, command }
 }
 
