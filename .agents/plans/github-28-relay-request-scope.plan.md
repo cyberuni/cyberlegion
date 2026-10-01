@@ -4,15 +4,15 @@ project: cyberlegion-plugin
 status: active
 todos:
   - content: "explore: re-open dispatch.feature; rewrite the four-part scenarios to the request-answering model"
-    status: pending
+    status: completed
   - content: "spec gate: cold spec-judge, structural diff, re-freeze, ledger gate line"
-    status: pending
+    status: completed
   - content: "deliver: relay-governance + subagent-backend-governance (SKILL + README) realigned; changeset"
-    status: pending
+    status: completed
   - content: "impl gate: cold impl-judge over the frozen scenarios; pnpm verify, check:suite, check:metaphor-free"
-    status: pending
+    status: completed
   - content: "handoff: PR closing #28 (never merge), report to the dispatching unit"
-    status: pending
+    status: completed
 ---
 
 # github-28 — a relayed decision's scope comes from the request it answers
@@ -44,4 +44,10 @@ pre-authorized in the CR: the dispatching brief orders the re-open on the mainta
 
 ## NEXT
 
-Explore: edit `dispatch/README.md` prose, then `dispatch.feature` (drop `@frozen`).
+Landed on the PR branch. `relay-governance` reads a relayed decision's scope from the request it
+answers; the relayer sends the user-channel holder's words with no envelope and records provenance on
+the work item's thread; the revision comes from the request, closing the two-vs-three-part question.
+The `dispatch` suite was re-opened (Clearance pre-authorized by the brief), passed the spec gate in
+four rounds and was re-frozen; the impl gate approved. Both gates are self-asserted `by: agent` —
+human ratification is outstanding at the PR, which this mission does not merge. Two backlog
+follow-ups were recorded and filed as issues. No resume action remains in this brief.
