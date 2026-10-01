@@ -64,9 +64,16 @@ surface that inspects a def before that:
   by the caller) wins over the def's own tags, which win over the harness default (`claude`). A def's
   `effort` travels through each harness's own effort control, since no two spell it alike: `claude
   --effort <level>`; codex's config override `-c model_reasoning_effort="<level>"` (it has no
-  dedicated flag); cursor's bracket parameter on the model, `--model '<model>[effort=<level>]'`,
-  merged into any bracket list the model already carries and replacing an `effort=` already there.
-  Cursor has no effort control apart from the model, and none that names no model: checked live
+  dedicated flag); cursor's flat model id, `--model '<model>-<level>'`. Cursor has no effort flag,
+  and the `<model>[effort=<level>]` bracket parameter its `--help` documents is refused as an unknown
+  model by cursor-agent 2026.09.26 (#72); `cursor-agent models` lists effort baked into flat ids
+  (`claude-opus-5-high`) instead. So a cursor def with a `model` and an `effort` launches the listed
+  id `<model>-<level>`, or the model as it is when its own id already ends `-<level>` and is listed;
+  realizeLaunch reads the listing through a caller-supplied lister, consulted only for a cursor launch
+  carrying both, and never probes cursor itself. When no such id is listed (or the listing failed and
+  came back empty) it **launches the model without the effort** and names the dropped level in
+  `effortNotApplied`; it never emits the bracket form. Cursor has no effort control apart from the
+  model, and none that names no model: checked live
   against cursor-agent 2026.09.26 (#63), `auto[effort=high]` and the local config's default id
   `default[effort=high]` are both refused as unknown models. So a cursor def with an `effort` but no
   `model` **launches at the harness default without the effort** and says so: the realized launch
@@ -190,13 +197,14 @@ graph TD
   KIND -->|cursor| CURSOR{effort and model?}
   CURSOR -->|effort, no model| DROPPED[no --model, no effort; effortNotApplied names the level]
   CURSOR -->|no effort| NOEFFORT
-  CURSOR -->|effort and a bare model| BRACKET[--model model with effort=level]
-  CURSOR -->|effort and a bracketed model| MERGE[effort merged into the bracket list, replacing any effort= there]
+  CURSOR -->|effort and a model| LISTED{the lister lists model-level, or the model itself ending -level?}
+  LISTED -->|yes| FLAT[--model the listed flat id]
+  LISTED -->|no| UNLISTED[--model model, no effort; effortNotApplied names the level]
   NOEFFORT --> INSTR{instructions: body and harness}
   CLAUDE --> INSTR
   CODEX --> INSTR
-  BRACKET --> INSTR
-  MERGE --> INSTR
+  FLAT --> INSTR
+  UNLISTED --> INSTR
   DROPPED --> INSTR
   INSTR -->|empty body, any harness| NOINSTR[no instruction argument, nothing handed to the brief]
   INSTR -->|claude| APPEND[--append-system-prompt body, single-quoted so shell syntax is inert]
@@ -289,9 +297,12 @@ different path class.
 | `MODEL → KIND` | an effort override over the def's own effort | `an explicit effort override wins over the def's own effort` |
 | `HARNESS → OVH` | a harness and model override over the def's own tags | `an explicit model/harness override wins over the def's own tags` |
 | `INSTR → APPEND` | instructions carrying quotes and a `$()` sequence | `instructions containing shell-special characters are safely quoted` |
-| `EFFORT → {CLAUDE, CODEX}`, `CURSOR → BRACKET` | each harness in turn, a model and an effort | `realizeLaunch carries the def's effort in the harness's own effort control` |
+| `EFFORT → {CLAUDE, CODEX}` | each of claude and codex, a model and an effort | `realizeLaunch carries the def's effort in the harness's own effort control` |
 | `EFFORT → NOEFFORT`, `CURSOR → NOEFFORT` | each harness in turn, a model and no effort | `a def with no effort launches with no effort control on any harness` |
-| `CURSOR → MERGE` | cursor, an effort, and a model already carrying a bracket list | `a cursor effort merges into a model that already carries bracket parameters` |
+| `CURSOR → LISTED`, `LISTED → FLAT` | cursor, an effort, a bare model, and `<model>-<level>` listed | `a cursor effort launches the flat model id cursor lists for that model and level` |
+| `LISTED → FLAT` | cursor, an effort, and a listed model already ending `-<level>` | `a cursor model that already names the effort level launches as it is` |
+| `LISTED → UNLISTED` | cursor, an effort, a model with no listed flat id, an empty listing, or a bracketed model | `a cursor effort with no listed flat id launches the model without the effort and reports it not applied` |
+| `CURSOR → LISTED` only | each harness and model/effort combination in turn, a recording lister | `realizeLaunch consults the cursor model lister only for a cursor launch with both a model and an effort` |
 | `CURSOR → DROPPED` | cursor, an effort, and no model | `a cursor effort with no model launches at the harness default and reports the effort not applied` |
 | `INSTR → {APPEND, DEVINSTR}` | each of claude and codex, a one-line body | `realizeLaunch carries the def's instructions in the harness's own instruction channel` |
 | `INSTR → DEVINSTR`, barred `INSTR → APPEND` | codex, a one-line body | `a codex def's instructions never reach codex as the claude-only flag` |

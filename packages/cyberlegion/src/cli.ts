@@ -7,6 +7,7 @@ import { migrateStore } from './admin.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { readCommandOutput, spawnCommandInput } from './cli-input.ts'
 import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
+import { listCursorModels } from './cursor-models.ts'
 import { decommission } from './decommission.ts'
 import {
 	bumpLastSeen,
@@ -273,10 +274,18 @@ function reportedEffort(launched: { effort?: string; effortNotApplied?: string }
 	return launched.effort ?? HARNESS_DEFAULT
 }
 
-/** Warn on stderr when the launch dropped an effort it could not carry (cursor with no model). */
+/** Warn on stderr when the launch dropped an effort it could not carry: cursor with no model, or with
+ * no `<model>-<level>` id in `cursor-agent models`. */
 function warnEffortNotApplied(spawnInput: ReturnType<typeof spawnCommandInput>): void {
-	const level = spawnInput.launched.effortNotApplied
+	const { effortNotApplied: level, model } = spawnInput.launched
 	if (!level) return
+	if (model) {
+		console.error(
+			`${spawnInput.input.harness} carries effort only in a model id that cursor-agent models lists, and it lists no "${model}-${level}"; ` +
+				`effort "${level}" not applied — launching ${model} at its default effort (run cursor-agent models to pick an id)`,
+		)
+		return
+	}
 	console.error(
 		`${spawnInput.input.harness} carries effort only as a parameter on a named model and none was set; ` +
 			`effort "${level}" not applied — launching at the harness default model and effort (pass --model to apply it)`,
@@ -319,7 +328,7 @@ function defineSpawn(cmd: Command): Command {
 			touch(ctx)
 			let spawnInput: ReturnType<typeof spawnCommandInput>
 			try {
-				spawnInput = spawnCommandInput(opts)
+				spawnInput = spawnCommandInput(opts, listCursorModels)
 			} catch (err) {
 				fail(err instanceof Error ? err.message : String(err))
 			}
@@ -755,7 +764,7 @@ withSpawnOptions(service.command('start'))
 		touch(ctx)
 		let spawnInput: ReturnType<typeof spawnCommandInput>
 		try {
-			spawnInput = spawnCommandInput(opts)
+			spawnInput = spawnCommandInput(opts, listCursorModels)
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}

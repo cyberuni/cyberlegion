@@ -28,9 +28,15 @@ export interface SpawnCommandOptions {
  * `--agent`/`--agent-file` def into the harness and composed launch command, with an explicit
  * `--harness`/`--model`/`--effort` overriding the def's own.
  *
+ * `listCursorModels` is the cursor model listing a cursor effort is carried through (see `realizeLaunch`);
+ * the CLI passes the live `cursor-agent models` probe.
+ *
  * Throws when no harness can be resolved, so the CLI's own `fail()` still renders it.
  */
-export function spawnCommandInput(opts: SpawnCommandOptions): {
+export function spawnCommandInput(
+	opts: SpawnCommandOptions,
+	listCursorModels?: () => readonly string[],
+): {
 	input: SpawnInput
 	noWake: boolean
 	launched: { model?: string; effort?: string; effortNotApplied?: string }
@@ -41,6 +47,7 @@ export function spawnCommandInput(opts: SpawnCommandOptions): {
 		harness: opts.harness,
 		model: opts.model,
 		effort: opts.effort,
+		listCursorModels,
 	})
 	if (!harness) throw new Error('unit spawn needs --harness, or --agent/--agent-file resolving one')
 	return {

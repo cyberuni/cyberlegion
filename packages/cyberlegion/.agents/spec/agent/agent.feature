@@ -123,7 +123,6 @@ Feature: agent — resolve reusable agent definitions
       | harness | model  | effort control                        |
       | claude  | sonnet | --effort 'high'                       |
       | codex   | gpt-5  | -c 'model_reasoning_effort="high"'    |
-      | cursor  | gpt-5  | --model 'gpt-5[effort=high]'          |
 
   Scenario Outline: a def with no effort launches with no effort control on any harness
     Given a resolved def whose frontmatter carries exactly two tags, harness "<harness>" and model "gpt-5"
@@ -136,16 +135,50 @@ Feature: agent — resolve reusable agent definitions
       | codex   |
       | cursor  |
 
-  Scenario Outline: a cursor effort merges into a model that already carries bracket parameters
+  # Cursor has no effort flag. Its `--help` documents a `<model>[effort=<level>]` bracket parameter,
+  # but cursor-agent 2026.09.26 refuses every bracket form as an unknown model (#72); `cursor-agent
+  # models` lists effort baked into flat ids instead (`claude-opus-5-high`). So the effort travels as
+  # the listed flat id, and the listing comes from a caller-supplied lister, never a live probe here.
+
+  Scenario: a cursor effort launches the flat model id cursor lists for that model and level
+    Given a resolved def with harness "cursor", model "claude-opus-5" and effort "high"
+    And a cursor model lister whose ids include "claude-opus-5-high"
+    When realizeLaunch runs with that lister
+    Then the command contains --model 'claude-opus-5-high' and no "[" text
+    And the realized launch reports model "claude-opus-5-high" and effort "high"
+
+  Scenario: a cursor model that already names the effort level launches as it is
+    Given a resolved def with harness "cursor", model "claude-opus-5-high" and effort "high"
+    And a cursor model lister whose ids include "claude-opus-5-high" and not "claude-opus-5-high-high"
+    When realizeLaunch runs with that lister
+    Then the command contains --model 'claude-opus-5-high'
+    And the realized launch reports effort "high" with no effort not applied
+
+  Scenario Outline: a cursor effort with no listed flat id launches the model without the effort and reports it not applied
     Given a resolved def with harness "cursor", model "<model>" and effort "high"
-    When realizeLaunch runs with no overrides
-    Then the command's model argument is '<realized>'
+    And a cursor model lister whose ids <listing>
+    When realizeLaunch runs with that lister
+    Then the command contains --model '<model>' and no "effort=" text
+    And the realized launch reports no applied effort and names "high" as the effort not applied
 
     Examples:
-      | model                         | realized                                  |
-      | claude-opus-4-8[context=1m]   | claude-opus-4-8[context=1m,effort=high]   |
-      | claude-opus-4-8[effort=low]   | claude-opus-4-8[effort=high]              |
-      | gpt-5[context=1m,effort=low]  | gpt-5[context=1m,effort=high]             |
+      | model                       | listing                                   |
+      | gpt-5.2                     | include "gpt-5.2" and not "gpt-5.2-high"  |
+      | gpt-5.2                     | are empty, as when the listing fails      |
+      | claude-opus-4-8[context=1m] | include "claude-opus-4-8-high"            |
+
+  Scenario Outline: realizeLaunch consults the cursor model lister only for a cursor launch with both a model and an effort
+    Given a resolved def with harness "<harness>", model "<model>" and effort "<effort>"
+    And a cursor model lister that records each call
+    When realizeLaunch runs with that lister
+    Then the lister was called <calls> times
+
+    Examples:
+      | harness | model         | effort | calls |
+      | cursor  | claude-opus-5 | high   | 1     |
+      | cursor  | claude-opus-5 |        | 0     |
+      | cursor  |               | high   | 0     |
+      | claude  | sonnet        | high   | 0     |
 
   Scenario: a cursor effort with no model launches at the harness default and reports the effort not applied
     Given a resolved def whose frontmatter carries exactly two tags, harness "cursor" and effort "high"
