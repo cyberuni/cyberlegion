@@ -7147,25 +7147,38 @@ const DEFAULT_HARNESS = "claude";
 function shellQuote(value) {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
-/** Cursor carries effort as a bracket parameter on the model (`<model>[effort=<level>]`): merge it into
-* any bracket list the model already has, replacing an `effort=` already there. */
-function withCursorEffort(model, effort) {
-	const open = model.lastIndexOf("[");
-	if (open === -1 || !model.endsWith("]")) return `${model}[effort=${effort}]`;
-	const params = model.slice(open + 1, -1).split(",").filter((p) => p !== "" && !p.startsWith("effort="));
-	return `${model.slice(0, open)}[${[...params, `effort=${effort}`].join(",")}]`;
+/** Cursor's model + effort, as the model id to launch and whether the effort rode along. Cursor has
+* no effort flag, and refuses the `<model>[effort=<level>]` bracket form its `--help` documents
+* (#72); `cursor-agent models` lists effort baked into flat ids (`claude-opus-5-high`) instead. So
+* the effort travels as the listed `<model>-<level>` id, or the model itself when it already is
+* one; with no such id listed, the model launches without the effort. Cursor also refuses an
+* effort on its default (`auto[effort=high]`), so with no model there is nothing to launch it on. */
+function cursorModel(model, effort, listCursorModels = () => []) {
+	if (!model || !effort) return {
+		model,
+		effortApplied: !effort
+	};
+	const listed = listCursorModels();
+	const suffix = `-${effort}`;
+	if (model.endsWith(suffix) && listed.includes(model)) return {
+		model,
+		effortApplied: true
+	};
+	const flat = `${model}${suffix}`;
+	if (listed.includes(flat)) return {
+		model: flat,
+		effortApplied: true
+	};
+	return {
+		model,
+		effortApplied: false
+	};
 }
-/** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
-* `--effort`, codex only a config override, cursor only a parameter on a named model. Cursor refuses
-* an effort on its default (`auto[effort=high]` is not a model it accepts), so a cursor effort with
-* no model is left off and `realizeLaunch` reports it as not applied. */
+/** The model + effort arguments for claude or codex, which spell effort differently: claude has
+* `--effort`, codex only a config override. Cursor's effort rides on its model (`cursorModel`). */
 function modelAndEffortArgs(harness, model, effort) {
-	if (harness === "cursor") {
-		if (!model) return [];
-		return ["--model", shellQuote(effort ? withCursorEffort(model, effort) : model)];
-	}
 	const args = model ? ["--model", shellQuote(model)] : [];
-	if (!effort) return args;
+	if (!effort || harness === "cursor") return args;
 	if (harness === "codex") return [
 		...args,
 		"-c",
@@ -7191,18 +7204,20 @@ function instructionArgs(harness, instructions) {
 }
 /** Build the harness launch invocation for a def — explicit `model`/`effort`/`harness` win over the
 * def's own tags, which win over the harness default. The def's effort and instructions each go
-* through the harness's own control (see `modelAndEffortArgs`, `instructionArgs`). */
+* through the harness's own control (see `cursorModel`, `modelAndEffortArgs`, `instructionArgs`). */
 function realizeLaunch(def, opts = {}) {
 	const harness = opts.harness ?? def.harness ?? DEFAULT_HARNESS;
-	const model = opts.model ?? def.model;
 	const effort = opts.effort ?? def.effort;
+	const asked = opts.model ?? def.model;
+	const cursor = harness === "cursor" ? cursorModel(asked, effort, opts.listCursorModels) : void 0;
+	const model = cursor ? cursor.model : asked;
 	const parts = [
 		LAUNCH_MAP[harness],
 		...modelAndEffortArgs(harness, model, effort),
 		...instructionArgs(harness, def.instructions)
 	];
 	const briefInstructions = harness === "cursor" && def.instructions ? def.instructions : void 0;
-	const notApplied = harness === "cursor" && effort && !model ? effort : void 0;
+	const notApplied = cursor && !cursor.effortApplied ? effort : void 0;
 	return {
 		harness,
 		command: parts.join(" "),
@@ -7226,7 +7241,8 @@ function resolveSpawnLaunch(input) {
 	const overrides = {
 		harness: input.harness,
 		model: input.model,
-		effort: input.effort
+		effort: input.effort,
+		listCursorModels: input.listCursorModels
 	};
 	if (!input.agent && !input.agentFile) {
 		if (!input.harness || !input.model && !input.effort) return { harness: input.harness };
@@ -7250,15 +7266,19 @@ function resolveSpawnLaunch(input) {
 * `--agent`/`--agent-file` def into the harness and composed launch command, with an explicit
 * `--harness`/`--model`/`--effort` overriding the def's own.
 *
+* `listCursorModels` is the cursor model listing a cursor effort is carried through (see `realizeLaunch`);
+* the CLI passes the live `cursor-agent models` probe.
+*
 * Throws when no harness can be resolved, so the CLI's own `fail()` still renders it.
 */
-function spawnCommandInput(opts) {
+function spawnCommandInput(opts, listCursorModels) {
 	const { harness, command, model, effort, effortNotApplied, briefInstructions } = resolveSpawnLaunch({
 		agent: opts.agent,
 		agentFile: opts.agentFile,
 		harness: opts.harness,
 		model: opts.model,
-		effort: opts.effort
+		effort: opts.effort,
+		listCursorModels
 	});
 	if (!harness) throw new Error("unit spawn needs --harness, or --agent/--agent-file resolving one");
 	return {
@@ -7285,6 +7305,30 @@ function spawnCommandInput(opts) {
 /** What `unit read` prints: the raw scrape, or the JSON envelope under `--format json`. */
 function readCommandOutput(format, result) {
 	return format === "json" ? JSON.stringify(result, null, 2) : result.output;
+}
+//#endregion
+//#region src/cursor-models.ts
+/** The model ids in `cursor-agent models` output: the first token of each line, ANSI colour and list
+* bullets stripped. Headings and tips come along too; callers only test a specific id for membership. */
+function parseCursorModels(output) {
+	return stripVTControlCharacters(output).split("\n").map((line) => line.trim().replace(/^[-*•]\s+/, "").split(/\s+/)[0] ?? "").filter((id) => id !== "");
+}
+/** The model ids this account's `cursor-agent` lists, or none when the probe fails (not installed,
+* signed out, timed out) — the caller then launches without the effort and warns. */
+function listCursorModels() {
+	try {
+		return parseCursorModels(execFileSync("cursor-agent", ["models"], {
+			encoding: "utf8",
+			stdio: [
+				"ignore",
+				"pipe",
+				"ignore"
+			],
+			timeout: 15e3
+		}));
+	} catch {
+		return [];
+	}
 }
 //#endregion
 //#region src/message.ts
@@ -8943,10 +8987,15 @@ function reportedEffort(launched) {
 	if (launched.effortNotApplied) return `${launched.effortNotApplied} (not applied)`;
 	return launched.effort ?? HARNESS_DEFAULT;
 }
-/** Warn on stderr when the launch dropped an effort it could not carry (cursor with no model). */
+/** Warn on stderr when the launch dropped an effort it could not carry: cursor with no model, or with
+* no `<model>-<level>` id in `cursor-agent models`. */
 function warnEffortNotApplied(spawnInput) {
-	const level = spawnInput.launched.effortNotApplied;
+	const { effortNotApplied: level, model } = spawnInput.launched;
 	if (!level) return;
+	if (model) {
+		console.error(`${spawnInput.input.harness} carries effort only in a model id that cursor-agent models lists, and it lists no "${model}-${level}"; effort "${level}" not applied — launching ${model} at its default effort (run cursor-agent models to pick an id)`);
+		return;
+	}
 	console.error(`${spawnInput.input.harness} carries effort only as a parameter on a named model and none was set; effort "${level}" not applied — launching at the harness default model and effort (pass --model to apply it)`);
 }
 /** The launch options `unit spawn` and `service start` share. */
@@ -8964,7 +9013,7 @@ function defineSpawn(cmd) {
 		touch(ctx);
 		let spawnInput;
 		try {
-			spawnInput = spawnCommandInput(opts);
+			spawnInput = spawnCommandInput(opts, listCursorModels);
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err));
 		}
@@ -9314,7 +9363,7 @@ withSpawnOptions(service.command("start")).description("resolve the healthy owne
 	touch(ctx);
 	let spawnInput;
 	try {
-		spawnInput = spawnCommandInput(opts);
+		spawnInput = spawnCommandInput(opts, listCursorModels);
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}

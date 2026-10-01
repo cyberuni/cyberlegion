@@ -67,12 +67,9 @@ describe('spec:cyberlegion/agent', () => {
 		const rows = [
 			['claude', 'sonnet', `--effort 'high'`],
 			['codex', 'gpt-5', `-c 'model_reasoning_effort="high"'`],
-			['cursor', 'gpt-5', `--model 'gpt-5[effort=high]'`],
 		] as const
 		for (const [harness, model, control] of rows) {
-			// cursor has no instruction channel, so its fixture carries an empty body
-			const instructions = harness === 'cursor' ? '' : 'Look for correctness bugs first.'
-			expect(realizeLaunch(def({ harness, model, effort: 'high', instructions })).command).toContain(control)
+			expect(realizeLaunch(def({ harness, model, effort: 'high' })).command).toContain(control)
 		}
 	})
 
@@ -85,15 +82,62 @@ describe('spec:cyberlegion/agent', () => {
 		}
 	})
 
-	it('a cursor effort merges into a model that already carries bracket parameters', () => {
-		const rows = [
-			['claude-opus-4-8[context=1m]', 'claude-opus-4-8[context=1m,effort=high]'],
-			['claude-opus-4-8[effort=low]', 'claude-opus-4-8[effort=high]'],
-			['gpt-5[context=1m,effort=low]', 'gpt-5[context=1m,effort=high]'],
+	it('a cursor effort launches the flat model id cursor lists for that model and level', () => {
+		const listCursorModels = () => ['claude-opus-5-low', 'claude-opus-5-high']
+		const realized = realizeLaunch(
+			def({ harness: 'cursor', model: 'claude-opus-5', effort: 'high', instructions: '' }),
+			{
+				listCursorModels,
+			},
+		)
+		expect(realized.command).toContain(`--model 'claude-opus-5-high'`)
+		expect(realized.command).not.toContain('[')
+		expect(realized.model).toBe('claude-opus-5-high')
+		expect(realized.effort).toBe('high')
+	})
+
+	it('a cursor model that already names the effort level launches as it is', () => {
+		const realized = realizeLaunch(
+			def({ harness: 'cursor', model: 'claude-opus-5-high', effort: 'high', instructions: '' }),
+			{ listCursorModels: () => ['claude-opus-5-high'] },
+		)
+		expect(realized.command).toContain(`--model 'claude-opus-5-high'`)
+		expect(realized.effort).toBe('high')
+		expect(realized.effortNotApplied).toBeUndefined()
+	})
+
+	it('a cursor effort with no listed flat id launches the model without the effort and reports it not applied', () => {
+		const rows: [string, string[]][] = [
+			['gpt-5.2', ['gpt-5.2']],
+			['gpt-5.2', []],
+			['claude-opus-4-8[context=1m]', ['claude-opus-4-8-high']],
 		]
-		for (const [model, realized] of rows) {
-			const { command } = realizeLaunch(def({ harness: 'cursor', model, effort: 'high', instructions: '' }))
-			expect(command).toContain(`--model ${shellQuote(realized)}`)
+		for (const [model, listed] of rows) {
+			const realized = realizeLaunch(def({ harness: 'cursor', model, effort: 'high', instructions: '' }), {
+				listCursorModels: () => listed,
+			})
+			expect(realized.command).toContain(`--model ${shellQuote(model)}`)
+			expect(realized.command).not.toContain('effort=')
+			expect(realized.effort).toBeUndefined()
+			expect(realized.effortNotApplied).toBe('high')
+		}
+	})
+
+	it('realizeLaunch consults the cursor model lister only for a cursor launch with both a model and an effort', () => {
+		const rows = [
+			['cursor', 'claude-opus-5', 'high', 1],
+			['cursor', 'claude-opus-5', undefined, 0],
+			['cursor', undefined, 'high', 0],
+			['claude', 'sonnet', 'high', 0],
+		] as const
+		for (const [harness, model, effort, calls] of rows) {
+			let called = 0
+			const listCursorModels = () => {
+				called++
+				return []
+			}
+			realizeLaunch(def({ harness, model, effort, instructions: '' }), { listCursorModels })
+			expect(called).toBe(calls)
 		}
 	})
 

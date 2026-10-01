@@ -111,12 +111,21 @@ default. A flag never writes back to the def. The flags also work without a def,
 |---|---|
 | `claude` | `--effort <level>` |
 | `codex` | `-c model_reasoning_effort="<level>"` |
-| `cursor` | a parameter on the model, `--model '<model>[effort=<level>]'` |
+| `cursor` | the flat model id `cursor-agent models` lists for that level, `--model '<model>-<level>'` |
 
-Cursor has no effort control apart from the model, and `cursor-agent` refuses an effort on its
-default model (`auto[effort=high]` is not a model it accepts). A cursor spawn with an effort but no
-model, from either the flag or the def, therefore launches at cursor's default without the effort.
-It warns on stderr and reports the effort as `<level> (not applied)`. Pass `--model` to apply it.
+Cursor has no effort flag. `cursor-agent models` lists effort as part of flat model ids, such as
+`claude-opus-5-high`, and `cursor-agent` refuses the `<model>[effort=<level>]` form its `--help`
+documents. So for a cursor spawn with a model and an effort, spawn runs `cursor-agent models` and
+launches `<model>-<level>` when that id is listed. A `--model` that already names the level, such as
+`claude-opus-5-high` with `--effort high`, launches as it is. When no such id is listed, or the
+listing fails, spawn launches the model without the effort.
+
+`cursor-agent` also refuses an effort on its default model (`auto[effort=high]` is not a model it
+accepts). A cursor spawn with an effort but no model, from either the flag or the def, therefore
+launches at cursor's default without the effort.
+
+In both cases spawn warns on stderr and reports the effort as `<level> (not applied)`. Pass a
+`--model` that `cursor-agent models` lists with the level to apply it.
 
 An agent def's body (its instructions) also reaches each harness in a different way:
 

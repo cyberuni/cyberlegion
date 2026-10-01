@@ -22,6 +22,8 @@ vi.mock('./session.ts', async () => ({
 	nudgeUnit: (...a: unknown[]) => nudgeUnit(...a),
 	readUnit: (...a: unknown[]) => readUnit(...a),
 }))
+const listCursorModels = vi.fn((): string[] => [])
+vi.mock('./cursor-models.ts', () => ({ listCursorModels: () => listCursorModels() }))
 vi.mock('./decommission.ts', async () => ({
 	...(await vi.importActual<typeof import('./decommission.ts')>('./decommission.ts')),
 	decommission: (...a: unknown[]) => decommission(...a),
@@ -325,9 +327,27 @@ describe('spec:cyberlegion/unit/lifecycle', () => {
 		})
 	})
 
-	it('--effort on a cursor spawn with a model launches with the effort on that model', async () => {
+	it('--effort on a cursor spawn with a model launches the flat model id cursor lists for that level', async () => {
+		listCursorModels.mockReturnValueOnce(['gpt-5', 'gpt-5-high'])
+		const log = captureStdout()
 		await cli(['unit', 'spawn', '--harness', 'cursor', '--model', 'gpt-5', '--effort', 'high', '--task', 't'])
-		expect(launched()).toContain(`--model 'gpt-5[effort=high]'`)
+		expect(launched()).toContain(`--model 'gpt-5-high'`)
+		expect(printed(log)).toContain('model: gpt-5-high')
+		expect(printed(log)).toContain('effort: high')
+	})
+
+	it('--effort on a cursor spawn with a model cursor lists no flat id for launches the model without the effort and warns', async () => {
+		listCursorModels.mockReturnValueOnce(['gpt-5'])
+		const log = captureStdout()
+		const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+		await cli(['unit', 'spawn', '--harness', 'cursor', '--model', 'gpt-5', '--effort', 'high', '--task', 't'])
+		expect(launched()).toContain(`--model 'gpt-5'`)
+		expect(launched()).not.toContain('effort=')
+		const warned = err.mock.calls.map((c) => String(c[0])).join('\n')
+		expect(warned).toMatch(/cursor/)
+		expect(warned).toMatch(/"high"/)
+		expect(warned).toContain('gpt-5-high')
+		expect(printed(log)).toContain('effort: high (not applied)')
 	})
 })
 

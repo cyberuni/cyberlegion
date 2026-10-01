@@ -82,10 +82,20 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And stderr carries a warning naming cursor, the effort "high", and the missing model
     And the spawn output reports effort "high (not applied)"
 
-  Scenario: --effort on a cursor spawn with a model launches with the effort on that model
-    Given the command line is exactly unit spawn --harness cursor --model gpt-5 --effort high --task t
+  Scenario: --effort on a cursor spawn with a model launches the flat model id cursor lists for that level
+    Given cursor-agent models lists the id "gpt-5-high"
+    And the command line is exactly unit spawn --harness cursor --model gpt-5 --effort high --task t
     When unit spawn runs
-    Then the launch command carries the model argument 'gpt-5[effort=high]'
+    Then the launch command carries the model argument 'gpt-5-high'
+    And the spawn output reports model gpt-5-high and effort high
+
+  Scenario: --effort on a cursor spawn with a model cursor lists no flat id for launches the model without the effort and warns
+    Given cursor-agent models lists no id "gpt-5-high"
+    And the command line is exactly unit spawn --harness cursor --model gpt-5 --effort high --task t
+    When unit spawn runs
+    Then the launch command carries the model argument 'gpt-5' and no "effort=" text
+    And stderr carries a warning naming cursor, the effort "high", and the unlisted id "gpt-5-high"
+    And the spawn output reports effort "high (not applied)"
 
   # ── spawn registers the peer it opened ──
   # The title and section comment used to claim registration PRECEDED the launch. Nothing in the

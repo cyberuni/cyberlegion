@@ -22,6 +22,9 @@ export interface RealizeLaunchOptions {
 	effort?: string
 	/** Overrides def.harness when present; falls back to 'claude' when neither is set. */
 	harness?: Harness
+	/** The model ids `cursor-agent models` lists, for carrying a cursor effort as a flat model id.
+	 * Called only for a cursor launch with both a model and an effort; absent, nothing is listed. */
+	listCursorModels?: () => readonly string[]
 }
 
 export interface RealizedLaunch {
@@ -31,38 +34,40 @@ export interface RealizedLaunch {
 	 * harness default applies. */
 	model?: string
 	effort?: string
-	/** An effort asked for that the launch cannot carry — cursor with no model — so the caller can warn
-	 * and report it rather than let it drop silently. The launch runs at the harness default instead. */
+	/** An effort asked for that the launch cannot carry — cursor with no model, or with no listed
+	 * `<model>-<level>` id — so the caller can warn and report it rather than let it drop silently.
+	 * The launch runs without the effort instead. */
 	effortNotApplied?: string
 	/** The def's instructions, for a harness whose CLI cannot take them (cursor): `unit spawn` writes
 	 * them in front of the brief instead. Absent when the command carries them, or there are none. */
 	briefInstructions?: string
 }
 
-/** Cursor carries effort as a bracket parameter on the model (`<model>[effort=<level>]`): merge it into
- * any bracket list the model already has, replacing an `effort=` already there. */
-function withCursorEffort(model: string, effort: string): string {
-	// String ops, not a regex: `/^(.*)\[(.*)\]$/` backtracks polynomially on a crafted model string.
-	const open = model.lastIndexOf('[')
-	if (open === -1 || !model.endsWith(']')) return `${model}[effort=${effort}]`
-	const params = model
-		.slice(open + 1, -1)
-		.split(',')
-		.filter((p) => p !== '' && !p.startsWith('effort='))
-	return `${model.slice(0, open)}[${[...params, `effort=${effort}`].join(',')}]`
+/** Cursor's model + effort, as the model id to launch and whether the effort rode along. Cursor has
+ * no effort flag, and refuses the `<model>[effort=<level>]` bracket form its `--help` documents
+ * (#72); `cursor-agent models` lists effort baked into flat ids (`claude-opus-5-high`) instead. So
+ * the effort travels as the listed `<model>-<level>` id, or the model itself when it already is
+ * one; with no such id listed, the model launches without the effort. Cursor also refuses an
+ * effort on its default (`auto[effort=high]`), so with no model there is nothing to launch it on. */
+function cursorModel(
+	model: string | undefined,
+	effort: string | undefined,
+	listCursorModels: () => readonly string[] = () => [],
+): { model?: string; effortApplied: boolean } {
+	if (!model || !effort) return { model, effortApplied: !effort }
+	const listed = listCursorModels()
+	const suffix = `-${effort}`
+	if (model.endsWith(suffix) && listed.includes(model)) return { model, effortApplied: true }
+	const flat = `${model}${suffix}`
+	if (listed.includes(flat)) return { model: flat, effortApplied: true }
+	return { model, effortApplied: false }
 }
 
-/** The model + effort arguments for one harness. No two harnesses spell effort alike: claude has
- * `--effort`, codex only a config override, cursor only a parameter on a named model. Cursor refuses
- * an effort on its default (`auto[effort=high]` is not a model it accepts), so a cursor effort with
- * no model is left off and `realizeLaunch` reports it as not applied. */
+/** The model + effort arguments for claude or codex, which spell effort differently: claude has
+ * `--effort`, codex only a config override. Cursor's effort rides on its model (`cursorModel`). */
 function modelAndEffortArgs(harness: Harness, model?: string, effort?: string): string[] {
-	if (harness === 'cursor') {
-		if (!model) return []
-		return ['--model', shellQuote(effort ? withCursorEffort(model, effort) : model)]
-	}
 	const args = model ? ['--model', shellQuote(model)] : []
-	if (!effort) return args
+	if (!effort || harness === 'cursor') return args
 	if (harness === 'codex') return [...args, '-c', shellQuote(`model_reasoning_effort="${effort}"`)]
 	return [...args, '--effort', shellQuote(effort)]
 }
@@ -83,18 +88,20 @@ function instructionArgs(harness: Harness, instructions: string): string[] {
 
 /** Build the harness launch invocation for a def — explicit `model`/`effort`/`harness` win over the
  * def's own tags, which win over the harness default. The def's effort and instructions each go
- * through the harness's own control (see `modelAndEffortArgs`, `instructionArgs`). */
+ * through the harness's own control (see `cursorModel`, `modelAndEffortArgs`, `instructionArgs`). */
 export function realizeLaunch(def: AgentDef, opts: RealizeLaunchOptions = {}): RealizedLaunch {
 	const harness = opts.harness ?? def.harness ?? DEFAULT_HARNESS
-	const model = opts.model ?? def.model
 	const effort = opts.effort ?? def.effort
+	const asked = opts.model ?? def.model
+	const cursor = harness === 'cursor' ? cursorModel(asked, effort, opts.listCursorModels) : undefined
+	const model = cursor ? cursor.model : asked
 	const parts = [
 		LAUNCH_MAP[harness],
 		...modelAndEffortArgs(harness, model, effort),
 		...instructionArgs(harness, def.instructions),
 	]
 	const briefInstructions = harness === 'cursor' && def.instructions ? def.instructions : undefined
-	const notApplied = harness === 'cursor' && effort && !model ? effort : undefined
+	const notApplied = cursor && !cursor.effortApplied ? effort : undefined
 	return {
 		harness,
 		command: parts.join(' '),
@@ -123,6 +130,7 @@ export function resolveSpawnLaunch(input: {
 	effort?: string
 	cwd?: string
 	searchRoots?: string[]
+	listCursorModels?: () => readonly string[]
 }): {
 	harness?: string
 	command?: string
@@ -131,7 +139,12 @@ export function resolveSpawnLaunch(input: {
 	effortNotApplied?: string
 	briefInstructions?: string
 } {
-	const overrides = { harness: input.harness as Harness | undefined, model: input.model, effort: input.effort }
+	const overrides = {
+		harness: input.harness as Harness | undefined,
+		model: input.model,
+		effort: input.effort,
+		listCursorModels: input.listCursorModels,
+	}
 	if (!input.agent && !input.agentFile) {
 		if (!input.harness || (!input.model && !input.effort)) return { harness: input.harness }
 		return realizeLaunch({ name: input.harness, instructions: '', path: '' }, overrides)
