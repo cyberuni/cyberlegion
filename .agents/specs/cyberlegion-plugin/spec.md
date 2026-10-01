@@ -79,7 +79,7 @@ Where a new concept lives — slot here, do not invent placement:
 This spec skeleton was authored alongside the plugin build (CR `legion-gateway-legate`) without full
 `.feature` suites. Six nodes have been specced and their suites **frozen** since:
 `init/init-cyberlegion.feature` (CR `cyberlegion-plugin-init-skill`, re-frozen by `pin-init-skill`),
-`dispatch/dispatch.feature` (CR `legion-gateway-legate`),
+`dispatch/dispatch.feature` (CR `legion-gateway-legate`, re-frozen by `github-28-relay-request-scope`),
 `session-adapter/session-adapter-governance.feature` (CR `162-session-adapter-governance`),
 `inbox/inbox.feature` (CR `github-53-inbox-multi-owner`),
 `cli-launcher/cli-launcher.feature` (CR `github-68-skill-cli-launchers`), and
