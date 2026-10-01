@@ -201,8 +201,13 @@ cleanly — the deterministic inverse pair:
     primary checkout is refused; `--force` never overrides this refusal.
   - **Refuses a dirty worktree unless --force** — uncommitted changes in the worktree abort the
     close and leave the worktree and its uncommitted changes on disk, together with the record, the
-    pane pointer, and the stored brief — which is what makes the close retryable; `--force` discards the changes and proceeds. A **clean**
-    worktree needs no `--force`.
+    pane pointer, and the stored brief — which is what makes the close retryable; `--force` discards the changes and proceeds, and
+    the removal itself is forced, so untracked and modified files cannot make git refuse it. A
+    **clean** worktree needs no `--force`. The marker `spawn` stamps into the worktree is
+    cyberlegion's own file, not the unit's work, so an untracked marker alone does not make the
+    worktree dirty — in a project that does not track the marker, every spawned worktree carries it
+    untracked, and counting it would make every plain close demand `--force`. Anything else
+    untracked, including other files beside the marker, still counts.
   - **`--keep-worktree` reaps everything but the checkout** — the flag leaves the worktree on disk,
     tears the session pane down, reaps the record, pane pointer and brief exactly as an ordinary
     close does, and **reports the retained path** so a pool manager can pick the directory up (detach
@@ -695,6 +700,9 @@ column records. They are not gaps.
 | `CL2 -- yes` under --force | the same, with --force | `--force does not override the primary-checkout refusal` |
 | `CL4 -- yes` | a unit with a live pane, a pane pointer and a stored brief, uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
 | `CL4 -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
+| `CL4 -- no` under --force, real git | untracked and modified files in a real git worktree, with --force | `--force removes a worktree holding untracked and modified files` |
+| `CL4 -- no` marker only | a real git worktree whose only change is the untracked stamped marker, no --force | `close does not count the stamped marker as uncommitted work` |
+| `CL4 -- yes` beside the marker | the same, plus another untracked file beside the marker, no --force | `close still refuses when the unit left work beside the marker` |
 | `CL3 -- no` worktree already gone | a unit whose worktree is no longer on disk | `close completes the reap when the worktree no longer exists on disk` |
 | `CLK -- yes` → `CLK1` | a unit with a clean worktree and a live pane, with --keep-worktree | `--keep-worktree leaves the worktree on disk and reaps everything else` |
 | `CLK -- no` (no retained path) | the same, without the flag | `an ordinary close names no retained worktree` |

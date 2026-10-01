@@ -508,6 +508,29 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then the worktree is removed
     And the unit's record is gone
 
+  # A real git worktree, not a faked one: git refuses `worktree remove` on untracked or modified
+  # files unless the removal itself is forced (#37).
+  Scenario: --force removes a worktree holding untracked and modified files
+    Given a registered unit whose real git worktree has an untracked file and a modified tracked file
+    When a caller runs unit close <id> --force
+    Then the worktree is removed
+    And the unit's record is gone
+
+  # The marker spawn stamps is cyberlegion's own file; untracked, it would make every spawned
+  # worktree dirty in a project that does not track it.
+  Scenario: close does not count the stamped marker as uncommitted work
+    Given a registered unit whose real git worktree's only change is the untracked cyberlegion marker spawn stamped
+    When a caller runs unit close <id>
+    Then the worktree is removed
+    And the unit's record is gone
+
+  Scenario: close still refuses when the unit left work beside the marker
+    Given a registered unit whose real git worktree has the untracked cyberlegion marker and another untracked file beside it
+    When a caller runs unit close <id>
+    Then it throws about uncommitted changes
+    And the other untracked file is still on disk
+    And the unit's record still exists
+
   # ── --keep-worktree reaps everything but the checkout ──
   # The motivating workflow is a POOL: after a unit's work merges, its worktree is detached back to
   # main and the next unit is spawned into it with --cwd — far cheaper than a fresh checkout each

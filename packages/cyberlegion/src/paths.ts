@@ -7,6 +7,9 @@ import { resolvePrimaryRoot } from 'cyber-mux/worktree'
 /** The tracked marker file that makes a hub root initialized (see ensureMarker). */
 const MARKER_FILE = 'config.json'
 
+/** Where `spawn` stamps that marker inside a worktree it creates, relative to the worktree root. */
+export const WORKTREE_MARKER = `.agents/cyberlegion/${MARKER_FILE}`
+
 /** Walk up from `cwd` to the nearest git repo root; fall back to `cwd`. */
 export function projectRoot(cwd: string = process.cwd()): string {
 	let dir = resolve(cwd)

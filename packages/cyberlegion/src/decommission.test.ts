@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { decommission } from './decommission.ts'
 import { type AgentRecord, type Exec, saveAgent } from './identity.ts'
+import { ensureMarker } from './paths.ts'
 import { FileStore } from './store/file-store.ts'
 
 // cyber-mux (>=0.8.0) prefixes every tmux call with `-u`; cyberlegion's own direct tmux calls do not.
@@ -462,5 +464,64 @@ describe('spec:cyberlegion/unit/lifecycle — a service endpoint is not a unit t
 		)
 		expect(store.getAgent(rec.id)).toBeDefined()
 		expect(store.readBrief(rec.id)).toBe('kept')
+	})
+})
+
+// Real git, not the fake above: the fake answers `worktree remove` whatever its flags, which is how
+// a `--force` close that git itself refused (#37) passed every test here.
+describe('spec:cyberlegion/unit/lifecycle — closing a real git worktree', () => {
+	let repo: string
+	let unitRoot: string
+	let gitExec: Exec
+
+	beforeEach(() => {
+		const tmp = mkdtempSync(join(tmpdir(), 'cl-git-'))
+		repo = join(tmp, 'repo')
+		unitRoot = join(tmp, 'repo.worktrees', 'unit')
+		mkdirSync(repo)
+		const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
+		git('init', '-q', '-b', 'main')
+		writeFileSync(join(repo, 'file.txt'), 'one\n')
+		git('add', 'file.txt')
+		git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
+		git('worktree', 'add', '-q', '-b', 'cyberlegion/unit-g', unitRoot)
+		// The exec seam, pinned to the temp repo: `resolvePrimaryRoot` runs git with no `-C`.
+		gitExec = (cmd, args) => {
+			try {
+				return execFileSync(cmd, args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+			} catch {
+				return null
+			}
+		}
+	})
+
+	function register(id: string): void {
+		registerUnit({ id, cwd: unitRoot, worktree: { root: unitRoot, branch: 'cyberlegion/unit-g' }, pane: null })
+	}
+
+	it('--force removes a worktree holding untracked and modified files', () => {
+		register('g1')
+		writeFileSync(join(unitRoot, 'untracked.txt'), 'new\n')
+		writeFileSync(join(unitRoot, 'file.txt'), 'two\n')
+		decommission({ store, env: {}, exec: gitExec }, { id: 'g1', force: true })
+		expect(existsSync(unitRoot)).toBe(false)
+		expect(store.getAgent('g1')).toBeUndefined()
+	})
+
+	it('close does not count the stamped marker as uncommitted work', () => {
+		register('g2')
+		ensureMarker(join(unitRoot, '.agents', 'cyberlegion'))
+		decommission({ store, env: {}, exec: gitExec }, { id: 'g2' })
+		expect(existsSync(unitRoot)).toBe(false)
+		expect(store.getAgent('g2')).toBeUndefined()
+	})
+
+	it('close still refuses when the unit left work beside the marker', () => {
+		register('g3')
+		ensureMarker(join(unitRoot, '.agents', 'cyberlegion'))
+		writeFileSync(join(unitRoot, '.agents', 'cyberlegion', 'notes.md'), 'work\n')
+		expect(() => decommission({ store, env: {}, exec: gitExec }, { id: 'g3' })).toThrow(/uncommitted/)
+		expect(existsSync(join(unitRoot, '.agents', 'cyberlegion', 'notes.md'))).toBe(true)
+		expect(store.getAgent('g3')).toBeDefined()
 	})
 })
