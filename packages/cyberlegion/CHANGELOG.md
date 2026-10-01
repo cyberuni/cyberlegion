@@ -1,5 +1,19 @@
 # cyberlegion
 
+## 1.1.0
+
+### Minor Changes
+
+- a95c547: The mail-surfacing hook now runs the CLI the session was installed with, never one `npx` resolves from the registry when the hook fires (#69). The plugin ships its own `hooks/hooks.json` for Claude Code and Codex, running `node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook`, so the hook runs offline at the enabled version. On those harnesses `cyberlegion init` writes no project hook, removes one an earlier `init` wrote, and reports `provided by plugin` or `removed project hook`. On Cursor, `init` registers a hook that runs a `cyberlegion` on `PATH` first and falls back to `npx -y cyberlegion[@<pin>]` only when there is none.
+- afc0c3d: `relay-governance`: a decision relayed down the ownership chain now reaches a unit in the user-channel holder's own words, and the unit reads its scope from the decision request those words answer. The relayer adds no envelope (no where-said, relayer, or scope labels) and no next steps, and records that provenance on the work item's mail thread instead. A turn that answers no outstanding request is the owner's order, not a decision. The scope is the action, target, and revision the request named, narrowed by the words, so a decision no longer survives its target moving past that revision. This replaces the four parts a relayed decision used to carry, and with them the open question of whether the scope had two parts or three.
+
+### Patch Changes
+
+- 4571072: `unit close` no longer demands `--force` for a finished unit whose only change is the `.agents/cyberlegion/config.json` marker spawn stamped into its worktree, and `unit close --force` now has a real-git test proving it removes a worktree holding untracked and modified files.
+- 2467ba7: `unit spawn` (and `service start`) on cursor with both a model and an effort no longer launches `--model '<model>[effort=<level>]'`, which current `cursor-agent` refuses with "Cannot use this model". It now runs `cursor-agent models` and launches the flat `<model>-<level>` id when that id is listed. When no such id is listed, or the listing fails, it launches the model without the effort, warns on stderr, and reports the effort as `<level> (not applied)`.
+- a310dd7: Ring a peer once per nudge when its harness takes the turn but puts the text back in its input box. cursor-agent with a rejected login did this, and `unit nudge` (and the mail and spawn doorbells) read the restored text as unsent and flushed it again, queuing the ring twice or more.
+- f909cf4: `unit spawn` no longer hangs silently at a harness's folder-trust prompt. A spawn that creates a worktree accepts the prompt (Claude Code: Down, then Enter, checked against the screen so Enter never lands on "No, exit"; Codex: `1`, then Enter; cursor-agent: `a`). A `--cwd` spawn leaves the prompt for a person. A prompt left showing either way rings nothing, names the folder, harness, and pane on stderr, and exits non-zero. The first-turn doorbell now waits until the prompt is answered: typed into the prompt, its Enter quit Claude Code and an `a` in its text answered cursor-agent's prompt.
+
 ## 1.0.0
 
 ### Major Changes
