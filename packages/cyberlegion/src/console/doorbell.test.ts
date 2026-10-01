@@ -20,6 +20,9 @@ beforeEach(() => {
 
 const exec: Exec = () => null
 const STAGED = `> ${DELIVERY_DOORBELL.slice(0, 45)}`
+/** The screen the draft guard reads before ringing — no input box it recognizes, so it rings at once.
+ * A test that queues reads positionally puts this first. */
+const BEFORE_RING = 'peer output'
 const SCROLLED_OUT = [
 	DELIVERY_DOORBELL,
 	'peer response line 1',
@@ -127,7 +130,7 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 	// one staged read then taken → one resubmit flushes the staged buffer (never a re-type).
 	it('the delivery doorbell is delivered as a taken turn, not fire-and-forget', async () => {
 		peer('bob', '%1')
-		const { adapter, sendCalls, submitCalls } = fakeAdapter([STAGED, SCROLLED_OUT])
+		const { adapter, sendCalls, submitCalls } = fakeAdapter([BEFORE_RING, STAGED, SCROLLED_OUT])
 		const result = await wakeRecipient(
 			store,
 			() => adapter,
@@ -434,7 +437,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 	}, 20_000)
 
 	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {
-		const { adapter, sendCalls, submitCalls } = fakeAdapter([SPAWN_STAGED, SPAWN_SCROLLED_OUT])
+		const { adapter, sendCalls, submitCalls } = fakeAdapter([BEFORE_RING, SPAWN_STAGED, SPAWN_SCROLLED_OUT])
 		const result = await wakeSpawn(
 			() => adapter,
 			exec,
@@ -482,5 +485,75 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		)
 		expect(result.rung).toBe(false)
 		expect(sendCalls).toEqual([]) // nothing rung
+	})
+})
+
+// ── the ring waits out a human's unsent draft (console/prompt-guard) ──────────────────────────────
+
+const RULE = '─'.repeat(40)
+const claudeBox = (draft: string) => ['● reply', RULE, `❯ ${draft}`, RULE, '  footer'].join('\n')
+
+/** A fake clock the guard's polling advances, so a 20s idle wait runs instantly. */
+function fakeClock() {
+	let t = 0
+	return { now: () => t, sleep: async (ms: number) => void (t += ms) }
+}
+
+describe('the doorbell does not type over a human draft', () => {
+	it('a peer whose draft keeps changing is not rung, and the send reports a warning', async () => {
+		peer('bob', '%1')
+		let n = 0
+		const { adapter, sendCalls } = fakeAdapter([])
+		adapter.read = () => ({ text: claudeBox(`typing ${n++}`) })
+		const result = await wakeRecipient(
+			store,
+			() => adapter,
+			exec,
+			{ toId: 'bob', fromId: 'alice' },
+			undefined,
+			fakeClock(),
+		)
+		expect(result.rung).toBe(false)
+		expect(result.warning).toMatch(/draft/)
+		expect(sendCalls).toEqual([])
+	})
+
+	it('a peer away from an idle draft is rung around it, and the draft is typed back', async () => {
+		peer('bob', '%1')
+		const typed: string[] = []
+		let cleared = false
+		const { adapter, sendCalls } = fakeAdapter([])
+		adapter.sendText = (_e, _t, text) => {
+			typed.push(text)
+			if (text === '\u0015') cleared = true
+		}
+		adapter.read = () => ({ text: cleared ? SCROLLED_OUT : claudeBox('half a thought') })
+		const result = await wakeRecipient(
+			store,
+			() => adapter,
+			exec,
+			{ toId: 'bob', fromId: 'alice' },
+			undefined,
+			fakeClock(),
+		)
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+		expect(typed.at(-1)).toBe('half a thought')
+	})
+
+	it('the spawn wake waits out a draft in the new pane the same way', async () => {
+		let n = 0
+		const { adapter, sendCalls } = fakeAdapter([])
+		adapter.read = () => ({ text: claudeBox(`typing ${n++}`) })
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%4' }, briefPath: '/b.md', harness: 'claude' },
+			{ attempts: 1, sleep: async () => {} },
+			fakeClock(),
+		)
+		expect(result.rung).toBe(false)
+		expect(result.warning).toMatch(/draft/)
+		expect(sendCalls).toEqual([])
 	})
 })

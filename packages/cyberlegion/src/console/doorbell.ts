@@ -1,6 +1,7 @@
 import { type MuxAdapter, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
 import { type Exec, loadAgent, presenceOf } from '../identity.ts'
 import type { Store } from '../store/store.ts'
+import { type DraftGuardOptions, withDraftGuard } from './prompt-guard.ts'
 
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 export const DELIVERY_DOORBELL = 'You have unread mail — check your inbox.'
@@ -72,6 +73,7 @@ export async function wakeRecipient(
 	exec: Exec,
 	input: WakeInput,
 	nudgeOpts?: NudgeOptions,
+	guardOpts?: DraftGuardOptions,
 ): Promise<WakeResult> {
 	if (input.noNudge) return { rung: false }
 	const recipient = loadAgent(store, input.toId)
@@ -82,6 +84,9 @@ export async function wakeRecipient(
 	// never focus-gated. With no presence bound (or an exited one — never ring a corpse), it falls
 	// back to the human's bound main pane, focus-gated exactly as before.
 	let pane: string | undefined
+	// Whose input box the ring lands in, so the draft guard reads the right shape. The bound main pane
+	// is a human's session with no record to name its harness; the guard tries every known shape there.
+	let harness: string | undefined
 	let focusGated = false
 	if (recipient.kind === 'standing') {
 		// Off the record already in hand, never re-resolved by handle: `resolvePresence` throws when the
@@ -90,12 +95,14 @@ export async function wakeRecipient(
 		const presenceUnit = presenceOf(store, recipient)
 		if (presenceUnit) {
 			pane = paneOf(store, presenceUnit.id)
+			harness = presenceUnit.harness
 		} else {
 			pane = store.getMainPane()
 			focusGated = true
 		}
 	} else {
 		pane = paneOf(store, recipient.id)
+		harness = recipient.harness
 	}
 	if (!pane) return { rung: false }
 	// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).
@@ -115,7 +122,12 @@ export async function wakeRecipient(
 		if (focused === false) return { rung: false, pane }
 	}
 	try {
-		await nudge(getAdapter(), exec, { id: pane }, DELIVERY_DOORBELL, nudgeOpts)
+		const adapter = getAdapter()
+		const target = { id: pane }
+		await withDraftGuard(adapter, exec, target, () => nudge(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+			...guardOpts,
+			harness,
+		})
 		return { rung: true, pane }
 	} catch (err) {
 		return { rung: false, pane, warning: err instanceof Error ? err.message : String(err) }
@@ -130,6 +142,8 @@ export interface WakeSpawnInput {
 	briefPath: string
 	/** Suppress the first-turn doorbell entirely (`unit spawn --no-wake`). */
 	noWake?: boolean
+	/** The peer's harness, so the draft guard reads its input box with the right shape. */
+	harness?: string
 }
 
 /**
@@ -152,10 +166,18 @@ export async function wakeSpawn(
 	exec: Exec,
 	input: WakeSpawnInput,
 	nudgeOpts: NudgeOptions = SPAWN_NUDGE_OPTS,
+	guardOpts?: DraftGuardOptions,
 ): Promise<WakeResult> {
 	if (input.noWake) return { rung: false }
 	try {
-		await nudge(getAdapter(), exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts)
+		const adapter = getAdapter()
+		await withDraftGuard(
+			adapter,
+			exec,
+			input.target,
+			() => nudge(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts),
+			{ ...guardOpts, harness: input.harness },
+		)
 		return { rung: true, pane: input.target.id }
 	} catch (err) {
 		return { rung: false, pane: input.target.id, warning: err instanceof Error ? err.message : String(err) }

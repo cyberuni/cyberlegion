@@ -6296,6 +6296,150 @@ function prune(ctx) {
 	return changed;
 }
 //#endregion
+//#region src/console/prompt-guard.ts
+const CODEX_PLACEHOLDERS = /* @__PURE__ */ new Set([
+	"Ask Codex to do anything",
+	"Explain this codebase",
+	"Summarize recent commits",
+	"Implement {feature}",
+	"Find and fix a bug in @filename",
+	"Write tests for @filename",
+	"Improve documentation in @filename",
+	"Run /review on my current changes",
+	"Use /skills to list available skills"
+]);
+/**
+* Each harness's input box, as probed from live sessions. Claude Code fences its box with rule rows
+* and puts a no-break space after the `❯`; Codex opens with `›` and ends at a blank row; cursor-agent
+* indents `→` by two columns and its continuation rows by four.
+*/
+const SHAPES = {
+	claude: {
+		head: /^❯(?:[  ](.*))?$/,
+		indent: "  ",
+		ruled: true,
+		placeholder: (text) => /^Try ".*"$/.test(text)
+	},
+	codex: {
+		head: /^›(?: (.*))?$/,
+		indent: "  ",
+		ruled: false,
+		placeholder: (text) => CODEX_PLACEHOLDERS.has(text)
+	},
+	cursor: {
+		head: /^ {2}→(?: (.*))?$/,
+		indent: "    ",
+		ruled: false,
+		placeholder: (text) => text === "Plan, search, build anything"
+	}
+};
+/** How many non-blank rows (a footer, status and error lines) may sit below an unfenced input box —
+* cursor-agent stacks a two-row footer and then any error under it. */
+const MAX_ROWS_BELOW = 6;
+const isRule = (row) => /^─{3,}/.test(row);
+function readShape(rows, shape) {
+	for (let at = rows.length - 1; at >= 0; at--) {
+		const head = shape.head.exec(rows[at] ?? "");
+		if (!head) continue;
+		if (shape.ruled && !isRule(rows[at - 1] ?? "")) continue;
+		const lines = [(head[1] ?? "").trimEnd()];
+		let next = at + 1;
+		while (next < rows.length && (rows[next] ?? "").startsWith(shape.indent) && rows[next]?.trim()) {
+			lines.push((rows[next] ?? "").slice(shape.indent.length).trimEnd());
+			next++;
+		}
+		if (shape.ruled) {
+			if (!isRule(rows[next] ?? "")) continue;
+		} else {
+			if ((rows[next] ?? "").trim() !== "" && next < rows.length) continue;
+			if (rows.slice(next).filter((r) => r.trim()).length > MAX_ROWS_BELOW) continue;
+		}
+		const text = lines.join("\n");
+		if (text === "" || lines.length === 1 && shape.placeholder(text)) return { kind: "empty" };
+		return {
+			kind: "draft",
+			text,
+			rows: lines.length
+		};
+	}
+	return { kind: "unknown" };
+}
+/**
+* Read the input box off `screen` — a plain-text scrape of the pane — with the shape of `harness`,
+* or, when the harness is not known, with each known shape in turn until one recognizes the box.
+*/
+function readPrompt(screen, harness) {
+	const rows = screen.split("\n");
+	const shapes = harness && SHAPES[harness] ? [SHAPES[harness]] : Object.values(SHAPES);
+	for (const shape of shapes) {
+		const state = readShape(rows, shape);
+		if (state.kind !== "unknown") return state;
+	}
+	return { kind: "unknown" };
+}
+const DRAFT_POLL_MS = 1e3;
+/** Pause between keystroke batches — cursor-agent drops keys that arrive in one burst. */
+const KEY_SETTLE_MS = 150;
+/** Ctrl-E (end of line) then Ctrl-U (kill to start of line), typed as raw bytes so every backend
+* delivers them alike — backends disagree on key names, never on bytes. */
+const END_OF_LINE = "";
+const KILL_LINE = "";
+/**
+* Run `send` — anything that types into `target`'s input box — without trampling a human's unsent
+* draft there.
+*
+* - An empty box, or one this reader does not recognize, sends at once, exactly as before.
+* - A draft waits, polling the box: once the human sends or clears it, `send` runs untouched.
+* - A draft unchanged for `idleMs` (20s) means the human stepped away: the draft is recorded, the
+*   box cleared, `send` run, and the draft typed back — never submitted. It is typed back even when
+*   `send` throws.
+* - A draft that keeps changing past `maxWaitMs` (60s), or an idle draft spanning more than one row,
+*   throws without sending. A multi-row draft cannot be typed back exactly: a scrape cannot tell a
+*   wrapped row from a newline, and a newline typed back would submit it.
+*
+* Text the clear leaves in place was never a draft — an idle placeholder this reader does not know —
+* so `send` runs and nothing is typed back.
+*/
+async function withDraftGuard(adapter, exec, target, send, options = {}) {
+	const idleMs = options.idleMs ?? 2e4;
+	const maxWaitMs = options.maxWaitMs ?? 6e4;
+	const pollMs = options.pollMs ?? DRAFT_POLL_MS;
+	const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+	const now = options.now ?? Date.now;
+	const read = () => {
+		try {
+			return readPrompt(adapter.read(exec, target).text, options.harness);
+		} catch {
+			return { kind: "unknown" };
+		}
+	};
+	let state = read();
+	const start = now();
+	let changedAt = start;
+	while (state.kind === "draft" && now() - changedAt < idleMs) {
+		if (now() - start + pollMs > maxWaitMs) throw new Error(`pane ${target.id} holds a draft the user is still editing — gave up after ${maxWaitMs / 1e3}s without typing`);
+		await sleep(pollMs);
+		const next = read();
+		if (next.kind !== "draft" || next.text !== state.text) changedAt = now();
+		state = next;
+	}
+	if (state.kind !== "draft") return send();
+	if (state.rows > 1) throw new Error(`pane ${target.id} holds an idle draft spanning ${state.rows} rows, which cannot be typed back exactly — left it untouched`);
+	const draft = state.text;
+	adapter.sendText(exec, target, END_OF_LINE);
+	await sleep(KEY_SETTLE_MS);
+	adapter.sendText(exec, target, KILL_LINE);
+	await sleep(KEY_SETTLE_MS);
+	const after = read();
+	if (after.kind === "draft" && after.text === draft) return send();
+	try {
+		return await send();
+	} finally {
+		await sleep(KEY_SETTLE_MS);
+		adapter.sendText(exec, target, draft);
+	}
+}
+//#endregion
 //#region src/console/doorbell.ts
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 const DELIVERY_DOORBELL = "You have unread mail — check your inbox.";
@@ -6341,20 +6485,26 @@ function paneOf(store, id) {
 * inside the same swallowing try — so a session with no mux backend (where `selectSessionAdapter`
 * throws) is just a no-op wake, never a failed send.
 */
-async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts) {
+async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpts) {
 	if (input.noNudge) return { rung: false };
 	const recipient = loadAgent(store, input.toId);
 	if (!recipient) return { rung: false };
 	let pane;
+	let harness;
 	let focusGated = false;
 	if (recipient.kind === "standing") {
 		const presenceUnit = presenceOf(store, recipient);
-		if (presenceUnit) pane = paneOf(store, presenceUnit.id);
-		else {
+		if (presenceUnit) {
+			pane = paneOf(store, presenceUnit.id);
+			harness = presenceUnit.harness;
+		} else {
 			pane = store.getMainPane();
 			focusGated = true;
 		}
-	} else pane = paneOf(store, recipient.id);
+	} else {
+		pane = paneOf(store, recipient.id);
+		harness = recipient.harness;
+	}
 	if (!pane) return { rung: false };
 	if (pane === paneOf(store, input.fromId)) return { rung: false };
 	if (focusGated) {
@@ -6370,7 +6520,12 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts) {
 		};
 	}
 	try {
-		await nudge(getAdapter(), exec, { id: pane }, DELIVERY_DOORBELL, nudgeOpts);
+		const adapter = getAdapter();
+		const target = { id: pane };
+		await withDraftGuard(adapter, exec, target, () => nudge(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+			...guardOpts,
+			harness
+		});
 		return {
 			rung: true,
 			pane
@@ -6398,10 +6553,14 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts) {
 * whose backend has since gone away (where `selectSessionAdapter` would throw) degrades to a warned
 * no-op rather than a failed spawn.
 */
-async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS) {
+async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, guardOpts) {
 	if (input.noWake) return { rung: false };
 	try {
-		await nudge(getAdapter(), exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts);
+		const adapter = getAdapter();
+		await withDraftGuard(adapter, exec, input.target, () => nudge(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts), {
+			...guardOpts,
+			harness: input.harness
+		});
 		return {
 			rung: true,
 			pane: input.target.id
@@ -6751,7 +6910,8 @@ async function spawnAndWake(ctx, input, options = {}) {
 	const wake = await wakeSpawn(() => selectSessionAdapter(env, exec), exec, {
 		target: { id: res.pane },
 		briefPath: briefPath ?? "",
-		noWake: options.noWake || !briefPath
+		noWake: options.noWake || !briefPath,
+		harness: res.agent.harness
 	}, options.nudgeOpts);
 	return {
 		...res,
@@ -6857,13 +7017,18 @@ function focusUnit(ctx, ref) {
 * Ring a peer's session as a **taken turn**, not fire-and-forget: `nudge` submits, reads the pane
 * back to confirm the text is no longer staged, and flushes the staged buffer (never re-typing) up
 * to a bounded cap — then throws if the peer never took the turn. A doorbell must carry text; an
-* empty ring is a no-op, so the default points the peer at its inbox.
+* empty ring is a no-op, so the default points the peer at its inbox. The ring waits out a human's
+* unsent draft in the peer's input box first (`withDraftGuard`).
 */
 async function nudgeUnit(ctx, ref, options = {}) {
 	const { agent, target } = paneTargetOf(ctx, ref);
 	const exec = ctx.exec ?? realExec;
 	const message = options.message || "You have unread mail — check your inbox.";
-	const result = await nudge(selectSessionAdapter(ctx.env ?? process.env, exec), exec, target, message, options.nudgeOpts);
+	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
+	const result = await withDraftGuard(adapter, exec, target, () => nudge(adapter, exec, target, message, options.nudgeOpts), {
+		...options.guardOpts,
+		harness: agent.harness
+	});
 	return {
 		agent,
 		pane: target.id,
@@ -6888,16 +7053,21 @@ function readUnit(ctx, ref, options = {}) {
 * Warmth is the unit (pane/process stays warm — no cold-start), coldness is the context. The
 * command is resolved (and any false-friend/unmapped harness throws) BEFORE anything is sent, so
 * a fail-loud harness never has anything typed into its pane. Touches neither the registry record
-* nor the worktree — `close` (`decommission`) owns teardown.
+* nor the worktree — `close` (`decommission`) owns teardown. The reset waits out a human's unsent
+* draft in the peer's input box first (`withDraftGuard`) — typed onto one, it would submit both.
 */
-function clearUnit(ctx, ref) {
+async function clearUnit(ctx, ref, options = {}) {
 	const { agent, target } = paneTargetOf(ctx, ref);
 	const pane = target.id;
 	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`);
 	const command = resetCommandFor(agent.harness);
 	const env = ctx.env ?? process.env;
 	const exec = ctx.exec ?? realExec;
-	selectSessionAdapter(env, exec).submit(exec, { id: pane }, command);
+	const adapter = selectSessionAdapter(env, exec);
+	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
+		...options.guardOpts,
+		harness: agent.harness
+	});
 	return {
 		agent,
 		pane,
@@ -8682,12 +8852,12 @@ withGlobals(unit.command("read")).description("scrape a peer's session screen").
 		output
 	}));
 });
-withGlobals(unit.command("clear")).description("reset a warm peer's context to cold by injecting its own harness fresh-context command — keeps the pane/session warm; tears down nothing").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+withGlobals(unit.command("clear")).description("reset a warm peer's context to cold by injecting its own harness fresh-context command — keeps the pane/session warm; tears down nothing").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action(async (ref, opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
 	let res;
 	try {
-		res = clearUnit(ctx, ref);
+		res = await clearUnit(ctx, ref);
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}
