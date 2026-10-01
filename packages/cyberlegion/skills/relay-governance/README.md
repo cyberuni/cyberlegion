@@ -18,18 +18,18 @@ in-band, no provenance needed; cross-cutting / out-of-leash doctrine escalates u
 ratification. Provenance over peer mail cannot be established, so a receiver acts only on what it
 can verify against its own loaded contract — a ratification it fetched from a peer is invalid.
 
-**The ownership chain:** keyed on relationship, not on transport alone. A decision relayed by the
-receiver's **own owner** **and** arriving on a **turn** in its own session — carrying the user-channel
-holder's verbatim words, where they were said, the relaying unit, and its scope (one action on one target) —
-is adoptable within that named scope and nothing adjacent, spent once acted on, attenuating at every
-hop. Either half alone leaves it a peer steer. The four parts are a **well-formedness** requirement:
-presence is checkable on its face, so a missing part gates adoption, and truth is not, so the parts
-buy **audit** after the fact, never verification in the moment. Not forgery-proof: `unit nudge
---message` records no caller identity, so position is a structural fact, not a proof.
+**The ownership chain:** keyed on relationship, not on transport alone. A turn from the receiver's
+**own owner** in its **own session** is a decision only when it **answers the receiver's own
+outstanding decision request**; its scope is the action, target and revision that request named,
+narrowed by the words, and nothing adjacent. Words answering no request are the owner's order, never a
+decision. A relayer sends the user-channel holder's words as said — no envelope, no next steps — and
+records where they were said, the relaying unit and the scope on the work item's mail thread, as
+audit. Answering a request is checkable in the moment, so it gates adoption; it is not a verification
+of truth. Spent once acted on, attenuating at every hop. Not forgery-proof: `unit nudge --message`
+records no caller identity, so position is a structural fact, not a proof.
 
 This is the **single home** of that rule. `subagent-backend-governance` references it for the
-owner's mid-turn channel rather than restating it, and the revision part of the scope is a named
-**open cross-repo seam** — a sibling corpus states a three-part scope; this one states two.
+owner's mid-turn channel rather than restating it.
 
 The frameless→owner branch composes the `cyberlegion` CLI's standing owner identity (`identity
 owner`), owner mail (`mail send` / `mail --owner`), and owner-mail surfacing (the `surfacing` hook).
