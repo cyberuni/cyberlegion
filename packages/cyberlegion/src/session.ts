@@ -5,6 +5,7 @@ import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } fro
 import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import { ringTurn } from './console/ring.ts'
+import { answerTrustPrompt, type TrustOptions, type TrustOutcome } from './console/trust.ts'
 import {
 	type AgentRecord,
 	type Harness,
@@ -240,15 +241,26 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
  * The ring is best-effort on top of the guaranteed spawn effect (worktree + session + registry
  * record): `--no-wake` rings nothing, and a ring that never completes is reported as a warning on
  * the result rather than thrown, so it can never fail a spawn that already landed.
+ *
+ * Before the ring, the harness's folder-trust prompt is answered (`answerTrustPrompt`), with or
+ * without `--no-wake`: a unit stuck at that prompt never reads its brief, and the doorbell typed into
+ * it would answer it wrongly (Claude Code's focused option is "No, exit"). A worktree spawn made the
+ * folder from the caller's own repository, so its prompt is accepted. A `--cwd` folder was not made
+ * here, so its prompt is left for a person. A prompt left showing either way rings nothing and is
+ * reported as `trustBlocked`, a failure the caller must surface, not a best-effort warning.
  */
 export async function spawnAndWake(
 	ctx: IdContext,
 	input: SpawnInput,
-	options: { noWake?: boolean; nudgeOpts?: NudgeOptions } = {},
-): Promise<SpawnResult & { rung: boolean; warning?: string }> {
+	options: { noWake?: boolean; nudgeOpts?: NudgeOptions; trustOpts?: TrustOptions } = {},
+): Promise<SpawnResult & { rung: boolean; warning?: string; trust: TrustOutcome['state']; trustBlocked?: string }> {
 	const res = spawn(ctx, input)
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
+	const trust = await settleTrust(ctx, res, options.trustOpts)
+	if (trust.state === 'needs-human' || trust.state === 'stuck') {
+		return { ...res, rung: false, trust: trust.state, trustBlocked: trust.message }
+	}
 	// `spawn` always records where it wrote the brief. The guard is not defensive padding: a doorbell
 	// with no path to name is not an instruction, so ring nothing rather than type the degenerate
 	// "Read your brief at , then begin work." — a silent half-wake is worse than an unrung peer.
@@ -264,7 +276,34 @@ export async function spawnAndWake(
 		},
 		options.nudgeOpts,
 	)
-	return { ...res, rung: wake.rung, ...(wake.warning ? { warning: wake.warning } : {}) }
+	return { ...res, rung: wake.rung, trust: trust.state, ...(wake.warning ? { warning: wake.warning } : {}) }
+}
+
+/**
+ * Answer the new pane's folder-trust prompt, if its harness shows one. A backend that cannot be
+ * resolved leaves nothing to read, which is no evidence of a prompt: the ring's own containment
+ * reports that backend.
+ */
+async function settleTrust(ctx: IdContext, res: SpawnResult, opts?: TrustOptions): Promise<TrustOutcome> {
+	const exec = ctx.exec ?? realExec
+	let adapter: ReturnType<typeof selectSessionAdapter>
+	try {
+		adapter = selectSessionAdapter(ctx.env ?? process.env, exec)
+	} catch {
+		return { state: 'unsettled' }
+	}
+	return answerTrustPrompt(
+		adapter,
+		exec,
+		{ id: res.pane },
+		{
+			harness: res.agent.harness as Harness,
+			folder: res.agent.cwd,
+			pane: res.pane,
+			policy: res.agent.worktree ? 'accept' : 'ask',
+		},
+		opts,
+	)
 }
 
 /**

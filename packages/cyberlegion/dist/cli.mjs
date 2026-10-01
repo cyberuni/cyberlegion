@@ -6505,6 +6505,117 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 	}
 }
 //#endregion
+//#region src/console/trust.ts
+/**
+* Each harness's folder-trust prompt, as it draws it, and the keys that accept it. Read from Claude
+* Code 2.1.286, Codex 0.153.4 (and its newer "Trust this folder?" wording), and cursor-agent
+* 2026.09.26, each opened in a real tmux pane on a folder it did not trust.
+*
+* Claude Code lists "No, exit" first and focuses it, so a bare Enter quits the harness. Its accept is
+* therefore Down, a check that the screen shows "Yes, I trust this folder" selected, and only then
+* Enter. Codex highlights its first option on `1` and confirms on Enter. cursor-agent takes `a`
+* directly.
+*/
+const TRUST_PROMPTS = {
+	claude: {
+		markers: [["Quick safety check", "Yes, I trust this folder"]],
+		accept: [{
+			keys: ["Down"],
+			until: /❯\s*Yes, I trust this folder/
+		}, { keys: ["Enter"] }]
+	},
+	codex: {
+		markers: [["Do you trust the contents of this directory?", "Yes, continue"], ["Trust this folder?", "Trust and continue"]],
+		accept: [{
+			text: "1",
+			until: /›\s*1\.\s*(?:Yes, continue|Trust and continue)/
+		}, { keys: ["Enter"] }]
+	},
+	cursor: {
+		markers: [["Workspace Trust Required", "Trust this workspace"]],
+		accept: [{ text: "a" }]
+	}
+};
+const collapse = (s) => s.replace(/\s+/g, " ");
+/** Whether `screen` shows `harness`'s folder-trust prompt. */
+function showsTrustPrompt(harness, screen) {
+	const flat = collapse(screen);
+	return TRUST_PROMPTS[harness].markers.some((set) => set.every((phrase) => flat.includes(collapse(phrase))));
+}
+/**
+* Watch a freshly-opened pane until its harness either shows its folder-trust prompt or settles on a
+* screen without one, and answer the prompt by `input.policy`.
+*
+* "Settled" means the screen has changed from its first read (the shell, still showing the launch
+* line while the harness loads) and then read the same `stableReads` times in a row. A harness that
+* never draws within the timeout, or a screen that stays blank for `blankReads` reads, is
+* `unsettled`: no evidence of a prompt, so the caller rings as it would have before. Only the screen is read; no harness config file is consulted, so what counts is
+* what the harness itself decided to show.
+*/
+async function answerTrustPrompt(adapter, exec, target, input, opts = {}) {
+	const pollMs = opts.pollMs ?? 500;
+	const timeoutMs = opts.timeoutMs ?? 2e4;
+	const stableReads = opts.stableReads ?? 3;
+	const blankReads = opts.blankReads ?? 6;
+	const keyDelayMs = opts.keyDelayMs ?? 1e3;
+	const attempts = opts.attempts ?? 5;
+	const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+	const read = () => {
+		try {
+			return adapter.read(exec, target).text ?? "";
+		} catch {
+			return "";
+		}
+	};
+	const shown = (screen) => showsTrustPrompt(input.harness, screen);
+	const first = read();
+	let seen = shown(first);
+	let previous = first;
+	let changed = false;
+	let same = 1;
+	for (let waited = 0; !seen && waited < timeoutMs; waited += pollMs) {
+		await sleep(pollMs);
+		const screen = read();
+		if (shown(screen)) {
+			seen = true;
+			break;
+		}
+		if (screen !== first) changed = true;
+		same = screen === previous ? same + 1 : 1;
+		previous = screen;
+		if (changed && same >= stableReads) return { state: "none" };
+		if (!changed && first.trim() === "" && same >= blankReads) return { state: "unsettled" };
+	}
+	if (!seen) return { state: "unsettled" };
+	const where = `${input.harness} in pane ${input.pane} is asking whether to trust ${input.folder}`;
+	if (input.policy === "ask") return {
+		state: "needs-human",
+		message: `${where}. unit spawn does not trust a folder it did not create, so a person must answer that prompt. The unit is registered and its brief written; once the prompt is answered, nudge the unit to its brief.`
+	};
+	await sleep(keyDelayMs);
+	for (const move of TRUST_PROMPTS[input.harness].accept) {
+		let done = move.until ? move.until.test(read()) : false;
+		for (let attempt = 0; !done && attempt < attempts; attempt++) {
+			if (move.keys) adapter.sendKeys(exec, target, move.keys);
+			if (move.text) adapter.sendText(exec, target, move.text);
+			await sleep(pollMs);
+			done = move.until ? move.until.test(read()) : true;
+		}
+		if (!done) return stuck(where);
+	}
+	for (let attempt = 0; attempt < attempts; attempt++) {
+		if (!shown(read())) return { state: "accepted" };
+		await sleep(pollMs);
+	}
+	return stuck(where);
+}
+function stuck(where) {
+	return {
+		state: "stuck",
+		message: `${where}, and the prompt is still showing after spawn sent the keys that accept it. A person must answer it.`
+	};
+}
+//#endregion
 //#region src/mux-select.ts
 /**
 * Backend selection via cyber-mux's two-mode mux probe, normalized through the transitional
@@ -6830,11 +6941,25 @@ function spawn(ctx, input) {
 * The ring is best-effort on top of the guaranteed spawn effect (worktree + session + registry
 * record): `--no-wake` rings nothing, and a ring that never completes is reported as a warning on
 * the result rather than thrown, so it can never fail a spawn that already landed.
+*
+* Before the ring, the harness's folder-trust prompt is answered (`answerTrustPrompt`), with or
+* without `--no-wake`: a unit stuck at that prompt never reads its brief, and the doorbell typed into
+* it would answer it wrongly (Claude Code's focused option is "No, exit"). A worktree spawn made the
+* folder from the caller's own repository, so its prompt is accepted. A `--cwd` folder was not made
+* here, so its prompt is left for a person. A prompt left showing either way rings nothing and is
+* reported as `trustBlocked`, a failure the caller must surface, not a best-effort warning.
 */
 async function spawnAndWake(ctx, input, options = {}) {
 	const res = spawn(ctx, input);
 	const env = ctx.env ?? process.env;
 	const exec = ctx.exec ?? realExec;
+	const trust = await settleTrust(ctx, res, options.trustOpts);
+	if (trust.state === "needs-human" || trust.state === "stuck") return {
+		...res,
+		rung: false,
+		trust: trust.state,
+		trustBlocked: trust.message
+	};
 	const briefPath = res.agent.brief;
 	const wake = await wakeSpawn(() => selectSessionAdapter(env, exec), exec, {
 		target: { id: res.pane },
@@ -6845,8 +6970,29 @@ async function spawnAndWake(ctx, input, options = {}) {
 	return {
 		...res,
 		rung: wake.rung,
+		trust: trust.state,
 		...wake.warning ? { warning: wake.warning } : {}
 	};
+}
+/**
+* Answer the new pane's folder-trust prompt, if its harness shows one. A backend that cannot be
+* resolved leaves nothing to read, which is no evidence of a prompt: the ring's own containment
+* reports that backend.
+*/
+async function settleTrust(ctx, res, opts) {
+	const exec = ctx.exec ?? realExec;
+	let adapter;
+	try {
+		adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
+	} catch {
+		return { state: "unsettled" };
+	}
+	return answerTrustPrompt(adapter, exec, { id: res.pane }, {
+		harness: res.agent.harness,
+		folder: res.agent.cwd,
+		pane: res.pane,
+		policy: res.agent.worktree ? "accept" : "ask"
+	}, opts);
 }
 /**
 * The label a `workspace` placement opens under — the short human-scannable name that makes a unit's
@@ -9064,6 +9210,20 @@ function withSpawnOptions(cmd) {
 		"workspace"
 	])).option("--no-wake", "suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself)");
 }
+/**
+* A spawn left at its harness's folder-trust prompt is a failure the caller must see, not a
+* best-effort warning: the unit cannot read its brief until a person answers the prompt. The spawn
+* still landed, so the report names the step that finishes it, and the exit code is non-zero.
+*/
+function reportTrustBlocked(res) {
+	if (!res.trustBlocked) return;
+	console.error(res.trustBlocked);
+	if (res.agent.brief) {
+		const doorbell = spawnDoorbell(res.agent.brief).replaceAll("'", "'\\''");
+		console.error(`then: cyberlegion unit nudge ${res.agent.handle} --message '${doorbell}'`);
+	}
+	process.exitCode = 1;
+}
 function defineSpawn(cmd) {
 	return withSpawnOptions(cmd).description("launch a new peer session in its own git worktree (tmux or herdr)").action(async (opts) => {
 		const ctx = ctxOf(opts);
@@ -9077,6 +9237,7 @@ function defineSpawn(cmd) {
 		warnEffortNotApplied(spawnInput);
 		const res = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake });
 		if (res.warning) console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`);
+		reportTrustBlocked(res);
 		emit(formatOf(opts), {
 			toon: toonObject({
 				spawned: res.agent.id,
@@ -9086,7 +9247,8 @@ function defineSpawn(cmd) {
 				effort: reportedEffort(spawnInput.launched),
 				worktree: res.agent.worktree?.root,
 				pane: res.pane,
-				rung: res.rung
+				rung: res.rung,
+				trust: res.trust
 			}),
 			json: {
 				agent: res.agent,
@@ -9094,7 +9256,8 @@ function defineSpawn(cmd) {
 				launch: res.launch,
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 				effort: reportedEffort(spawnInput.launched),
-				rung: res.rung
+				rung: res.rung,
+				trust: res.trust
 			}
 		});
 		nextStep(`cyberlegion unit read ${res.agent.id}`);
@@ -9434,6 +9597,7 @@ withSpawnOptions(service.command("start")).description("resolve the healthy owne
 			launch: async () => {
 				const spawned = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake });
 				warning = spawned.warning;
+				reportTrustBlocked(spawned);
 				return {
 					unit: spawned.agent.id,
 					pane: spawned.pane

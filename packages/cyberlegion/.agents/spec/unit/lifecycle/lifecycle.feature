@@ -465,6 +465,61 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then the peer is registered and its session opens with the brief written to its brief file
     And no first-turn doorbell is delivered to any pane
 
+  # ── spawn answers the harness's folder-trust prompt before the first turn ──
+  # A harness opened in a folder it does not trust stops at a trust prompt and waits for a person;
+  # hooks do not run and the unit never reads its brief. Typing the doorbell into that prompt is
+  # worse than silence: Claude Code focuses "No, exit", so the doorbell's Enter quits it, and an
+  # "a" in the doorbell text answers cursor-agent's prompt. So spawn watches the new pane until the
+  # harness either shows its trust prompt or settles without one, and only then rings.
+  # A worktree spawn created the folder from the caller's own repository, so spawn accepts the
+  # prompt. A --cwd spawn names a folder spawn did not create, such as a new repository, so a person
+  # must answer the prompt: spawn leaves it on screen and rings nothing.
+
+  Scenario: a worktree spawn accepts the harness's folder-trust prompt, then rings the first turn
+    Given a caller running unit spawn --harness claude --task t whose new pane shows Claude Code's folder-trust prompt
+    When unit spawn runs
+    Then spawn sends the keys that accept the trust prompt
+    And spawn moves the selection onto the trust option before it presses Enter
+    And the first-turn doorbell is rung only after the trust prompt has cleared
+
+  Scenario Outline: a worktree spawn accepts each harness's own trust prompt with that harness's own keys
+    Given a caller running unit spawn --harness <harness> --task t whose new pane shows <harness>'s folder-trust prompt
+    When unit spawn runs
+    Then spawn answers the prompt with <keys>
+    And the first-turn doorbell is rung only after the trust prompt has cleared
+
+    Examples:
+      | harness | keys            |
+      | claude  | Down, then Enter |
+      | codex   | 1, then Enter    |
+      | cursor  | a                |
+
+  Scenario: a spawn whose pane settles without a trust prompt sends no trust keys
+    Given a caller running unit spawn --harness claude --task t whose new pane boots straight to its input prompt
+    When unit spawn runs
+    Then spawn sends no trust keys
+    And the first-turn doorbell is rung
+
+  Scenario: a trust prompt that does not clear after the accept keys is reported and rings nothing
+    Given a caller running unit spawn --harness cursor --task t whose new pane keeps showing its trust prompt after every accept key
+    When unit spawn runs
+    Then the peer is still registered and its worktree and session are still created
+    And no first-turn doorbell is delivered to any pane
+    And the result reports that the trust prompt is still showing, naming the folder and the harness
+
+  Scenario: a --cwd spawn leaves the trust prompt for a person and rings nothing
+    Given a caller running unit spawn --harness claude --cwd <existing dir> --task t whose new pane shows Claude Code's folder-trust prompt
+    When unit spawn runs
+    Then spawn sends no trust keys
+    And no first-turn doorbell is delivered to any pane
+    And the result reports that a person must answer the trust prompt, naming the folder, the harness, and the unit's pane
+
+  Scenario: --no-wake still accepts a worktree spawn's trust prompt
+    Given a caller running unit spawn --harness codex --task t --no-wake whose new pane shows Codex's folder-trust prompt
+    When unit spawn runs
+    Then spawn sends the keys that accept the trust prompt
+    And no first-turn doorbell is delivered to any pane
+
   # ── close tears down the worktree + session and reaps the state (spawn's inverse) ──
 
   Scenario: close removes the worktree, tears down the session, and reaps the registry record
