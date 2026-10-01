@@ -1525,14 +1525,16 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	})
 
 	it('nudge re-submits when the harness boot swallows the first submit', async () => {
-		// the draft guard's pre-ring read sees no input box; then the text still staged, then taken
-		const { ctx } = peerCtx({ captures: ['peer output', `> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
+		// the draft guard's and the ring's pre-ring reads see no input box; then the text still staged, then taken
+		const { ctx } = peerCtx({ captures: ['peer output', 'peer output', `> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
 		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
 		expect(res.resubmits).toBeGreaterThan(0) // reports success only once no longer staged
 	})
 
 	it('a boot-race re-submit flushes the staged buffer rather than re-typing the message', async () => {
-		const { calls, ctx } = peerCtx({ captures: ['peer output', `> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '] })
+		const { calls, ctx } = peerCtx({
+			captures: ['peer output', 'peer output', `> ${DELIVERY_DOORBELL}`, 'scrolled away\n> '],
+		})
 		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
 		expect(res.resubmits).toBeGreaterThan(0) // the boot race actually happened
 		// the literal text is typed exactly once; the recovery is a bare Enter, so the peer's turn
@@ -1541,6 +1543,29 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 			(c) => c[0] === 'tmux' && tmuxVerb(c.slice(1)) === 'send-keys' && c.includes('-l'),
 		)
 		expect(typedLiteral).toHaveLength(1)
+	})
+
+	it('nudge does not re-ring a turn the harness took and put back in its input box', async () => {
+		// cursor-agent with a rejected login: the ring lands in the transcript and back in the input box
+		const box = (text: string) =>
+			['  Cursor Agent', '', ...text.split('\n'), '', '', '  GPT-5.2 Medium', '  ~/x · main'].join('\n')
+		const { calls, ctx } = peerCtx()
+		// the screen follows what was typed, not how many times it was read
+		const peerExec = ctx.exec as Exec
+		ctx.exec = (cmd, args) => {
+			if (cmd === 'tmux' && tmuxVerb(args) === 'capture-pane') {
+				const typed = calls.some((c) => tmuxVerb(c.slice(1)) === 'send-keys' && c.includes('-l'))
+				peerExec(cmd, args)
+				return typed
+					? box(`  ${DELIVERY_DOORBELL}\n\n ⠀⠞ Working\n\n  → ${DELIVERY_DOORBELL}`)
+					: box('  → Plan, search, build anything')
+			}
+			return peerExec(cmd, args)
+		}
+		const res = await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} } })
+		expect(res.resubmits).toBe(0)
+		const enters = calls.filter((c) => c[0] === 'tmux' && tmuxVerb(c.slice(1)) === 'send-keys' && !c.includes('-l'))
+		expect(enters).toHaveLength(1) // the one Enter that submitted the typed text
 	})
 
 	it('nudge fails loud when the turn is never taken within the bounded retry cap', async () => {

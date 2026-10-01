@@ -1,9 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
+import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
+import { ringTurn } from './console/ring.ts'
 import {
 	type AgentRecord,
 	type Harness,
@@ -395,7 +396,7 @@ export async function nudgeUnit(
 		adapter,
 		exec,
 		target,
-		() => nudge(adapter, exec, target, message, options.nudgeOpts),
+		() => ringTurn(adapter, exec, target, message, options.nudgeOpts),
 		{
 			...options.guardOpts,
 			harness: agent.harness,

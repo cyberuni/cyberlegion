@@ -271,7 +271,12 @@ cleanly — the deterministic inverse pair:
   the nudge text is still staged unsent it **flushes the already-staged buffer** (a bare submit, never
   re-typing — so the turn carries the message once, not once per retry) up to a **bounded cap**. If
   the turn is still not taken after the cap, nudge **fails loud** rather than reporting a false
-  success — killing the silent idle-at-$0.00 mode. `nudge` has **two** distinguishable failure
+  success — killing the silent idle-at-$0.00 mode. Text still at the bottom of the screen is not
+  proof the turn was not taken: some harness screens take the turn and put the same text back in
+  the input box (cursor-agent with a rejected login posts it to the transcript or the follow-up
+  queue, then restores it), and a flush there rings again. So nudge counts the screen rows carrying
+  the text before it rings: a swallowed Enter adds one (the input box), and two or more new rows
+  mean the turn was taken, so nothing is flushed. `nudge` has **two** distinguishable failure
   exits and says which it hit: a pane the backend no longer knows fails naming the gone pane, and a
   pane that keeps the text staged past the cap fails saying the peer never took the turn. This is
   also where `nudge` and the spawn ring deliberately part: the same staged-past-the-cap condition
@@ -507,7 +512,7 @@ graph TD
   ND1Y --> ND2
   ND1N --> ND2{"does the pane still exist?"}
   ND2 -- no --> ND2X["throw naming the gone pane"]
-  ND2 -- yes --> ND3["submit, verify, flush the staged buffer up to the cap"]
+  ND2 -- yes --> ND3["submit, verify, flush the staged buffer up to the cap — never once the text shows up above the input box too"]
   ND3 --> ND4{"taken within the cap?"}
   ND4 -- yes --> ND4Y["report success and the re-submit count"]
   ND4 -- no --> ND4X["throw: the peer never took the turn — FAILS LOUD, unlike the spawn ring"]
@@ -734,6 +739,7 @@ column records. They are not gaps.
 | `ND4 -- yes` taken first time | a pane that takes the first submit | `nudge confirms the turn was taken and reports success without re-submitting` |
 | `ND3` re-submit | a harness still booting, first submit staged | `nudge re-submits when the harness boot swallows the first submit` |
 | `ND3` flush, never re-type | the same staged-first-submit path | `a boot-race re-submit does not duplicate the message` |
+| `ND4 -- yes` taken, text put back | a harness that takes the turn and restores the text into its input box | `nudge does not re-ring a turn the harness took and put back in its input box` |
 | `ND4 -- no` → `ND4X` | a pane that keeps it staged past the cap | `nudge fails loud when the turn is never taken within the bounded retry cap` |
 | `ND2 -- no` → `ND2X` | a recorded pane the backend no longer knows | `nudge on a pane the backend no longer knows fails naming the gone pane` |
 | `RD1 -- yes` → `RD1Y` | a peer whose pane holds some output, --lines given | `read scrapes a peer's session screen, bounded by --lines` |
