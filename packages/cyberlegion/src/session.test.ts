@@ -126,6 +126,10 @@ function herdrExecFor(calls: string[][]): Exec {
 	}
 }
 
+/** The trust step's screen watch with no real waiting: a fake pane's screen never settles, so the
+ * watch runs its whole (instant) timeout and reports `unsettled`. */
+const NO_TRUST_WAIT = { sleep: async () => {} }
+
 const expectedWorktreePath = (id: string) =>
 	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id.slice(0, 6)}`))
 
@@ -176,7 +180,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
 			// One attempt: the ring will not verify a taken turn against a fake pane, and does not need
 			// to — the doorbell is typed before verification, and its CONTENT is what this test binds.
-			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
 		)
 		const typed = sent.flat().join(' ')
 		// It is an INSTRUCTION to read AND to begin, not a bare path — asserted on the text that
@@ -222,7 +226,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		const res = await spawnAndWake(
 			{ ...ctx(), exec: stuckExec },
 			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
-			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
 		)
 		// the spawn LANDED — worktree, session and record are the guaranteed effect
 		expectSpawnEffectIntact(res, worktreeAddCalls)
@@ -245,6 +249,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 			{ harness: 'claude', task: TASK, at: 'pane:right' },
 			{
 				nudgeOpts: { attempts: 1, sleep: async () => {} },
+				trustOpts: NO_TRUST_WAIT,
 			},
 		)
 		expectSpawnEffectIntact(res, worktreeAddCalls) // the spawn landed in full
@@ -281,7 +286,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		const res = await spawnAndWake(
 			{ store, env: {}, exec: vanishingExec, now: () => 1 },
 			{ harness: 'claude', task: TASK, at: 'pane:right' },
-			{ nudgeOpts: { attempts: 1, sleep: async () => {} } },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
 		)
 		expectSpawnEffectIntact(res, worktreeAddCalls)
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
@@ -299,7 +304,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		const res = await spawnAndWake(
 			{ ...ctx(), exec: wakeExec },
 			{ harness: 'claude', task: TASK, handle: 'bob', at: 'pane:right' },
-			{ noWake: true, nudgeOpts: { attempts: 1, sleep: async () => {} } },
+			{ noWake: true, nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
 		)
 		// nothing rung — and nothing typed at ANY pane beyond the launch command itself. Asserting
 		// only that the brief path is absent leaves a doorbell worded some other way undetected.
@@ -1707,5 +1712,127 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		expect(existsSync(join(store.root, 'data', res.agent.id, 'bin'))).toBe(false)
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		expect(typed).not.toContain('PATH=')
+	})
+})
+
+describe('spec:cyberlegion/unit/lifecycle spawn answers the folder-trust prompt before the first turn', () => {
+	const CLAUDE_TRUST = (focus: 'no' | 'yes') =>
+		` Quick safety check: Is this a project you created or one you trust?\n ${focus === 'no' ? '❯' : ' '} No, exit\n ${focus === 'yes' ? '❯' : ' '} Yes, I trust this folder\n Enter to confirm · Esc to cancel`
+	const CODEX_TRUST = ' Do you trust the contents of this directory?\n› 1. Yes, continue\n  2. No, quit'
+	const READY = '> \n  ? for shortcuts'
+
+	/**
+	 * A tmux pane that runs a harness which shows its trust prompt and answers keys as the real one
+	 * does. `screen` draws the harness from the keys pressed so far. Every
+	 * send-keys call is recorded in order in `sent`, so the trust keys and the doorbell can be
+	 * ordered against each other.
+	 */
+	function trustExec(screen: (pressed: string[]) => string): Exec {
+		const pressed: string[] = []
+		let reads = 0
+		return (cmd, args) => {
+			if (cmd === 'tmux' && tmuxVerb(args) === 'list-panes') return '%9'
+			if (cmd === 'tmux' && tmuxVerb(args) === 'has-session') return ''
+			if (cmd === 'tmux' && tmuxVerb(args) === 'capture-pane') {
+				reads++
+				return reads === 1 ? '$ claude' : screen(pressed)
+			}
+			// keys count from the harness's first frame on; the launch command's own Enter came before it
+			if (cmd === 'tmux' && tmuxVerb(args) === 'send-keys' && reads > 0) {
+				const literal = args.includes('-l')
+				const keys = args.slice(args.indexOf('-t') + 2).filter((a) => a !== '-l')
+				for (const k of keys) pressed.push(literal ? `text:${k}` : k)
+			}
+			return fakeExec(cmd, args)
+		}
+	}
+
+	/** Claude Code's prompt: Down moves the focus to "Yes"; Enter on "Yes" trusts, on "No" exits. */
+	const claudeScreen = (pressed: string[]): string => {
+		let focus: 'no' | 'yes' = 'no'
+		for (const k of pressed) {
+			if (k === 'Down') focus = 'yes'
+			if (k === 'Enter') return focus === 'yes' ? READY : '$ '
+		}
+		return CLAUDE_TRUST(focus)
+	}
+
+	/** Index in `sent` of the first send-keys call that carries `needle`. */
+	const sentIndex = (needle: (args: string[]) => boolean) => sent.findIndex(needle)
+	const isDoorbell = (brief: string) => (a: string[]) => a.includes('-l') && a.some((x) => x.includes(brief))
+
+	it("a worktree spawn accepts the harness's folder-trust prompt, then rings the first turn", async () => {
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: trustExec(claudeScreen) },
+			{ harness: 'claude', task: 't', at: 'pane:right' },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
+		)
+		expect(res.trust).toBe('accepted')
+		expect(res.trustBlocked).toBeUndefined()
+		const down = sentIndex((a) => a.at(-1) === 'Down')
+		const enter = sentIndex((a) => a.at(-1) === 'Enter' && sent.indexOf(a) > down)
+		const doorbell = sentIndex(isDoorbell(res.agent.brief as string))
+		// Down (onto "Yes"), then Enter, then — only after the prompt cleared — the doorbell
+		expect(down).toBeGreaterThan(-1)
+		expect(enter).toBeGreaterThan(down)
+		expect(doorbell).toBeGreaterThan(enter)
+	})
+
+	it('a --cwd spawn leaves the trust prompt for a person and rings nothing', async () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: trustExec(claudeScreen) },
+			{ harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
+		)
+		expect(res.trust).toBe('needs-human')
+		expect(res.rung).toBe(false)
+		// no trust key, no doorbell: nothing after the launch command reached the pane
+		expect(sent.some((a) => a.at(-1) === 'Down')).toBe(false)
+		expect(sent.some(isDoorbell(res.agent.brief as string))).toBe(false)
+		expect(res.trustBlocked).toContain(resolve(existingDir))
+		expect(res.trustBlocked).toContain('claude')
+		expect(res.trustBlocked).toContain(res.pane)
+		// the spawn itself landed, so a person can answer the prompt and nudge the unit afterwards
+		expect(loadAgent(store, res.agent.id)).toBeTruthy()
+	})
+
+	it('a trust prompt that does not clear after the accept keys is reported and rings nothing', async () => {
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: trustExec(() => CODEX_TRUST) },
+			{ harness: 'codex', task: 't', at: 'pane:right' },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
+		)
+		expectSpawnEffectIntact(res, worktreeAddCalls)
+		expect(res.trust).toBe('stuck')
+		expect(res.rung).toBe(false)
+		expect(sent.some(isDoorbell(res.agent.brief as string))).toBe(false)
+		expect(res.trustBlocked).toContain(res.agent.cwd)
+		expect(res.trustBlocked).toContain('codex')
+	})
+
+	it("--no-wake still accepts a worktree spawn's trust prompt", async () => {
+		const codexScreen = (pressed: string[]) => (pressed.includes('Enter') ? READY : CODEX_TRUST)
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: trustExec(codexScreen) },
+			{ harness: 'codex', task: 't', at: 'pane:right' },
+			{ noWake: true, nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
+		)
+		expect(res.trust).toBe('accepted')
+		// Codex already highlights "1. Yes, continue", so only Enter is needed to confirm it
+		const launched = sentIndex((a) => a.at(-1) === 'Enter')
+		expect(sent.slice(launched + 1).some((a) => a.at(-1) === 'Enter')).toBe(true)
+		expect(sent.some(isDoorbell(res.agent.brief as string))).toBe(false)
+	})
+
+	it('a spawn whose pane settles without a trust prompt sends no trust keys', async () => {
+		const res = await spawnAndWake(
+			{ ...ctx(), exec: trustExec(() => READY) },
+			{ harness: 'claude', task: 't', at: 'pane:right' },
+			{ nudgeOpts: { attempts: 1, sleep: async () => {} }, trustOpts: NO_TRUST_WAIT },
+		)
+		expect(res.trust).toBe('none')
+		expect(sent.some((a) => a.at(-1) === 'Down')).toBe(false)
+		expect(sent.some(isDoorbell(res.agent.brief as string))).toBe(true)
 	})
 })

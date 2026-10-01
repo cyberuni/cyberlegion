@@ -6,7 +6,7 @@ import { currentPane, probeMultiplexer } from 'cyber-mux'
 import { migrateStore } from './admin.ts'
 import { type AgentDef, listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 import { readCommandOutput, spawnCommandInput } from './cli-input.ts'
-import { DELIVERY_DOORBELL, wakeRecipient } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, spawnDoorbell, wakeRecipient } from './console/doorbell.ts'
 import { listCursorModels } from './cursor-models.ts'
 import { decommission } from './decommission.ts'
 import {
@@ -320,6 +320,21 @@ function withSpawnOptions(cmd: Command): Command {
 		.option('--no-wake', 'suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself)')
 }
 
+/**
+ * A spawn left at its harness's folder-trust prompt is a failure the caller must see, not a
+ * best-effort warning: the unit cannot read its brief until a person answers the prompt. The spawn
+ * still landed, so the report names the step that finishes it, and the exit code is non-zero.
+ */
+function reportTrustBlocked(res: { trustBlocked?: string; agent: { handle: string; brief?: string } }): void {
+	if (!res.trustBlocked) return
+	console.error(res.trustBlocked)
+	if (res.agent.brief) {
+		const doorbell = spawnDoorbell(res.agent.brief).replaceAll("'", "'\\''")
+		console.error(`then: cyberlegion unit nudge ${res.agent.handle} --message '${doorbell}'`)
+	}
+	process.exitCode = 1
+}
+
 function defineSpawn(cmd: Command): Command {
 	return withSpawnOptions(cmd)
 		.description('launch a new peer session in its own git worktree (tmux or herdr)')
@@ -340,6 +355,7 @@ function defineSpawn(cmd: Command): Command {
 			if (res.warning) {
 				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`)
 			}
+			reportTrustBlocked(res)
 			emit(formatOf(opts), {
 				toon: toonObject({
 					spawned: res.agent.id,
@@ -350,6 +366,7 @@ function defineSpawn(cmd: Command): Command {
 					worktree: res.agent.worktree?.root,
 					pane: res.pane,
 					rung: res.rung,
+					trust: res.trust,
 				}),
 				json: {
 					agent: res.agent,
@@ -358,6 +375,7 @@ function defineSpawn(cmd: Command): Command {
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 					effort: reportedEffort(spawnInput.launched),
 					rung: res.rung,
+					trust: res.trust,
 				},
 			})
 			nextStep(`cyberlegion unit read ${res.agent.id}`)
@@ -778,6 +796,7 @@ withSpawnOptions(service.command('start'))
 				launch: async () => {
 					const spawned = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake })
 					warning = spawned.warning
+					reportTrustBlocked(spawned)
 					return { unit: spawned.agent.id, pane: spawned.pane }
 				},
 			})

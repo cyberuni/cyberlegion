@@ -125,6 +125,25 @@ cleanly — the deterministic inverse pair:
     session are already created. The containment covers the **ring only**: spawn's own refusals
     (harness, brief, primary checkout) still throw. `--no-wake` opts out
     (mirroring `mail send --no-nudge`) for a caller that will drive the first turn itself.
+  - **Spawn answers the harness's folder-trust prompt before it rings** — a harness opened in a
+    folder it does not trust stops at a trust prompt and waits for a person. Its hooks do not run,
+    so the unit never reads its brief and never reports. Ringing the doorbell into that prompt is
+    worse than leaving it: Claude Code focuses "No, exit", so the doorbell's Enter quits the
+    harness, and an "a" anywhere in the doorbell text answers cursor-agent's prompt. So before the
+    first-turn ring, spawn reads the new pane until the harness either shows its trust prompt or
+    settles on a screen without one. Each harness's prompt is recognised by its own wording, and
+    answered with its own keys: Claude Code takes Down then Enter, Codex takes `1` then Enter, and
+    cursor-agent takes `a`. Where a key only moves the selection, spawn confirms the screen shows the
+    trust option selected before it presses Enter, so a dropped key can never confirm the exit
+    option. Who answers depends on who made the folder. A **worktree spawn** created the folder from
+    the caller's own repository, so spawn accepts the prompt. Claude Code and Codex both save that
+    trust against the main repository's root, so a repository's worktrees prompt at most once. A
+    **--cwd spawn** names a folder spawn did not make, such as a new repository, so spawn sends no
+    trust key: it rings nothing and reports that a person must answer the prompt in the unit's pane.
+    A prompt that is still showing after the accept keys is reported the same way. Both reports name
+    the folder, the harness, and the pane. The spawn itself still lands (record, worktree, session),
+    so a person can answer the prompt and then `unit nudge` the unit. The trust step runs with
+    `--no-wake` too, since a unit stuck at the prompt is no use to a caller that rings it later.
   - **An unmapped harness errors before anything launches** — `--harness` outside the launch map
     (`claude | cursor | codex`) throws naming the launch map, before any worktree/session is opened
     and before any unit is registered.
@@ -469,6 +488,20 @@ graph TD
   WKC["CONTAINED: reported as a warning on the result — the spawn still succeeds"]
 ```
 
+### spawn — the folder-trust step (before the first-turn ring)
+
+```mermaid
+graph TD
+  TR0["read the new pane until it shows a trust prompt or settles without one"] --> TR1{"trust prompt on screen?"}
+  TR1 -- no --> TRN["send no trust keys; go on to the first-turn ring"]
+  TR1 -- yes --> TR2{"did spawn create the folder as a worktree?"}
+  TR2 -- "no (--cwd)" --> TRH["send no trust keys; ring nothing; report: a person must answer it"]
+  TR2 -- yes --> TR3["send the harness's own accept keys; confirm the trust option is selected before Enter"]
+  TR3 --> TR4{"prompt cleared?"}
+  TR4 -- yes --> TRN
+  TR4 -- no --> TRX["ring nothing; report: the trust prompt is still showing"]
+```
+
 ### close — the inverse: tear down and reap
 
 ```mermaid
@@ -698,6 +731,17 @@ column records. They are not gaps.
 | `WK3 -- no` → `WKC` | a pane the backend reports as already gone | `a first-turn ring against a pane the backend reports as gone never fails the spawn` |
 | `WK1` no backend → `WKC` | an environment naming no session backend at ring time | `a first-turn ring with no session backend left to resolve never fails the spawn` |
 | `WK0 -- yes` | a spawn passing --no-wake | `--no-wake spawns without delivering the first turn` |
+
+### spawn answers the folder-trust prompt
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `TR2 -- yes` → `TR3` → `TRN` | a worktree spawn whose pane shows Claude Code's trust prompt | `a worktree spawn accepts the harness's folder-trust prompt, then rings the first turn` |
+| `TR3` per harness | a worktree spawn whose pane shows each harness's trust prompt | `a worktree spawn accepts each harness's own trust prompt with that harness's own keys` |
+| `TR1 -- no` | a pane that boots straight to its input prompt | `a spawn whose pane settles without a trust prompt sends no trust keys` |
+| `TR4 -- no` → `TRX` | a pane whose trust prompt survives the accept keys | `a trust prompt that does not clear after the accept keys is reported and rings nothing` |
+| `TR2 -- no` → `TRH` | a --cwd spawn whose pane shows a trust prompt | `a --cwd spawn leaves the trust prompt for a person and rings nothing` |
+| `TR3` under `--no-wake` | a --no-wake worktree spawn whose pane shows a trust prompt | `--no-wake still accepts a worktree spawn's trust prompt` |
 
 ### close tears down and reaps (spawn's inverse)
 

@@ -142,9 +142,26 @@ sees its instructions only once something makes it read the brief.
 
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
 act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `model`, `effort`,
-`worktree`, `pane`, `rung`. The `model` and `effort` fields report what the session launched with,
+`worktree`, `pane`, `rung`, `trust`. The `model` and `effort` fields report what the session launched with,
 from whichever source won, and read `(harness default)` when no source set one. Suggests
 `unit read <id>` as a next step.
+
+Before the first turn, spawn answers the harness's folder-trust prompt. A harness opened in a folder
+it does not trust waits at that prompt, and its hooks do not run, so the peer would never read its
+brief. Spawn reads the new pane until the harness shows the prompt or settles without one. This
+happens with `--no-wake` too.
+
+- A spawn that **creates a worktree** accepts the prompt, because the folder is a checkout of the
+  caller's own repository. Claude Code and Codex save that trust against the main repository's
+  root, so each repository prompts at most once.
+- A **`--cwd`** spawn, such as one into a new repository, sends no trust key. A person must answer
+  the prompt in the peer's pane.
+
+When the prompt is left showing, either because it was left for a person or because it did not
+clear after the accept keys, spawn rings nothing. It names the folder, the harness, and the pane on
+stderr, prints the `unit nudge` command that delivers the first turn afterwards, and exits non-zero.
+The peer is still registered. The `trust` field reads `none` (no prompt), `accepted`,
+`needs-human`, `stuck`, or `unsettled` (the screen never settled, so spawn rang as usual).
 
 ## close
 
