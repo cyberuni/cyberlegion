@@ -64,8 +64,9 @@ the unit exists.
 message into a unit it is running **is** the ownership-chain case that governance defines — the
 relaying unit is the receiver's own owner, and the decision arrives on a **turn** in the receiver's
 own session. So load **`relay-governance`**, *The ownership chain: a relayed decision is not a peer
-steer*, and apply it as written: the **four parts** a relayed decision must carry, what their
-presence does and does not buy, the **attenuation** and **spent-once** clauses, and the two limits.
+steer*, and apply it as written: a message is a decision only when it **answers the unit's own
+outstanding decision request**, whose action, target and revision set its scope; what answering does
+and does not buy; the **attenuation** and **spent-once** clauses; and the two limits.
 This skill states none of that a second time — one rule, one home.
 
 What **is** this skill's own: **which role has an order channel at all**. A cold one-shot has none; an

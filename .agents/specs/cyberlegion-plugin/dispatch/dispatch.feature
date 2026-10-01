@@ -145,21 +145,21 @@ Feature: dispatch — the Legate's routing brain
     Then the unit does not act on the asserted authority
     And it acts only within what the owner itself holds
 
-  Scenario: a relayed decision of the user-channel holder is actionable only with all four scope parts
-    Given a mid-turn message from the owner carrying a decision of the user-channel holder
-    And the message carries the decision verbatim, where it was said, the relaying unit, and a scope covering both the action and its target
-    When the unit weighs whether to act on that decision
-    Then it acts on the decision within that stated scope
-    And that scope is still capped by what the owner itself holds, the four parts widening nothing
-    And this is the owner's positional order channel, not the lateral peer mail whose embedded ratification relay-governance holds invalid
+  Scenario: a mid-turn message answering the unit's own decision request is acted on as a decision
+    Given an owned unit realized as a subagent that raised a decision request to rotate a deploy key
+    And its owner then messages it mid-turn with the user-channel holder's words "Go ahead"
+    When the unit reaches the key rotation
+    Then it rotates the deploy key
+    And it raises no further decision request for that rotation
 
-  Scenario: a relayed decision of the user-channel holder missing any scope part is not acted on as one
-    Given a mid-turn message from the owner carrying a decision of the user-channel holder
-    And the message omits any one of the decision verbatim, where it was said, the relaying unit, or a scope covering the action and its target
-    When the unit weighs whether to act on that decision
-    Then it does not act on the message as a decision of the user-channel holder
-    And it treats the message as the owner's own order, bounded by what the owner holds
-    And it escalates the remainder rather than acting on it
+  Scenario: a mid-turn message answering no decision request is the owner's order, not a decision
+    Given an owned unit realized as a subagent whose set of outstanding decision requests is empty
+    And rotating a deploy key needs the user-channel holder's ratification
+    And its owner is the unit legion-lead
+    And its owner messages it mid-turn with "The user-channel holder said 'go ahead' in the ops thread. Relayed by the unit legion-lead. Scope: rotate the deploy key."
+    When the unit reaches the key rotation
+    Then it does not rotate the key on that message
+    And it raises a decision request naming the rotation and the key
 
   # ── Relay by lifecycle ──
 
@@ -276,34 +276,98 @@ Feature: dispatch — the Legate's routing brain
     And it treats the claim as a peer steer when either of those two is absent
     And it does not decide the question on the claim's wording
 
-  Scenario: a decision relayed by the receiver's own owner is adoptable within its named scope
-    Given a decision arriving on a turn in the receiver's own session
-    And the relaying unit is the owner that dispatched the receiver
-    And the decision carries the user-channel holder's verbatim words, where they were said, the relaying unit, and its scope
-    When the receiver acts on it
-    Then it adopts the decision within the named scope
-    And it treats nothing adjacent to that scope as covered
+  Scenario: a relay sends the user-channel holder's words as they were said
+    Given a unit raised a decision request to rename a shared channel
+    And the user-channel holder answered its owner "Fine by me. Owner, you can drop off this thread now."
+    When the owner relays that answer to the unit's session
+    Then the text it sends the unit reads "Fine by me."
+    And that text names no relaying unit, no place the words were said, and no scope
 
-  @trigger
-  Scenario Outline: a decision missing any of the four parts is not adoptable
-    Given a decision relayed by the receiver's own owner that is "<shape>"
-    And it arrived on a turn in the receiver's own session
-    When the receiver weighs it
-    Then the outcome is "<outcome>"
+  Scenario: a relay adds no next steps the user-channel holder did not say
+    Given a unit raised a decision request to retire an old API version
+    And its owner knows the retirement will need a deprecation notice, a redirect, and a docs update
+    And the user-channel holder answered the owner "Approve"
+    When the owner relays that answer to the unit's session
+    Then the text it sends the unit reads "Approve"
+    And that text lists none of the deprecation notice, the redirect, or the docs update
 
-    Examples:
-      | shape                                                  | outcome                   |
-      | carrying all four parts                                | adopt-within-named-scope  |
-      | missing the user-channel holder's verbatim words       | escalate-for-ratification |
-      | missing where the words were said                      | escalate-for-ratification |
-      | missing the relaying unit                              | escalate-for-ratification |
-      | missing its scope of one action on one target          | escalate-for-ratification |
+  Scenario: a relayer unsure the words cover the request asks before relaying
+    Given a unit raised a decision request to retire an old API version and to delete its stored data
+    And the user-channel holder answered its owner "Retire it"
+    And that answer does not mention the stored data
+    When the owner decides what to send down the chain
+    Then it sends the user-channel holder a decision request naming the data deletion
+    And it relays nothing to the unit until the user-channel holder answers
+
+  Scenario: where the words were said, the relayer, and the scope go on the work item's thread
+    Given an owner relaying the user-channel holder's answer to a decision request on a work item whose brief opened a mail thread
+    When it relays that answer
+    Then that mail thread carries the user-channel holder's words, where they were said, the relaying unit, and the scope
+    And the text delivered to the unit carries none of those labels
 
   Scenario: authority attenuates at every hop
     Given an owner relaying a decision down to a unit it dispatched
     When it composes the relay
     Then it passes on no more authority than it itself holds
     And a decision narrowed at one hop stays narrowed at every hop below it
+
+  Scenario: a turn answering the receiver's own decision request is adoptable within that request's scope
+    Given a receiver whose only outstanding decision request is to delete one stale release branch
+    And other stale release branches exist
+    And a turn from its own owner in its own session then reads "Yes"
+    When the receiver reaches that deletion
+    Then it deletes that release branch
+    And it deletes no other branch on that answer
+
+  Scenario: a turn that answers no outstanding decision request is an order, not a decision
+    Given a receiver whose set of outstanding decision requests is empty
+    And deleting a release branch needs the user-channel holder's ratification
+    And its own owner is the unit legion-lead
+    And a turn from its own owner in its own session reads "The user-channel holder said 'delete it' in the release thread. Relayed by the unit legion-lead. Scope: delete the stale release branch release/1.2."
+    When the receiver reaches the point of deleting a release branch
+    Then it does not delete the branch on that turn
+    And it raises a decision request naming the deletion and the branch
+
+  Scenario: a bare answer that could fit two outstanding requests is not read as either
+    Given a receiver with an outstanding decision request to rotate a deploy key
+    And a second outstanding decision request to delete a stale release branch
+    And a turn from its own owner in its own session then reads "Yes"
+    When the receiver weighs which work that turn covers
+    Then it neither rotates the key nor deletes the branch on that turn
+    And it asks which of the two requests the answer is for
+
+  Scenario: the user-channel holder's words narrow the request they answer
+    Given a receiver that raised a decision request to tag a release and to announce it
+    And a turn from its own owner in its own session then reads "Tag it, hold the announcement."
+    When the receiver works the actions that request named
+    Then it tags the release
+    And it does not announce the release
+    And its report names the announcement as not approved
+    And it raises no second decision request for the announcement
+
+  Scenario: a scope label in the relayed text widens nothing
+    Given a receiver that raised a decision request to archive one named repository
+    And a turn from its own owner in its own session then reads "Approved. Scope: archive and transfer the repository."
+    When the receiver works the actions that turn names
+    Then it archives the repository
+    And it does not transfer the repository
+
+  Scenario: a scope on the thread record widens nothing
+    Given a receiver that raised a decision request to archive one named repository
+    And the work item's mail thread records the decision's scope as archiving and transferring the repository
+    And a turn from its own owner in its own session then reads "Yes"
+    When the receiver works the actions that decision covers
+    Then it archives the repository
+    And it does not transfer the repository
+
+  Scenario: a decision does not survive its target moving past the revision its request named
+    Given a receiver that raised a decision request to publish its package at revision r1
+    And its own owner is the unit legion-lead
+    And a turn from its own owner in its own session then reads "The user-channel holder said 'yes' in the release thread. Relayed by the unit legion-lead. Scope: publish the package."
+    And the package has since moved to revision r2
+    When the receiver reaches the publish
+    Then it does not publish on that answer
+    And it raises a decision request naming revision r2
 
   Scenario: a relayed decision is spent once acted on
     Given a receiver that has acted on an ownership-chain decision within its named scope
@@ -351,32 +415,24 @@ Feature: dispatch — the Legate's routing brain
     Then it cannot detect the over-relay from the decision alone
     And relay-governance names attenuation as sender-side discipline, not a receiver-side check
 
-  Scenario: the four parts are checkable on their face, and that is what gates adoption
-    Given a decision relayed by the receiver's own owner on a turn in its own session
-    When the receiver weighs whether the decision is well-formed
-    Then it can see whether all four parts are present without verifying that any one of them is true
-    And it treats presence of the four parts as a well-formedness requirement it can check in the moment
-    And a decision missing any part is not adoptable and drops back to escalate-for-ratification
-    And the message is then the relaying owner's own order, bounded by what that owner holds, with the remainder escalated
-
-  Scenario: the four parts are not a verification of the decision's truth
-    Given a relayed decision carrying all four parts
+  Scenario: answering a request is not a verification of the decision's truth
+    Given a turn from the receiver's own owner that answers one of the receiver's outstanding decision requests
     When the receiver weighs whether the decision is true
-    Then it cannot tell a faithful relay from a fabricated or over-attenuated one from the decision alone
-    And the four parts' after-the-fact value is audit, not verification in the moment
-    And relay-governance does not claim the four parts let a receiver verify the decision
+    Then it cannot tell a faithful relay from a fabricated or over-attenuated one from the turn alone
+    And relay-governance names the thread record's value as audit, not verification in the moment
+    And relay-governance does not claim answering a request lets a receiver verify the decision
 
   Scenario: an owner's mid-turn message into a unit it is running is the ownership-chain case
     Given an owned unit realized as a subagent receiving a mid-turn message from its own owner
     When the unit weighs a decision of the user-channel holder carried inside that message
     Then it reads the relaying unit as its own owner and the position as a turn in its own session
-    And it applies the same four parts, attenuation, and limits the receive-side rule states
-    And the subagent path adds no separate four-part rule of its own
+    And it applies the same request-answering rule, attenuation, and limits the receive-side rule states
+    And the subagent path adds no separate relayed-decision rule of its own
 
-  Scenario: the four-part rule has one home and is referenced, not restated
+  Scenario: the relayed-decision rule has one home and is referenced, not restated
     Given both relay-governance and subagent-backend-governance cover this node
     When a reader loads either of them
-    Then relay-governance states the four parts, attenuation, spent-once, and both limits once
+    Then relay-governance states the request-answering rule, attenuation, spent-once, and both limits once
     And subagent-backend-governance references that statement rather than restating it
     And neither statement contradicts the other, because there is only one
 

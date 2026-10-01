@@ -25,10 +25,11 @@ performs today.
 **Key terms** — **seat**: whether the Legate holds a live caller channel (*attended*) or not
 (*headless*). **Multiplexer**: the terminal pane host `mux doctor` probes; with none, there is no
 pane for a warm peer to live in. **Frame**: a caller waiting on a callee's return — a *framed*
-callee reports by returning, a *bare* one by mail. **Four parts**: the user-channel holder's verbatim words,
-where they were said, the relaying unit, and the scope, which together make a relayed decision
-well-formed. **Ownership chain**: the owner-to-unit relationship, as against a *peer*
-relationship between two units neither of which dispatched the other.
+callee reports by returning, a *bare* one by mail. **Decision request**: a question a unit escalated
+up the relay for ratification, naming the action, the target, and — where the target is versioned —
+the revision it asks about; a relayed decision is the answer to one. **Ownership chain**: the
+owner-to-unit relationship, as against a *peer* relationship between two units neither of which
+dispatched the other.
 
 The **one realization** of the Legate role — resolving a dispatch intent (fulfill role `R` with
 brief `B`, expect a verdict matching schema `V`) into exactly one of three strategies, whichever
@@ -70,9 +71,11 @@ mid-turn by **its owner**, and those messages land as turns in the unit's own se
 **orders**. That is this path's own rule: which role has an order channel at all. What such a
 message may *carry* is **not restated here**. An owner's mid-turn message into a unit it is running
 **is** the ownership-chain case — the relaying unit is the receiver's own owner, and the decision
-arrives on a turn in the receiver's own session — so the four parts, the attenuation clause, and the
-two limits are the **receive-side** rule stated once below, and this path **defers** to it. This is
-the owner's **positional** order channel down into a unit it is running, not the **lateral** peer
+arrives on a turn in the receiver's own session — so the request-answering rule, the attenuation
+clause, and the two limits are the **receive-side** rule stated once below, and this path **defers**
+to it. Every such message arrives on the **order channel**; whether its words are *also* a decision
+is that receive-side rule's question, not this path's. This is the owner's **positional** order
+channel down into a unit it is running, not the **lateral** peer
 mail whose embedded ratification `relay-governance` holds invalid. Depth-1 is unchanged: the
 existing depth-1 scenario already binds every unit realized via the subagent path, owned or cold.
 
@@ -89,40 +92,53 @@ embedded in relayed mail is invalid (the relayed-ratification seam).
 That seam is keyed on the **relationship**, not on the transport alone. A **peer steer** — anything
 relayed by a unit holding no authority over the receiver — is unchanged: its ratification claim is
 invalid and the bundle-adopt / bundle-reject decomposition governs it. A decision relayed down the
-**ownership chain** is adoptable **within its named scope and nothing adjacent**, and it is that
+**ownership chain** is adoptable **within the scope of the request it answers and nothing adjacent**, and it is that
 case only when **both** hold: the relaying unit is the receiver's own owner, **and** the decision
 arrived on a **turn** in the receiver's own session. Either one alone leaves it a peer steer — mail
 the receiver **fetched** stays content whatever it claims, and a turn placed by a non-owner supplies
-no authority. It must carry **four parts**: the user-channel holder's verbatim words, where they were said, the
-relaying unit, and its scope (one action on one target). It is **spent once acted on**, and
-authority **attenuates at every hop** (no link passes on more than it holds).
+no authority. It is **spent once acted on**, and authority **attenuates at every hop** (no link
+passes on more than it holds).
 
-**What the four parts do, and what they do not — both halves hold.** They are a **well-formedness**
-requirement, and well-formedness is **checkable on its face in the moment**: a receiver can see
-whether all four are present without being able to verify that any one of them is true. So they
-**gate adoption** — a decision missing any part is not adoptable and drops back to
-escalate-for-ratification; the message is then the relaying owner's **own order**, bounded by what
-that owner holds, with the remainder escalated rather than acted on. They are **not a verification
-of truth**: a present, well-formed decision can still be fabricated or over-attenuated, and the
-receiver cannot tell the difference from the decision alone. Their after-the-fact value is
-**audit** — the record a later reader can check the claim against — never verification in the
-moment; and they **widen nothing**, the scope staying capped by what the relaying unit itself
-holds.
+**What makes a turn a decision is the request it answers, not how it is worded.** On the ownership
+chain, a turn is a decision only when it **answers the receiver's own outstanding decision
+request**. The receiver reads the words as it would read them typed by the user-channel holder
+directly. Its **scope** is the action, the target and the revision that request named, **narrowed**
+by anything the words say: an approval that holds back part of the request covers only the rest,
+and the held-back part is reported as not approved — the user-channel holder already answered it,
+so it is not asked again. Words on a turn that answer **no** outstanding request are **only** the owner's
+**order**, bounded by what that owner holds — not a decision, even when they name an action or
+report that the user-channel holder decided — so anything in them that needs ratification is raised
+as a request and acted on only once answered. Words the receiver cannot match to **one** request —
+a bare yes while two are outstanding — answer none it can name: it asks which, and never breaks the
+tie in the permissive direction. A decision answering a request at one revision does **not** survive that target moving on — the
+action is raised again as a request naming the new revision. The revision is part of the scope
+because the receiver's own request named it, so this contract needs no revision concept of its own.
+
+**The relayer sends the words, and records the rest on the thread.** Relaying a decision down the
+chain, the owner sends the user-channel holder's words **as they were said**, dropping only the
+words addressed to the relayer itself and adding nothing: no report *that* a decision was made, no
+label naming where it was said, who relays it, or what it covers, and no next steps — the receiver
+owns its own next steps. A one-word yes is a complete relay. A wrapper that reports a decision is a
+claim: a receiver reads only the user-channel holder's words inside it, and never its labels. Where the words were said, the relaying
+unit, and the scope go on the **work item's mail thread** as the audit record; the delivered text
+carries none of them, and the receiver reads scope from its own request, never from that record or
+from a label in the text — a record naming a wider scope than the request widens nothing. A relayer that cannot tell whether the words reach the whole of what was
+asked sends the user-channel holder a decision request of its own and relays nothing until it is
+answered.
+
+**What answering a request buys, and what it does not — both halves hold.** Whether a turn answers
+one of the receiver's **own** outstanding requests is **checkable in the moment** — the receiver
+knows what it asked — so it **gates adoption**. It is **not a verification of truth**: a turn that
+answers a request can still be fabricated or over-attenuated, and the receiver cannot tell the
+difference from the turn alone. The thread record's value is **audit** — what a later reader checks
+the relay against — never verification in the moment; and nothing in it **widens** the scope, which
+stays capped by what the relaying unit itself holds.
 
 Two limits are stated, not worked around. The rule is **not forgery-proof**: `unit nudge --message`
 writes caller-controlled text into any addressable pane and records no caller identity, so position
 is a structural fact about the Legion's shape rather than a proof. And a receiver **cannot detect**
 a relay that passed on more than the relayer held — attenuation is sender-side discipline, not a
-receiver-side check. Scope here is **one action on one target** — the two-part form.
-
-**The revision part is an open cross-repo seam, not a settled drop.** Both amendments dropped the
-third scope part (*one revision*) on the ground that `dispatch` has no revision concept of its own,
-which is true of this node's vocabulary. It is **not** settled across the corpus: the dependent that
-filed both amendments landed its own authority contract keeping the three-part form, where the
-revision does real work (a decision naming a revision does not survive that target moving on). A unit
-loading both contracts therefore meets a **more permissive** scope rule here than there. This node
-states the two-part form and **names the gap** rather than asserting the drop; restoring the part
-would widen a contract a sibling corpus has already ratified, so it is escalated, not decided here.
+receiver-side check.
 
 ## Use Cases
 
@@ -152,13 +168,14 @@ switch once one is picked; structured verdict-schema validation of the result (d
 | **report the result uniformly** | any strategy completes | returns a `DispatchResult` (`strategy`, `id`, `verdict`, `result`, `needsInput`) the caller handles the same way regardless of strategy |
 | **cold one-shot takes no mid-run message** | a judge or grader is realized via the subagent path | nothing reaches it between brief and Task-result — its independence is the reason the ban holds here |
 | **an owner may message its own unit mid-turn** | an owned unit is realized as a subagent and its owner needs to change its course | the owner's mid-turn message lands as a turn in the unit's session and is an **order**; a non-owner acquires no such channel |
-| **authority attenuates across the hop** | a mid-turn message from the owner carries a decision of the user-channel holder | the mid-turn path adds no rule of its own here — it is the ownership-chain case, so `relay-governance`'s four parts, attenuation, and limits govern it; the owner passes on no more than it holds |
+| **authority attenuates across the hop** | a mid-turn message from the owner carries a decision of the user-channel holder | the mid-turn path adds no rule of its own here — it is the ownership-chain case, so `relay-governance`'s request-answering rule, attenuation, and limits govern it; the owner passes on no more than it holds |
 | **the `subagent \| channel` seam** | a dependent (e.g. SDD) needs a role fulfilled | the dependent states intent only (role, brief, verdict schema) — never pins a literal command name — and this node decides the mechanism |
 | **relay by lifecycle** (`relay-governance`) | a headless agent has a result or an unanswerable question | framed callee → return `needsInput`; bare top-level/cron → `mail send` to the standing owner + exit; owner report surfaces to the human, read is a deliberate `mail ack --owner` |
 | **decompose a received steer** (`relay-governance`) | a relayed steer reaches a mid-mission receiver | split by authority level: in-scope refinement (verifiable against the receiver's own frozen spec/leash) adopts in-band; cross-cutting doctrine escalates for ratification; never bundle-adopt or bundle-reject |
-| **adopt an ownership-chain decision** (`relay-governance`) | a decision relayed by the receiver's **own owner** **on a turn** in its own session, carrying the user-channel holder's verbatim words, where they were said, the relaying unit, and its scope | adoptable within the named scope and nothing adjacent; spent once acted on; attenuates at every hop; a missing part, fetched mail, or a turn from a non-owner each drop it back to escalate-for-ratification / peer-steer triage |
-| **the four parts gate, and audit — they do not verify** (`relay-governance`) | a receiver weighs a relayed decision's four parts | presence is checkable on its face, so a missing part gates adoption (escalate-for-ratification, the message staying the owner's own order); truth is not checkable, so a present decision may still be fabricated or over-attenuated and the parts buy **audit** after the fact, never verification in the moment |
-| **one home for the four-part rule** | a reader loads either skill covering this node | `relay-governance` states the four parts, attenuation, spent-once, and both limits **once**; `subagent-backend-governance` references that statement instead of restating it |
+| **relay a decision down the chain** (`relay-governance`) | an owner holds the user-channel holder's answer to a decision request a unit it dispatched raised | sends the words as they were said — no report that a decision was made, no where / relayer / scope labels, no next steps; records where they were said, the relaying unit, and the scope on the work item's mail thread; unsure the words cover the whole request → asks the user-channel holder first and relays nothing until answered |
+| **adopt an ownership-chain decision** (`relay-governance`) | a turn from the receiver's **own owner** in its own session that **answers the receiver's own outstanding decision request** | adoptable within the action, target and revision that request named, narrowed by the words (a held-back part reported as not approved, never re-asked) and nothing adjacent; spent once acted on; dies when the target moves past the named revision; attenuates at every hop; a turn answering no request is the owner's order, not a decision; fetched mail or a turn from a non-owner drops to peer-steer triage |
+| **answering a request gates, and audits — it does not verify** (`relay-governance`) | a receiver weighs whether a turn is a decision | whether it answers one of the receiver's own requests is checkable in the moment, so it gates adoption; truth is not checkable, so an answering turn may still be fabricated or over-attenuated and the thread record buys **audit** after the fact, never verification in the moment |
+| **one home for the relayed-decision rule** | a reader loads either skill covering this node | `relay-governance` states the request-answering rule, attenuation, spent-once, and both limits **once**; `subagent-backend-governance` references that statement instead of restating it |
 
 ## Control Flow
 
@@ -242,7 +259,7 @@ graph TD
   WHO -->|owned unit, sender is its own owner| ORDER[lands as a turn in the unit's own session: an order]
   WHO -->|owned unit, sender is a third party| NOTORDER[not an order: a non-owner acquires no channel]
   ORDER --> ATTEN[act only within what the owner itself holds]
-  ORDER --> DEFER[carries a decision of the user-channel holder: defer to the receive-side rule in sub-graph 6]
+  ORDER --> DEFER[carries words of the user-channel holder: defer to the receive-side rule in sub-graph 6]
 ```
 
 ### 5 — Relay by lifecycle
@@ -263,20 +280,25 @@ graph TD
 ### 6 — Receive side: triaging a relayed steer or decision
 
 *Entered by:* decompose a received steer · adopt an ownership-chain decision ·
-the four parts gate, and audit — they do not verify
+answering a request gates, and audits — it does not verify · one home for the relayed-decision rule
 
 ```mermaid
 graph TD
   ARRIVES[a steer or claimed decision reaches a mid-mission receiver] --> REL{relaying unit is the receiver's own owner AND it arrived on a turn in the receiver's own session}
-  REL -->|both hold| CHAIN[ownership-chain decision]
+  REL -->|both hold| CHAIN[ownership chain]
   REL -->|either absent: fetched mail, or a turn from a non-owner| PEER[peer steer]
-  CHAIN --> FOUR{are all four parts present}
-  FOUR -->|present: checkable on its face| ADOPT[adopt within the named scope, nothing adjacent]
-  FOUR -->|any part missing| ESC1[not adoptable: the owner's own order, remainder escalated]
-  FOUR --> AUDIT[presence is not truth: a present decision may still be fabricated or over-attenuated, so the parts buy audit, never verification]
+  CHAIN --> ANS{does the turn answer one of the receiver's own outstanding decision requests}
+  ANS -->|answers one: checkable in the moment| SCOPE[scope: the action, target and revision the request named, narrowed by the words]
+  ANS -->|answers none| ORDERONLY[only the owner's order, not a decision: what needs ratification is raised as a request]
+  ANS -->|could answer more than one| ASKWHICH[answers none it can name: ask which request it answers]
+  ANS --> AUDIT[answering is not truth: an answering turn may still be fabricated or over-attenuated, so the thread record buys audit, never verification]
+  SCOPE --> ADOPT[adopt within that scope, nothing adjacent]
+  SCOPE --> HELD[a part the words hold back is reported as not approved, not asked again]
+  SCOPE --> LABEL[a scope label carried in the text widens nothing]
+  SCOPE --> NOTREC[a scope on the thread record widens nothing: the record is audit]
   ADOPT --> SPENT[spent once acted on]
+  ADOPT --> MOVED[the target moved past the revision the request named: not covered, re-raised as a request naming the new revision]
   ADOPT --> ADJACENT[adjacent work goes back up the chain as a question]
-  CHAIN --> HOP[the relaying owner passes on no more than it holds]
   CHAIN --> LIMITS[two stated limits: nudge text carries no identity, and over-attenuation is not receiver-detectable]
   PEER --> DECOMP[decompose by authority level, never a bundle verdict]
   DECOMP -->|testable against the receiver's own frozen spec or CR acceptance| INBAND[adopt in band, no provenance required]
@@ -285,9 +307,20 @@ graph TD
   DECOMP --> QFORM[the in-scope part's question-against-its-own-spec form: composed by the sender, re-derived by the receiver when the sender bundles]
 ```
 
-`relay-governance` states the four parts, attenuation, spent-once, and both limits **once**;
-`subagent-backend-governance` references that statement rather than restating it, which is why
-sub-graph 4's `DEFER` edge points here.
+*Entered by:* relay a decision down the chain — the sending half of the same rule.
+
+```mermaid
+graph TD
+  HOLDS[an owner holds the user-channel holder's answer to a decision request a unit it dispatched raised] --> COVER{can it tell the words reach the whole of what was asked}
+  COVER -->|unsure| ASKUP[send the user-channel holder a decision request; relay nothing until it answers]
+  COVER -->|yes| SEND[send the words as they were said: drop only words addressed to the relayer, add no envelope and no next steps]
+  SEND --> HOP[pass on no more than it holds]
+  SEND --> RECORD[record where the words were said, the relaying unit, and the scope on the work item's mail thread]
+```
+
+`relay-governance` states the request-answering rule, attenuation, spent-once, and both limits
+**once**; `subagent-backend-governance` references that statement rather than restating it, which is
+why sub-graph 4's `DEFER` edge points here.
 
 ### 7 — Uniform result
 
@@ -383,8 +416,8 @@ outcome does not depend on how the edge was reached.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `ORDER → ATTEN` | the owner asserts an authority it does not itself hold | `authority attenuates across the mid-turn hop` |
-| `ORDER → DEFER` | the owner's message carries a decision with all four parts | `a relayed decision of the user-channel holder is actionable only with all four scope parts` |
-| `ORDER → DEFER` | the owner's message carries a decision missing a part | `a relayed decision of the user-channel holder missing any scope part is not acted on as one` |
+| `ORDER → DEFER` | the owner's message answers the unit's own outstanding decision request | `a mid-turn message answering the unit's own decision request is acted on as a decision` |
+| `ORDER → DEFER` | the owner's message names an action the unit raised no request for | `a mid-turn message answering no decision request is the owner's order, not a decision` |
 | `ORDER → DEFER` | an owned unit weighing a decision inside its owner's mid-turn message | `an owner's mid-turn message into a unit it is running is the ownership-chain case` |
 
 ### relay by lifecycle
@@ -415,22 +448,35 @@ outcome does not depend on how the edge was reached.
 | `DECOMP → QFORM` | a sender composing a steer that contains an in-scope part | `senders phrase the in-scope part as a question against the receiver's own spec` |
 | `DECOMP → QFORM` | a receiver handed a bundle phrased as an imported rule | `receivers re-derive the question form when a sender bundles` |
 
+### relay a decision down the chain
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `HOLDS → COVER → SEND` | the user-channel holder's answer includes words addressed to the relayer | `a relay sends the user-channel holder's words as they were said` |
+| `COVER → SEND` | the relayer knows the steps the decided work will need | `a relay adds no next steps the user-channel holder did not say` |
+| `COVER → ASKUP` | the relayer cannot tell whether the words cover all of the request | `a relayer unsure the words cover the request asks before relaying` |
+| `SEND → RECORD` | an owner relaying an answer on a work item that has a mail thread | `where the words were said, the relayer, and the scope go on the work item's thread` |
+| `SEND → HOP` | an owner composing a relay down to a unit it dispatched | `authority attenuates at every hop` |
+
 ### adopt an ownership-chain decision
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `REL → CHAIN` | the owner relayed it on a turn in the receiver's own session | `a decision relayed by the receiver's own owner is adoptable within its named scope` |
-| `CHAIN → FOUR` | each of the four parts present, then each one missing in turn | `a decision missing any of the four parts is not adoptable` |
-| `ADOPT → SPENT` | the receiver has already acted within the named scope | `a relayed decision is spent once acted on` |
+| `REL → CHAIN → ANS → SCOPE → ADOPT` | the owner's turn answers the receiver's own outstanding request | `a turn answering the receiver's own decision request is adoptable within that request's scope` |
+| `ANS → ORDERONLY` | the owner's turn names an action but the receiver raised no request | `a turn that answers no outstanding decision request is an order, not a decision` |
+| `SCOPE → HELD` | the words approve part of a two-action request and hold back the other | `the user-channel holder's words narrow the request they answer` |
+| `ANS → ASKWHICH` | a bare yes arrives while the receiver has two requests outstanding | `a bare answer that could fit two outstanding requests is not read as either` |
+| `SCOPE → LABEL` | the relayed text carries a scope label wider than the request | `a scope label in the relayed text widens nothing` |
+| `SCOPE → NOTREC` | the work item's thread record names a scope wider than the request | `a scope on the thread record widens nothing` |
+| `ADOPT → MOVED` | the request named a revision and the target has since moved past it | `a decision does not survive its target moving past the revision its request named` |
+| `ADOPT → SPENT` | the receiver has already acted within the decision's scope | `a relayed decision is spent once acted on` |
 | `ADOPT → ADJACENT` | the receiver finds work inside the scope that the decision does not name | `adjacent work found while acting on a scoped decision goes back up as a question` |
-| `CHAIN → HOP` | an owner composing a relay down to a unit it dispatched | `authority attenuates at every hop` |
 
-### the four parts gate, and audit — they do not verify
+### answering a request gates, and audits — it does not verify
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `FOUR → ADOPT` / `FOUR → ESC1` | the receiver weighs whether the decision is well-formed | `the four parts are checkable on their face, and that is what gates adoption` |
-| `FOUR → AUDIT` | the receiver weighs whether a fully-formed decision is true | `the four parts are not a verification of the decision's truth` |
+| `ANS → AUDIT` | the receiver weighs whether an answering turn is true | `answering a request is not a verification of the decision's truth` |
 
 ### the two stated limits
 
@@ -439,11 +485,11 @@ outcome does not depend on how the edge was reached.
 | `CHAIN → LIMITS` | unit nudge --message writes caller-controlled text and records no identity | `the ownership chain is a structural fact, not a proof of identity` |
 | `CHAIN → LIMITS` | a relay that passed on more authority than the relaying unit held | `over-attenuation is not receiver-detectable` |
 
-### one home for the four-part rule
+### one home for the relayed-decision rule
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `DEFER → sub-graph 6` | a reader loads either skill covering this node | `the four-part rule has one home and is referenced, not restated` |
+| `DEFER → sub-graph 6` | a reader loads either skill covering this node | `the relayed-decision rule has one home and is referenced, not restated` |
 
 ### report the result uniformly
 
