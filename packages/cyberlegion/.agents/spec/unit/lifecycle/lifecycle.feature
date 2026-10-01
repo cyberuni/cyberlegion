@@ -721,6 +721,11 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When a caller runs unit nudge <ref>
     Then nudge flushes the already-staged buffer rather than re-typing to complete the turn, so the peer's turn carries the message once
 
+  Scenario: nudge does not re-ring a turn the harness took and put back in its input box
+    Given a registered peer whose harness takes the nudge text as a turn and then restores the same text into its input box
+    When a caller runs unit nudge <ref>
+    Then nudge submits the nudge text once and issues no re-submit
+
   Scenario: nudge fails loud when the turn is never taken within the bounded retry cap
     Given a registered peer whose pane keeps the nudge text staged unsent past the retry cap
     When a caller runs unit nudge <ref>

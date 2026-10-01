@@ -20,8 +20,8 @@ beforeEach(() => {
 
 const exec: Exec = () => null
 const STAGED = `> ${DELIVERY_DOORBELL.slice(0, 45)}`
-/** The screen the draft guard reads before ringing — no input box it recognizes, so it rings at once.
- * A test that queues reads positionally puts this first. */
+/** The screen the draft guard, then the ring, read before ringing — no input box the guard recognizes,
+ * so it rings at once. A test that queues reads positionally puts this first, twice. */
 const BEFORE_RING = 'peer output'
 const SCROLLED_OUT = [
 	DELIVERY_DOORBELL,
@@ -130,7 +130,7 @@ describe('spec:cyberlegion/mail/doorbell', () => {
 	// one staged read then taken → one resubmit flushes the staged buffer (never a re-type).
 	it('the delivery doorbell is delivered as a taken turn, not fire-and-forget', async () => {
 		peer('bob', '%1')
-		const { adapter, sendCalls, submitCalls } = fakeAdapter([BEFORE_RING, STAGED, SCROLLED_OUT])
+		const { adapter, sendCalls, submitCalls } = fakeAdapter([BEFORE_RING, BEFORE_RING, STAGED, SCROLLED_OUT])
 		const result = await wakeRecipient(
 			store,
 			() => adapter,
@@ -437,7 +437,12 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 	}, 20_000)
 
 	it('the first turn is delivered as a taken turn, robust to the harness boot race', async () => {
-		const { adapter, sendCalls, submitCalls } = fakeAdapter([BEFORE_RING, SPAWN_STAGED, SPAWN_SCROLLED_OUT])
+		const { adapter, sendCalls, submitCalls } = fakeAdapter([
+			BEFORE_RING,
+			BEFORE_RING,
+			SPAWN_STAGED,
+			SPAWN_SCROLLED_OUT,
+		])
 		const result = await wakeSpawn(
 			() => adapter,
 			exec,

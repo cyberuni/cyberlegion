@@ -1,7 +1,8 @@
-import { type MuxAdapter, type MuxTarget, type NudgeOptions, nudge } from 'cyber-mux'
+import type { MuxAdapter, MuxTarget, NudgeOptions } from 'cyber-mux'
 import { type Exec, loadAgent, presenceOf } from '../identity.ts'
 import type { Store } from '../store/store.ts'
 import { type DraftGuardOptions, withDraftGuard } from './prompt-guard.ts'
+import { ringTurn } from './ring.ts'
 
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 export const DELIVERY_DOORBELL = 'You have unread mail — check your inbox.'
@@ -124,7 +125,7 @@ export async function wakeRecipient(
 	try {
 		const adapter = getAdapter()
 		const target = { id: pane }
-		await withDraftGuard(adapter, exec, target, () => nudge(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
 			...guardOpts,
 			harness,
 		})
@@ -175,7 +176,7 @@ export async function wakeSpawn(
 			adapter,
 			exec,
 			input.target,
-			() => nudge(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts),
+			() => ringTurn(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts),
 			{ ...guardOpts, harness: input.harness },
 		)
 		return { rung: true, pane: input.target.id }

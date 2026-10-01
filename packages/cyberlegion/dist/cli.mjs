@@ -5527,12 +5527,8 @@ function discoverByAncestry(exec, env) {
 		via: "ancestry"
 	};
 }
-/** Max flush re-submits after the initial submit, before nudge fails loud. */
-const DEFAULT_ATTEMPTS = 10;
-/** Wait after a submit before reading the pane back, in ms. */
-const DEFAULT_SETTLE_MS = 400;
 /** Length of the message prefix used as the staged-text needle. */
-const NEEDLE_LEN = 40;
+const NEEDLE_LEN$1 = 40;
 /**
 * Whether `message` is still sitting staged in `visible`'s input box (not yet submitted). A real
 * submit scrolls the message into the transcript, leaving the bottom input box empty, so the
@@ -5542,50 +5538,9 @@ const NEEDLE_LEN = 40;
 */
 function isStaged(visible, message) {
 	if (!visible) return true;
-	const needle = message.replace(/\s+/g, " ").trim().slice(0, NEEDLE_LEN);
+	const needle = message.replace(/\s+/g, " ").trim().slice(0, NEEDLE_LEN$1);
 	if (needle === "") return true;
 	return visible.split("\n").filter((l) => l.trim() !== "").slice(-5).join(" ").replace(/\s+/g, " ").trim().includes(needle);
-}
-/**
-* Submit `message` to `target` and verify the peer actually took the turn — a booting harness can
-* swallow the Enter of the initial `submit`, leaving the text staged unsent while nudge would
-* otherwise report false success. Types the message exactly once; a swallowed Enter is recovered by
-* flushing the staged buffer (`adapter.submit` with no text, a bare Enter) — never re-typing the
-* message — up to a bounded number of attempts. Throws if the turn is never taken within the cap.
-*
-* A pane that no longer exists is rejected up front rather than retried: a gone pane and a booting
-* one both read back empty, so without the liveness probe the retry loop reports a dead peer as
-* "never took the turn" — a boot-race shape — and buries the real cause.
-*
-* **Not built on `waitForOutput`, deliberately.** The two look alike and wait on opposite conditions:
-* `waitForOutput` returns when a pattern APPEARS anywhere in the snapshot, while nudge returns when the
-* message DISAPPEARS from the input box at the bottom (`isStaged`) — a negative, position-sensitive
-* condition the wait primitive cannot express, and one that must not be satisfied by the same text
-* sitting up in the transcript, which is exactly where a submitted message ends up. Nor is the loop body
-* the same: nudge does not merely observe between polls, it re-submits, so its "poll" is a corrective
-* action with its own attempt budget rather than a read. What the two DO share is the liveness rule —
-* a gone pane throws instead of being reported as a quiet one — and `pollForOutput` adopts it from here.
-*/
-async function nudge(adapter, exec, target, message, opts = {}) {
-	const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
-	const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
-	const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-	if (!adapter.paneExists(exec, target)) throw new Error(`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy.`);
-	adapter.submit(exec, target, message);
-	await sleep(settleMs);
-	if (!isStaged(adapter.read(exec, target).text, message)) return {
-		taken: true,
-		resubmits: 0
-	};
-	for (let attempt = 1; attempt <= attempts; attempt++) {
-		adapter.submit(exec, target);
-		await sleep(settleMs);
-		if (!isStaged(adapter.read(exec, target).text, message)) return {
-			taken: true,
-			resubmits: attempt
-		};
-	}
-	throw new Error(`nudge failed: peer at pane ${target.id} never took the turn — input still staged after ${attempts} re-submit attempts`);
 }
 /**
 * This process's own pane, as something `adapter` can address — `MuxOpenOptions.from`'s intended
@@ -6363,6 +6318,59 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 	}
 }
 //#endregion
+//#region src/console/ring.ts
+const DEFAULT_ATTEMPTS = 10;
+const DEFAULT_SETTLE_MS = 400;
+/** cyber-mux's `isStaged` matches on the same prefix length. */
+const NEEDLE_LEN = 40;
+/** How many screen rows carry `message` — the transcript, a queued follow-up, the input box. */
+function copiesOn(screen, message) {
+	if (!screen) return 0;
+	const needle = message.replace(/\s+/g, " ").trim().slice(0, NEEDLE_LEN);
+	if (needle === "") return 0;
+	return screen.split("\n").filter((row) => row.replace(/\s+/g, " ").includes(needle)).length;
+}
+/**
+* Submit `message` to `target` as a taken turn: cyber-mux's `nudge`, with one more way to see that the
+* turn was taken.
+*
+* `nudge` judges the turn by whether the text still sits at the bottom of the screen, and flushes
+* with a bare Enter while it does. Some harness screens put a taken turn back in the input box —
+* cursor-agent with a rejected login posts the ring to its transcript (or queues it as a follow-up)
+* and restores the same text into the box — so `nudge` flushes, and each flush rings again.
+*
+* So the screen is counted before the ring and after each submit. A swallowed Enter adds one copy of
+* the text, the one in the input box. Two or more new copies mean the harness also posted it above
+* the box, so the turn was taken and nothing is flushed. Text still at the bottom with only one new
+* copy is the swallowed Enter, and is flushed as before.
+*/
+async function ringTurn(adapter, exec, target, message, opts = {}) {
+	const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
+	const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
+	const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+	if (!adapter.paneExists(exec, target)) throw new Error(`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy.`);
+	const before = copiesOn(adapter.read(exec, target).text, message);
+	const taken = () => {
+		const screen = adapter.read(exec, target).text;
+		return !isStaged(screen, message) || copiesOn(screen, message) >= before + 2;
+	};
+	adapter.submit(exec, target, message);
+	await sleep(settleMs);
+	if (taken()) return {
+		taken: true,
+		resubmits: 0
+	};
+	for (let attempt = 1; attempt <= attempts; attempt++) {
+		adapter.submit(exec, target);
+		await sleep(settleMs);
+		if (taken()) return {
+			taken: true,
+			resubmits: attempt
+		};
+	}
+	throw new Error(`nudge failed: peer at pane ${target.id} never took the turn — input still staged after ${attempts} re-submit attempts`);
+}
+//#endregion
 //#region src/console/doorbell.ts
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 const DELIVERY_DOORBELL = "You have unread mail — check your inbox.";
@@ -6445,7 +6453,7 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 	try {
 		const adapter = getAdapter();
 		const target = { id: pane };
-		await withDraftGuard(adapter, exec, target, () => nudge(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
 			...guardOpts,
 			harness
 		});
@@ -6480,7 +6488,7 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 	if (input.noWake) return { rung: false };
 	try {
 		const adapter = getAdapter();
-		await withDraftGuard(adapter, exec, input.target, () => nudge(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts), {
+		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts), {
 			...guardOpts,
 			harness: input.harness
 		});
@@ -6956,7 +6964,7 @@ async function nudgeUnit(ctx, ref, options = {}) {
 	const exec = ctx.exec ?? realExec;
 	const message = options.message || "You have unread mail — check your inbox.";
 	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
-	const result = await withDraftGuard(adapter, exec, target, () => nudge(adapter, exec, target, message, options.nudgeOpts), {
+	const result = await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, message, options.nudgeOpts), {
 		...options.guardOpts,
 		harness: agent.harness
 	});
