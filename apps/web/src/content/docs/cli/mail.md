@@ -127,13 +127,14 @@ npx cyberlegion mail hook [--event <event>]
 ```
 
 Emit the harness hook injection payload (raw JSON on stdout, not TOON). `--event` is `SessionStart`
-(default) or `PostToolUse`. This is the command the surfacing hook `init` registers calls on every
-matching harness event; it's rarely invoked by hand.
+(default) or `PostToolUse`. This is the command the surfacing hook calls on every matching harness
+event (the plugin's own hook on Claude Code and Codex, the project hook `init` registers on Cursor).
+It's rarely invoked by hand.
 
 ## Related
 
 - [Mail Model](/cyberlegion/concepts/mail-model/): the address/correlation model and why mail stays
   non-authoritative
 - [CLI: unit](/cyberlegion/cli/unit/): registration is what mints a mailbox
-- [CLI: init](/cyberlegion/cli/init/): registers the hook that calls `mail hook`
+- [CLI: init](/cyberlegion/cli/init/): sets up the hook that calls `mail hook`
 - [Skill: manage-inbox](/cyberlegion/skills/manage-inbox/): the human-facing wrapper for the owner mailbox

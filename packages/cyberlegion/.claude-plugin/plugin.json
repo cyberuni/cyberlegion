@@ -16,5 +16,6 @@
 	"skills": "./skills",
 	"agents": [
 		"./agents/headless-legate.md"
-	]
+	],
+	"hooks": "./hooks/hooks.json"
 }

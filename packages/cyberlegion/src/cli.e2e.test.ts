@@ -988,14 +988,16 @@ describe('spec:cyberlegion/init', () => {
 	it('a malformed --pin is rejected before any hook is registered', () => {
 		const proj = mkdtempSync(join(tmpdir(), 'cl-init-'))
 		// execFileSync throws on a non-zero exit — a rejected pin must fail cleanly, not stack-trace.
-		expect(() => legion(['init', '--agent', 'claude', '--dir', proj, '--pin', '1.2.3 && evil'])).toThrow()
-		expect(existsSync(join(proj, '.claude/settings.json'))).toBe(false)
+		expect(() => legion(['init', '--agent', 'cursor', '--dir', proj, '--pin', '1.2.3 && evil'])).toThrow()
+		expect(existsSync(join(proj, '.cursor/hooks.json'))).toBe(false)
 	})
 
 	it('a --pin that is a version or dist-tag token is accepted', () => {
 		const proj = mkdtempSync(join(tmpdir(), 'cl-init-'))
-		expect(() => legion(['init', '--agent', 'claude', '--dir', proj, '--pin', '0.2.0'])).not.toThrow()
-		const cfg = JSON.parse(readFileSync(join(proj, '.claude/settings.json'), 'utf8'))
-		expect(cfg.hooks.SessionStart[0].hooks[0].command).toBe('npx cyberlegion@0.2.0 mail hook --event SessionStart')
+		expect(() => legion(['init', '--agent', 'cursor', '--dir', proj, '--pin', '0.2.0'])).not.toThrow()
+		const cfg = JSON.parse(readFileSync(join(proj, '.cursor/hooks.json'), 'utf8'))
+		expect(cfg.hooks.sessionStart[0].command).toBe(
+			'if command -v cyberlegion >/dev/null 2>&1; then cyberlegion mail hook --event SessionStart; else npx -y cyberlegion@0.2.0 mail hook --event SessionStart; fi',
+		)
 	})
 })

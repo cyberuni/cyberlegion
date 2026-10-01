@@ -20,7 +20,7 @@ like? — the CLI holds all the *mechanism*.
 > release version flow keeps equal to the shipped package version. Look up the `cyberlegion` key:
 >
 > - **A version is found** → pass it to the hook registration in step 2 as `init --pin <version>`
->   so the installed surfacing hook is pinned to the same shipped version. If you cannot resolve
+>   so a project hook's npx fallback fetches the same shipped version. If you cannot resolve
 >   `scripts/cyberlegion.mjs`, run `npx -y cyberlegion@<version>` in its place, with the same arguments.
 > - **No `pins.json`, no `cyberlegion` key, or a malformed map** (an unbundled workspace checkout) →
 >   pass **no** `--pin`; if you cannot resolve `scripts/cyberlegion.mjs`, fall back to the unpinned
@@ -47,8 +47,8 @@ invent facts the probe did not report.
 node scripts/cyberlegion.mjs init --pin <version>
 ```
 
-Pass `--pin <version>` with the version resolved above so the installed hook is pinned to the shipped
-version; **omit `--pin`** when the map yielded no version.
+Pass `--pin <version>` with the version resolved above so a project hook's npx fallback fetches the
+shipped version; **omit `--pin`** when the map yielded no version.
 
 Auto-detect is the default — no `--agent` flag. Pass `--agent <name>` **only** when `mux doctor` could
 not auto-detect the harness, or the user named one explicitly (it composes with `--pin`):
@@ -58,7 +58,9 @@ node scripts/cyberlegion.mjs init --pin <version> --agent <name>
 ```
 
 This step is **idempotent**: if the hook is already registered, `init` reports `already present` —
-that is a clean no-op, never a duplicate registration and never an error.
+that is a clean no-op, never a duplicate registration and never an error. On Claude Code and Codex the
+plugin ships the hook itself, so `init` reports `provided by plugin` (or `removed project hook` when it
+cleared one an earlier `init` wrote); both mean the hook is set up.
 
 ### 3. Detect root vs spawned — derived, never asked
 

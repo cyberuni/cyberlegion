@@ -80,8 +80,9 @@ is covered by the `@trigger` outline and the routing-defer scenarios.
   bundled `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json`, which maps `cyberlegion` to a version. It never
   invents a version number or scrapes one out of prose.
 - **The resolved pin is threaded into `init --pin`.** When `.plugin/pins.json` carries a `cyberlegion`
-  entry, the skill runs `cyberlegion init --pin <version>` with that version, so the installed hook is
-  version-pinned.
+  entry, the skill runs `cyberlegion init --pin <version>` with that version, so a project hook's npx
+  fallback (Cursor's; Claude Code and Codex get the plugin's own hook, `mail-hook/`) fetches that
+  version.
 - **A missing or unreadable map falls back to the unpinned CLI.** If `.plugin/pins.json` is absent,
   carries no `cyberlegion` entry, or is malformed (an unbundled workspace checkout or a corrupt map),
   the skill invokes the unpinned `cyberlegion` CLI and passes no `--pin` — it never invents a version

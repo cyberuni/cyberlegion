@@ -15,6 +15,7 @@
 			"packagePath": ".",
 			"skills": "./skills",
 			"agents": ["./agents/headless-legate.md"],
+			"hooks": "./hooks/hooks.json",
 			"harnesses": {
 				"claude-code": {},
 				"codex": {}

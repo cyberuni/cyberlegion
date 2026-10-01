@@ -72,7 +72,7 @@ npx cyberlegion mux mode                              # report the detected sess
 ### init — onboarding
 
 ```sh
-npx cyberlegion init                                 # wire the mail-surfacing hook into a harness config
+npx cyberlegion init                                 # set up the mail-surfacing hook for this harness
 ```
 
 ### attach — the human's read-pane

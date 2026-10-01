@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,34 +50,42 @@ function freshProjectDir(): string {
 
 const readCfg = (dir: string, rel: string) => JSON.parse(readFileSync(join(dir, rel), 'utf8'))
 
-describe('init resolves the harness and registers the SessionStart hook', () => {
-	it('auto-detects claude and reports the resolved harness', () => {
+const PATH_FIRST =
+	'if command -v cyberlegion >/dev/null 2>&1; then cyberlegion mail hook --event SessionStart; else npx -y cyberlegion mail hook --event SessionStart; fi'
+
+describe('init resolves the harness and leaves the hook to the plugin where it ships one', () => {
+	it('auto-detects claude, writes no project hook, and reports provided by plugin', () => {
 		const dir = freshProjectDir()
 		const out = legion(['init', '--dir', dir], { CLAUDECODE: '1' })
-		expect(readCfg(dir, '.claude/settings.json').hooks.SessionStart[0].hooks[0].command).toBe(
-			'npx cyberlegion mail hook --event SessionStart',
-		)
+		expect(existsSync(join(dir, '.claude/settings.json'))).toBe(false)
+		expect(out).toContain('provided by plugin')
 		expect(out).toContain('harness claude')
 	})
-})
 
-describe('init registers PostToolUse only where the resolved harness supports it', () => {
-	it('claude gets PostToolUse; cursor does not', () => {
-		const claudeDir = freshProjectDir()
-		legion(['init', '--dir', claudeDir], { CLAUDECODE: '1' })
-		expect(readCfg(claudeDir, '.claude/settings.json').hooks.PostToolUse).toBeDefined()
+	it('codex reports SessionStart and PostToolUse as provided by plugin', () => {
+		const dir = freshProjectDir()
+		const out = JSON.parse(legion(['init', '--agent', 'codex', '--dir', dir, '--format', 'json']))
+		expect(out.hooks.map((h: { event: string; status: string }) => [h.event, h.status])).toEqual([
+			['SessionStart', 'provided by plugin'],
+			['PostToolUse', 'provided by plugin'],
+		])
+		expect(existsSync(join(dir, '.codex/hooks.json'))).toBe(false)
+	})
 
-		const cursorDir = freshProjectDir()
-		legion(['init', '--dir', cursorDir], { CURSOR_TRACE_ID: '1' })
-		expect(readCfg(cursorDir, '.cursor/hooks.json').hooks.PostToolUse).toBeUndefined()
+	it('auto-detects cursor and registers the PATH-first SessionStart hook, with no PostToolUse', () => {
+		const dir = freshProjectDir()
+		legion(['init', '--dir', dir], { CURSOR_TRACE_ID: '1' })
+		const cfg = readCfg(dir, '.cursor/hooks.json')
+		expect(cfg.hooks.sessionStart[0].command).toBe(PATH_FIRST)
+		expect(cfg.hooks.PostToolUse).toBeUndefined()
 	})
 })
 
 describe('init installs into the directory named by --dir', () => {
 	it('writes into the target directory, not the current one', () => {
 		const target = freshProjectDir()
-		legion(['init', '--agent', 'claude', '--dir', target])
-		expect(existsSync(join(target, '.claude/settings.json'))).toBe(true)
+		legion(['init', '--agent', 'cursor', '--dir', target])
+		expect(existsSync(join(target, '.cursor/hooks.json'))).toBe(true)
 	})
 })
 
@@ -145,9 +153,32 @@ describe('init never mints an owner or binds a pane itself', () => {
 describe('re-running init does not duplicate the hook entry', () => {
 	it('reports already present on the second run', () => {
 		const dir = freshProjectDir()
-		legion(['init', '--agent', 'claude', '--dir', dir])
-		const second = legion(['init', '--agent', 'claude', '--dir', dir])
+		legion(['init', '--agent', 'cursor', '--dir', dir])
+		const second = legion(['init', '--agent', 'cursor', '--dir', dir])
 		expect(second).toContain('already present')
-		expect(readCfg(dir, '.claude/settings.json').hooks.SessionStart).toHaveLength(1)
+		expect(readCfg(dir, '.cursor/hooks.json').hooks.sessionStart).toHaveLength(1)
+	})
+})
+
+describe('init removes a project hook an earlier init wrote where the plugin ships the hook', () => {
+	it('drops the earlier claude entry, keeps an unrelated hook, and reports removed project hook', () => {
+		const dir = freshProjectDir()
+		mkdirSync(join(dir, '.claude'))
+		writeFileSync(
+			join(dir, '.claude/settings.json'),
+			JSON.stringify({
+				hooks: {
+					SessionStart: [
+						{ hooks: [{ type: 'command', command: 'npx cyberlegion@0.2.0 mail hook --event SessionStart' }] },
+						{ hooks: [{ type: 'command', command: 'echo unrelated' }] },
+					],
+				},
+			}),
+		)
+		const out = legion(['init', '--agent', 'claude', '--dir', dir])
+		expect(out).toContain('removed project hook')
+		expect(readCfg(dir, '.claude/settings.json').hooks.SessionStart).toEqual([
+			{ hooks: [{ type: 'command', command: 'echo unrelated' }] },
+		])
 	})
 })

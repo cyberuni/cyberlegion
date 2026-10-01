@@ -24,16 +24,26 @@ which harness it runs under:
 - **init resolves the harness and registers the surfacing hook** — `cyberlegion init [--agent
   claude|cursor|codex] [--dir <path>] [--pin <version>]` resolves the harness — an explicit `--agent`
   (validated against `claude | cursor | codex`, throwing on anything else) always wins; absent it, the
-  same layered harness detection `unit register` uses auto-detects it — and registers the SessionStart
-  hook (plus PostToolUse where the harness supports it) into that harness's project-local config under
-  `--dir` (default the current directory), through the shared idempotent installer. The registered
-  command is the **npx** form — `npx cyberlegion@<version> mail hook --event <event>` when `--pin`
-  supplies the project's declared version (the version is **injected**, not read from the running
-  binary, so it matches the bundled plugin's pin), or the unpinned `npx cyberlegion mail hook
-  --event <event>` when no `--pin` is given. A supplied `--pin` is **validated** as a single npm
-  version-or-dist-tag token before it is embedded — a malformed pin (empty, whitespace, a range, or a
-  shell metacharacter) is rejected and no hook is registered. It reports each registration as
-  `registered` or `already present`.
+  same layered harness detection `unit register` uses auto-detects it — and makes sure the surfacing
+  hook fires with **the CLI the session was installed with**, never one npx resolves from the registry
+  at run time (#65, #69). What that takes depends on the harness:
+  - **claude, codex — the plugin ships the hook.** The plugin's own `hooks/hooks.json` runs `node
+    "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event <event>` for SessionStart and
+    PostToolUse. `${CLAUDE_PLUGIN_ROOT}` is the installed plugin copy (Codex sets it too, for
+    compatibility), and `dist/cli.mjs` is committed, so the hook runs offline at exactly the enabled
+    version. `init` therefore writes **no** project hook for these harnesses and reports each event as
+    `provided by plugin`; a project hook an earlier `init` wrote is **removed** (reported `removed
+    project hook`), otherwise the hook would fire twice. It creates no config file that did not exist.
+  - **cursor — a PATH-first project hook.** Cursor's plugin is not built by this package, so `init`
+    registers into `.cursor/hooks.json` `if command -v cyberlegion >/dev/null 2>&1; then cyberlegion
+    mail hook --event <event>; else npx -y cyberlegion[@<pin>] mail hook --event <event>; fi`. A
+    `cyberlegion` on PATH (a spawned unit's shim, or a deliberate install) wins; the npx fallback runs
+    only when there is none. `if/then/else`, not `&& … ||`, so a failing PATH run never also runs npx.
+  `--pin` fixes only the version the npx fallback fetches (the `init-cyberlegion` skill passes the
+  plugin's `.plugin/pins.json` version, which the release version flow keeps current). It is
+  **validated** as a single npm version-or-dist-tag token before it is embedded — a malformed pin
+  (empty, whitespace, a range, or a shell metacharacter) is rejected and no hook is registered. Each
+  event is reported as `registered`, `already present`, `provided by plugin`, or `removed project hook`.
 - **init auto-detects; installation is otherwise explicit** — `init` adds auto-detection and an
   owner-binding next-step for onboarding, on top of the low-level installer (see the TODO above for
   where that installer's own pending scenarios currently live). `init` never chooses a harness by
@@ -46,9 +56,12 @@ which harness it runs under:
   advises the binding step (which the human confirms).
 - **init is idempotent** — re-running `init` for an already-installed project re-reports `already
   present` for each hook rather than duplicating an entry, exactly as the underlying installer does.
-  Matching is by the dedicated `mail hook --event <event>` command, not the exact string, so an
-  existing **legacy bare** `cyberlegion mail hook …` entry is **rewritten in place** to the npx form
-  rather than duplicated.
+  Matching is by the dedicated `mail hook --event <event>` command run through `cyberlegion`, not the
+  exact string, so every earlier generation — legacy bare `cyberlegion mail hook …`, unpinned or
+  pinned `npx cyberlegion[@<v>] mail hook …`, and the PATH-first form at another pin — is recognised:
+  rewritten in place for cursor, removed for a plugin-hook harness. Each generation is matched as the
+  whole command, so a hook that is not one of them (a user's wrapper that calls cyberlegion, say) is
+  never touched.
 
 **Non-goals** — the hook injection payload and owner-mail surfacing gate (`mail/surface`);
 multiplexer/harness self-diagnosis via `mux doctor` (`mux/`); minting the standing owner inbox and
@@ -61,7 +74,8 @@ Every scenario in [`init.feature`](./init.feature) maps to one of these behavior
 
 | Behavior | What it covers |
 |---|---|
-| **resolve + register** | auto-detect harness (or `--agent`) and register the SessionStart (+ PostToolUse where supported) hook via the shared installer |
+| **resolve + register** | auto-detect harness (or `--agent`); leave the hook to the plugin for claude/codex, register the PATH-first SessionStart hook for cursor |
+| **pin** | `--pin` pins only cursor's npx fallback; a malformed pin is rejected before anything is written |
 | **auto-detect vs explicit** | `--agent` overrides + is validated; undetectable with no `--agent` throws asking for it, never guesses |
 | **owner-binding next-step** | emits a bind-owner next-step only when no standing owner exists |
-| **idempotent** | re-run reports `already present`, never a duplicate entry |
+| **idempotent + upgrade** | re-run reports `already present`, rewrites an older cursor generation in place, removes an earlier project hook where the plugin ships it |
