@@ -29,7 +29,8 @@ Scoped by **role**, not by the subagent backend. A cold one-shot takes no mid-ru
 land as turns — so they are orders. That is the whole of this skill's rule: **which role has an order
 channel at all**.
 
-What a message on that channel may **carry** is `relay-governance`'s ownership-chain rule — the four
-parts, what their presence does and does not buy, attenuation, spent-once, and the two limits. An
+What a message on that channel may **carry** is `relay-governance`'s ownership-chain rule — a
+decision only when it answers the unit's own decision request, scoped by that request; attenuation,
+spent-once, and the two limits. An
 owner's mid-turn message into a unit it is running *is* that case, so this skill **references** that
 rule and restates none of it.
