@@ -6862,6 +6862,20 @@ function resetCommandFor(harness) {
 	if (FALSE_FRIEND_HARNESSES.has(harness)) throw new Error(`"${harness}" has no honest fresh-context command — its own "/clear" clears only the terminal screen, not the model context, so unit clear refuses to send a false-friend reset that would leave stale context behind`);
 	throw new Error(`"${harness}" is not in the reset map (${Object.keys(RESET_MAP).join(" | ")}) — unit clear refuses to guess a command`);
 }
+/** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
+* rather than from the process cwd. */
+function primaryRootOfRepo(exec, repo) {
+	const dir = resolve(repo);
+	try {
+		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === "git" ? [
+			"-C",
+			dir,
+			...args
+		] : args));
+	} catch {
+		throw new Error(`--repo ${repo} is not inside a git repository`);
+	}
+}
 /**
 * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
 * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
@@ -6885,9 +6899,9 @@ function spawn(ctx, input) {
 	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`spawn needs a --harness in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")})`);
 	const brief = resolveBrief(input);
 	if (brief == null) throw new Error("spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>");
-	if (input.cwd && (input.branch || input.worktreePath)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path");
+	if (input.cwd && (input.branch || input.worktreePath || input.repo)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo");
 	const id = randomId();
-	const primaryRoot = resolvePrimaryRoot(exec);
+	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
 	const launchLine = () => composeLaunchLine(ctx, sessionAdapter.name, id, launch);
 	const from = callerPane(sessionAdapter, normalizedEnv);
@@ -7510,6 +7524,7 @@ function spawnCommandInput(opts, listCursorModels) {
 			branch: opts.branch,
 			worktreePath: opts.worktreePath,
 			cwd: opts.cwd,
+			repo: opts.repo,
 			at: opts.at
 		},
 		noWake: opts.wake === false,
@@ -9342,7 +9357,7 @@ function warnEffortNotApplied(spawnInput) {
 }
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd) {
-	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
+	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("-C, --repo <path>", "create the worktree from the git repository containing <path>, not the current directory's").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
 		"pane:right",
 		"pane:down",
 		"tab",
