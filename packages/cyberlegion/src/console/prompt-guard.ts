@@ -126,6 +126,11 @@ const KILL_LINE = '\u0015'
 export interface DraftGuardOptions {
 	/** The target pane's harness, when known; picks the input-box shape to read. */
 	harness?: string | undefined
+	/**
+	 * Recognizes text the caller itself typed earlier — a doorbell a harness put back in its input box
+	 * after taking the turn. Such text is no human's draft: it is cleared at once and never typed back.
+	 */
+	ownText?: ((text: string) => boolean) | undefined
 	idleMs?: number | undefined
 	maxWaitMs?: number | undefined
 	pollMs?: number | undefined
@@ -147,6 +152,9 @@ type Keyboard = Pick<MuxAdapter, 'read' | 'sendText'>
  * - A draft that keeps changing past `maxWaitMs` (60s), or an idle draft spanning more than one row,
  *   throws without sending. A multi-row draft cannot be typed back exactly: a scrape cannot tell a
  *   wrapped row from a newline, and a newline typed back would submit it.
+ *
+ * Text `ownText` recognizes is the caller's own, not a draft: it is cleared at once, whatever rows it
+ * wraps onto, `send` runs, and nothing is typed back.
  *
  * Text the clear leaves in place was never a draft — an idle placeholder this reader does not know —
  * so `send` runs and nothing is typed back.
@@ -171,10 +179,12 @@ export async function withDraftGuard<T>(
 		}
 	}
 
+	const isOwn = (s: PromptState): boolean => s.kind === 'draft' && options.ownText?.(s.text) === true
+
 	let state = read()
 	const start = now()
 	let changedAt = start
-	while (state.kind === 'draft' && now() - changedAt < idleMs) {
+	while (state.kind === 'draft' && !isOwn(state) && now() - changedAt < idleMs) {
 		if (now() - start + pollMs > maxWaitMs) {
 			throw new Error(
 				`pane ${target.id} holds a draft the user is still editing — gave up after ${maxWaitMs / 1000}s without typing`,
@@ -186,6 +196,10 @@ export async function withDraftGuard<T>(
 		state = next
 	}
 	if (state.kind !== 'draft') return send()
+	if (isOwn(state)) {
+		await clearLine(adapter, exec, target, sleep)
+		return send()
+	}
 
 	if (state.rows > 1) {
 		throw new Error(
@@ -193,10 +207,7 @@ export async function withDraftGuard<T>(
 		)
 	}
 	const draft = state.text
-	adapter.sendText(exec, target, END_OF_LINE)
-	await sleep(KEY_SETTLE_MS)
-	adapter.sendText(exec, target, KILL_LINE)
-	await sleep(KEY_SETTLE_MS)
+	await clearLine(adapter, exec, target, sleep)
 	const after = read()
 	if (after.kind === 'draft' && after.text === draft) return send()
 	try {
@@ -205,4 +216,16 @@ export async function withDraftGuard<T>(
 		await sleep(KEY_SETTLE_MS)
 		adapter.sendText(exec, target, draft)
 	}
+}
+
+async function clearLine(
+	adapter: Keyboard,
+	exec: Exec,
+	target: MuxTarget,
+	sleep: (ms: number) => Promise<void>,
+): Promise<void> {
+	adapter.sendText(exec, target, END_OF_LINE)
+	await sleep(KEY_SETTLE_MS)
+	adapter.sendText(exec, target, KILL_LINE)
+	await sleep(KEY_SETTLE_MS)
 }

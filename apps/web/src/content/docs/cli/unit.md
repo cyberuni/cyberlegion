@@ -80,7 +80,7 @@ Mark dead units exited and sweep. Output: a `pruned` table (`id`, `handle`).
 ## spawn
 
 ```sh
-npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
+npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [-C, --repo <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
 ```
 
 Launch a new peer session in its own git worktree (tmux or herdr), or into an existing directory
@@ -98,7 +98,8 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | `--handle <name>` | handle for the new peer |
 | `--branch <name>` | branch for the new worktree (default `cyberlegion/unit-<id>`) |
 | `--worktree-path <path>` | where to check out the new worktree |
-| `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`) |
+| `-C, --repo <path>` | create the worktree from the git repository containing `<path>`, not the current directory's — spawn for another repository without `cd`; the default `--worktree-path` sits beside that repository's primary checkout |
+| `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`/`--repo`) |
 | `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`); see [Placement](/cyberlegion/concepts/architecture/#placement-is-a-concept-not-a-backend-command) |
 | `--no-wake` | suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself) |
 
@@ -212,22 +213,29 @@ service record (it has no runtime) and the caller's own session.
 ## restart
 
 ```sh
-npx cyberlegion unit restart <ref> [--no-wake]
+npx cyberlegion unit restart <ref> [--no-wake] [--fresh]
 ```
 
-Give a unit a fresh session and keep the unit. `restart` first stops a session that is still
+Give a unit a new session and keep the unit. `restart` first stops a session that is still
 running, using the same verified stop. It then opens a new session at the unit's cwd with the
 launch command the unit was spawned with (the harness default for older records). It binds the
-record to the new pane and rings the session to read its brief. A unit with a worktree opens in its
-own workspace. A `--cwd` unit opens in a tab.
+record to the new pane and rings the session. A unit with a worktree opens in its own workspace.
+A `--cwd` unit opens in a tab.
 
 | Option | Meaning |
 |---|---|
 | `--no-wake` | do not ring the new session; the caller briefs it by mail |
+| `--fresh` | start an empty session and rebrief it, even when the conversation could be resumed |
 
-Output: `restarted` (id), `previous` (pane), `pane`, `rung`. A restarted session always starts
-with an empty context: it is rebriefed from its brief file, and its pending mail is still in its
-inbox. If the new session cannot be opened, the unit is left `stopped`, and running `restart`
+Output: `restarted` (id), `previous` (pane), `pane`, `resumed`, `rung`.
+
+A claude or codex unit resumes its last conversation. The harness's SessionStart hook (the plugin's,
+or the one `init` installs) records the harness's session id on the unit each time a session starts
+in its pane, and `restart` relaunches with `claude --resume <id>` or `codex resume <id>`. The ring then
+tells the session to continue its work. If the harness rejects the id, the plain launch command runs
+instead. A cursor unit, a unit with no recorded session, a unit launched through a wrapper command, or
+`--fresh` gets an empty session: it is rebriefed from its brief file. Either way its pending mail is
+still in its inbox. If the new session cannot be opened, the unit is left `stopped`, and running `restart`
 again recovers it. `restart` refuses a unit whose cwd is gone, because that unit needs replacing.
 
 ## rebind
@@ -273,8 +281,8 @@ existing cwd, and `rebind` a `stopped`, `exited`, or `gone` runtime.
 | herdr | closes the pane, then verifies with the pane list | opens a fresh workspace or tab at the unit's cwd | from inside a herdr pane |
 | no multiplexer | no pane to stop; the record is marked stopped | refused, because no backend can open a session | refused, because there is no pane to bind |
 
-No harness resumes its prior conversation through these verbs. Every restart is a fresh session
-plus a rebrief. A unit whose worktree or cwd is gone needs a new unit (`spawn`) and a new brief.
+A claude or codex unit with a recorded conversation resumes it on restart. Every other restart is
+a fresh session plus a rebrief. A unit whose worktree or cwd is gone needs a new unit (`spawn`) and a new brief.
 
 ## focus
 

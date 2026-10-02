@@ -21,6 +21,37 @@ export function spawnDoorbell(briefPath: string): string {
 	return `Read your brief at ${briefPath}, then begin work.`
 }
 
+const SPAWN_DOORBELL = /^Readyourbriefat.+,thenbeginwork\.$/
+const RESUME_DOORBELL =
+	/^Yoursessionwasrestartedwithitsconversationresumed—continueyourwork\.Ifyouhavenoearlierconversation,readyourbriefat.+,thenbeginwork\.$/
+
+/**
+ * Whether `text`, read out of a peer's input box, is a ring cyberlegion typed — the delivery doorbell,
+ * a spawn or resume doorbell, or `message`, the one about to be rung — rather than a human's draft. A harness
+ * can take a ring and put its text back in the box (cursor-agent with a rejected login). Whitespace is
+ * ignored, since the box wraps the text onto rows wherever it likes.
+ */
+export function isRingText(text: string, message?: string): boolean {
+	const squeeze = (s: string) => s.replace(/\s+/g, '')
+	const box = squeeze(text)
+	if (box === '') return false
+	return (
+		box === squeeze(DELIVERY_DOORBELL) ||
+		SPAWN_DOORBELL.test(box) ||
+		RESUME_DOORBELL.test(box) ||
+		(message !== undefined && box === squeeze(message))
+	)
+}
+
+/**
+ * The first-turn instruction for a restarted session that resumed its conversation. The resume can
+ * fall back to a fresh session (the harness no longer has the conversation), and the ring cannot tell
+ * which one took the turn, so it names the brief for a session that finds no earlier conversation.
+ */
+export function resumeDoorbell(briefPath: string): string {
+	return `Your session was restarted with its conversation resumed — continue your work. If you have no earlier conversation, read your brief at ${briefPath}, then begin work.`
+}
+
 /**
  * A freshly-launched harness cold-boots slower than an already-running peer, so the spawn first-turn
  * ring gets a wider retry budget than a plain `mail send` doorbell (nudge's own 10 × 400ms): flush the
@@ -128,6 +159,7 @@ export async function wakeRecipient(
 		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
 			...guardOpts,
 			harness,
+			ownText: (text) => isRingText(text),
 		})
 		return { rung: true, pane }
 	} catch (err) {
@@ -143,6 +175,8 @@ export interface WakeSpawnInput {
 	briefPath: string
 	/** Suppress the first-turn doorbell entirely (`unit spawn --no-wake`). */
 	noWake?: boolean
+	/** The session resumed its conversation (`unit restart`), so it is told to continue, not to start. */
+	resumed?: boolean
 	/** The peer's harness, so the draft guard reads its input box with the right shape. */
 	harness?: string
 }
@@ -172,12 +206,13 @@ export async function wakeSpawn(
 	if (input.noWake) return { rung: false }
 	try {
 		const adapter = getAdapter()
+		const doorbell = (input.resumed ? resumeDoorbell : spawnDoorbell)(input.briefPath)
 		await withDraftGuard(
 			adapter,
 			exec,
 			input.target,
-			() => ringTurn(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts),
-			{ ...guardOpts, harness: input.harness },
+			() => ringTurn(adapter, exec, input.target, doorbell, nudgeOpts),
+			{ ...guardOpts, harness: input.harness, ownText: (text) => isRingText(text) },
 		)
 		return { rung: true, pane: input.target.id }
 	} catch (err) {

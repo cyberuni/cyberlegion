@@ -5,7 +5,7 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs\" mail hook --event SessionStart"
+						"command": "if [ -x \"$CYBERLEGION_CLI\" ]; then \"$CYBERLEGION_CLI\" mail hook --event SessionStart; else node \"${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs\" mail hook --event SessionStart; fi"
 					}
 				]
 			}

@@ -21,7 +21,7 @@ import {
 } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
-import { composeLaunchLine, LAUNCH_MAP, resetCommandFor } from './session.ts'
+import { composeLaunchLine, LAUNCH_MAP, resetCommandFor, resumeLaunch } from './session.ts'
 import { deriveWorkspaceLabel } from './workspace-label.ts'
 
 // A unit's RUNTIME — the harness session in a multiplexer pane — apart from the unit itself (id,
@@ -128,6 +128,8 @@ export interface RestartResult {
 	previousPane?: string
 	pane: string
 	launch: string
+	/** The new session was launched to resume the unit's recorded conversation. */
+	resumed: boolean
 	rung: boolean
 	warning?: string
 }
@@ -135,8 +137,11 @@ export interface RestartResult {
 /**
  * Give a unit a fresh runtime and keep the unit: stop a still-running session (the same verified stop
  * as `stopUnit`), open a new session at the unit's cwd with the launch it was spawned with, bind the
- * record to the new pane, and ring it to read its brief — a rebrief, since a new session starts with
- * an empty context. Every refusal runs before anything is torn down.
+ * record to the new pane, and ring it. When the record carries the harness's conversation id and the
+ * harness can resume by id, the session resumes that conversation and is rung to continue, with the
+ * plain launch as a shell fallback should the harness reject the id; otherwise (or with `fresh`) it
+ * starts empty and is rung to read its brief — a rebrief. Every refusal runs before anything is torn
+ * down.
  *
  * The unit is recorded `stopped` before the open, so a restart interrupted between the two leaves an
  * ordinary stopped unit and a rerun recovers it; nothing needs a separate repair path.
@@ -144,7 +149,7 @@ export interface RestartResult {
 export async function restartUnit(
 	ctx: RuntimeContext,
 	ref: string,
-	options: { noWake?: boolean; nudgeOpts?: NudgeOptions } = {},
+	options: { noWake?: boolean; fresh?: boolean; nudgeOpts?: NudgeOptions } = {},
 ): Promise<RestartResult> {
 	const rec = resolveAgent(ctx.store, ref)
 	assertHasRuntime(rec, ref)
@@ -170,6 +175,8 @@ export async function restartUnit(
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
 	const launch = stopped.launch ?? LAUNCH_MAP[harness]
+	const resume =
+		stopped.conversation && !options.fresh ? resumeLaunch(harness, launch, stopped.conversation) : undefined
 	// Same placement rule as spawn: a unit with its own worktree gets its own visible space; a --cwd
 	// unit lives in a tab of the caller's current space.
 	const at: MuxPlacement = stopped.worktree ? 'workspace' : 'tab'
@@ -183,7 +190,9 @@ export async function restartUnit(
 				: {}
 		target = adapter.open(exec, {
 			cwd: stopped.cwd,
-			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch),
+			launch: resume
+				? composeLaunchLine(ctx, adapter.name, rec.id, resume, { bindSelf: true, fallback: launch })
+				: composeLaunchLine(ctx, adapter.name, rec.id, launch, { bindSelf: true }),
 			at,
 			from: callerPane(adapter, normalizeMuxEnv(env)),
 			...label,
@@ -209,7 +218,7 @@ export async function restartUnit(
 	const wake = await wakeSpawn(
 		() => adapter,
 		exec,
-		{ target, briefPath: briefPath ?? '', noWake: options.noWake || !briefPath },
+		{ target, briefPath: briefPath ?? '', noWake: options.noWake || !briefPath, resumed: !!resume },
 		options.nudgeOpts,
 	)
 	return {
@@ -217,6 +226,7 @@ export async function restartUnit(
 		...(previousPane ? { previousPane } : {}),
 		pane: target.id,
 		launch,
+		resumed: !!resume,
 		rung: wake.rung,
 		...(wake.warning ? { warning: wake.warning } : {}),
 	}
@@ -348,4 +358,25 @@ export function showUnit(ctx: RuntimeContext, ref: string): RuntimeView {
 		lastSeen: rec.lastSeen,
 		controls: controlsFor(ctx, rec, liveness),
 	}
+}
+
+/**
+ * Record the harness's conversation id on the calling unit, from the JSON its SessionStart hook hands
+ * `mail hook` on stdin (`session_id`, which Claude Code and Codex both send). The hook fires on every
+ * session start in the pane — a fresh start, a resume, a `/clear` — so the record follows the
+ * conversation the pane is in now. Best-effort and silent: an unparseable input, no id, or a caller
+ * that is not a unit records nothing and never fails the harness hook.
+ */
+export function recordConversation(ctx: IdContext, hookInput: string): void {
+	let id: unknown
+	try {
+		id = (JSON.parse(hookInput) as { session_id?: unknown })?.session_id
+	} catch {
+		return
+	}
+	if (typeof id !== 'string' || id === '') return
+	const meId = resolveSelfId(ctx)
+	const rec = meId ? loadAgent(ctx.store, meId) : undefined
+	if (!rec || rec.kind === 'standing' || rec.kind === 'service' || rec.conversation === id) return
+	saveAgent(ctx.store, { ...rec, conversation: id })
 }

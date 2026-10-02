@@ -191,6 +191,13 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     When a caller runs unit restart <id>
     Then the unit's record has status active and the new pane
 
+  Scenario: a restart that dies after the open leaves the new session bound to the unit
+    Given a registered unit with status stopped
+    And a restart whose caller dies after the new session opens and before it binds the record
+    When the new session's launch line runs in its pane
+    Then the unit's record has status active and the new pane
+    And the pane pointer for the new pane names the unit
+
   Scenario: restart opens nothing when the running session's stop does not take effect
     Given a registered unit with a live session pane
     And a backend that still lists that pane after the teardown
@@ -241,6 +248,82 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     Then the command exits non-zero with an error naming "no-such-unit"
     And that unit's session pane is not torn down
     And no new session is opened
+
+  # ── unit restart: resuming the harness's conversation ──
+
+  Scenario: restart resumes a claude unit's recorded conversation
+    Given a stopped claude unit whose record carries the launch command "claude --model opus"
+    And the unit's record carries the conversation id "c-1"
+    When a caller runs unit restart <id>
+    Then the new session's launch line runs "claude --model opus --resume 'c-1'"
+    And the launch line falls back to running "claude --model opus" when the resume exits non-zero
+    And the result reports the restart as resumed
+
+  Scenario: restart resumes a codex unit's recorded conversation
+    Given a stopped codex unit whose record carries the launch command "codex"
+    And the unit's record carries the conversation id "c-1"
+    When a caller runs unit restart <id>
+    Then the new session's launch line runs "codex resume 'c-1'"
+    And the launch line falls back to running "codex" when the resume exits non-zero
+
+  Scenario: restart rebriefs a fresh session when no conversation was recorded
+    Given a stopped claude unit whose record carries no conversation id
+    And the unit has a stored brief
+    When a caller runs unit restart <id>
+    Then the new session's launch line carries no resume flag
+    And the doorbell submitted to the new pane is the spawn doorbell naming the unit's brief file path
+    And the result reports the restart as not resumed
+
+  Scenario: restart rebriefs a cursor unit even with a recorded conversation
+    Given a stopped cursor unit whose record carries the conversation id "c-1"
+    When a caller runs unit restart <id>
+    Then the new session's launch line does not name "c-1"
+    And the result reports the restart as not resumed
+
+  Scenario: restart resumes nothing when the recorded launch is not the harness's own command
+    Given a stopped claude unit whose record carries the launch command "my-claude-wrapper"
+    And the unit's record carries the conversation id "c-1"
+    When a caller runs unit restart <id>
+    Then the new session's launch line does not name "c-1"
+    And the result reports the restart as not resumed
+
+  Scenario: restart --fresh starts a fresh session despite a recorded conversation
+    Given a stopped claude unit whose record carries the conversation id "c-1"
+    When a caller runs unit restart <id> --fresh
+    Then the new session's launch line does not name "c-1"
+    And the result reports the restart as not resumed
+
+  Scenario: a resumed restart rings the session to continue, naming its brief
+    Given a stopped claude unit whose record carries the conversation id "c-1"
+    And the unit has a stored brief
+    When a caller runs unit restart <id>
+    Then one doorbell is submitted to the new pane
+    And the doorbell tells the session to continue its work
+    And the doorbell names the unit's brief file path
+
+  Scenario: a resume the harness rejects falls back to a fresh session
+    Given a stopped claude unit whose record carries the launch command "claude"
+    And the unit's record carries the conversation id "c-1"
+    And a claude command that exits non-zero on every resume
+    When a caller runs unit restart <id>
+    And the new session's launch line runs
+    Then claude runs first with "--resume c-1"
+    And claude runs second with no arguments
+
+  Scenario: the session-start hook records the harness's conversation id on the calling unit
+    Given a registered unit bound to the calling pane
+    When the harness's SessionStart hook runs mail hook with the input {"session_id":"c-2"}
+    Then the unit's record carries the conversation id "c-2"
+
+  Scenario: a session-start hook input with no conversation id records nothing
+    Given a registered unit bound to the calling pane whose record carries the conversation id "c-1"
+    When the hook runs mail hook with an empty input, an input that is not JSON, and an input with no session_id
+    Then the unit's record is unchanged
+
+  Scenario: the session-start hook records the harness's conversation id from its stdin
+    Given a claude unit registered in the calling pane
+    When the CLI runs mail hook --event SessionStart with {"session_id":"c-7"} on its stdin
+    Then the unit's record carries the conversation id "c-7"
 
   # ── unit rebind ──
 

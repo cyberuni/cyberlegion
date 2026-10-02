@@ -246,6 +246,22 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And its directory name is legion- followed by the unit's 6-character short id
     And that path is not nested inside the primary checkout
 
+  Scenario: --repo creates the worktree from the repository containing the path it names, not the caller's
+    Given a caller whose current directory is in one repository
+    And it runs unit spawn --repo <a path inside a second repository> with no --worktree-path
+    When unit spawn runs
+    Then the worktree is added against the second repository's primary checkout
+    And it is created under a sibling directory of that primary checkout named <its own directory name>.worktrees
+    And the peer's record carries that primary checkout as its repository's
+
+  Scenario: --repo naming a path outside any git repository errors before anything is created
+    Given a caller running unit spawn --repo <a directory that is in no git repository>
+    When unit spawn runs
+    Then it throws that the --repo path is not inside a git repository
+    And no worktree is created
+    And no session is opened
+    And no unit is registered
+
   Scenario: a spawn with no --branch creates the worktree on a branch named for the unit
     Given a caller running unit spawn with no --branch (creating a new worktree)
     When unit spawn runs
@@ -388,7 +404,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And no unit is registered
 
   Scenario: --cwd is mutually exclusive with the worktree-creating flags
-    Given a caller running unit spawn --cwd <dir> together with --worktree-path or --branch
+    Given a caller running unit spawn --cwd <dir> together with --worktree-path, --branch, or --repo
     When unit spawn runs
     Then it throws that --cwd cannot combine with worktree-creating flags
     And no worktree is created
@@ -401,12 +417,15 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # re-invokes the caller's own CLI — the same node, loader flags and entry file — and puts that dir
   # first on the launched session's PATH. The brief's command works as written, and the version a
   # unit reports through is the one that spawned it, never one resolved from the registry later.
+  # The launch also names the shim in CYBERLEGION_CLI, for a caller that runs outside that PATH
+  # lookup — the plugin's SessionStart hook — and cannot tell the shim from a stale global install.
 
   Scenario: spawn puts a cyberlegion command on the new session's PATH that re-invokes the caller's own CLI
     Given a caller running unit spawn --harness claude --task "report back" from an installed cyberlegion
     When unit spawn runs
     Then the unit's data dir holds an executable cyberlegion shim that runs the caller's own CLI entry with the arguments it is given
     And the typed launch command puts that shim's directory first on PATH
+    And the typed launch command sets CYBERLEGION_CLI to that shim's path
 
   Scenario: the shim is on disk before the session opens
     Given a caller running unit spawn --harness claude --task "report back" from an installed cyberlegion
