@@ -1,5 +1,17 @@
 # cyberlegion
 
+## 1.2.0
+
+### Minor Changes
+
+- 9523925: Drop the PostToolUse mail hook. The plugin's `hooks/hooks.json` now fires on SessionStart only, and `mail hook` rejects `--event PostToolUse`. The hook re-injected every unread message on every Write/Edit, which cost more than the mid-turn latency it saved: the `mail send` doorbell already rings a busy unit's pane. `cyberlegion init` removes a PostToolUse project hook an earlier `init` wrote for Claude Code or Codex, so re-run it if your project config still has one.
+
+### Patch Changes
+
+- 8747331: `unit close` now removes a unit's worktree whatever directory it is run from. It found the repository from the caller's directory, so a close run from another repository asked the wrong repository to remove the worktree and aborted. The repository now comes from the worktree itself, and `unit spawn` records it on the unit, so a close whose worktree directory is already gone runs `git worktree prune` there and clears the registration git kept.
+- 12aa36d: `mail hook` no longer appends a `## Legion setup` nudge to a root session's payload. It fired in every root session on a hub whose owner is a claimed presence rather than a bound main pane, and it named `cyberlegion init` for a pane binding `init` does not do. The payload now carries only the caller's own unread mail and the standing owners' unread mail; onboarding stays with the `init-cyberlegion` skill.
+- 69b3475: `unit prune` no longer exits a unit whose pane is still live just because its last-seen is more than 15 minutes old — a unit working without calling the CLI, or idle at its prompt, keeps its handle. The staleness timer now applies only to records with no pane. When a pane's multiplexer cannot be queried, `prune` (and `who --reconcile`) leaves the record alone rather than reaping a possibly live unit.
+
 ## 1.1.0
 
 ### Minor Changes
