@@ -7043,8 +7043,17 @@ function labelFor(at, input, brief, id) {
 * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
 */
 function composeLaunchLine(ctx, muxName, id, launch) {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
-	return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
+	return `${shim ? shimEnvPrefix(shim) : ""}${muxEnvPrefix(muxName)}${launch}`;
+}
+/**
+* Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+* itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+* cannot tell this shim from a stale global install), so it reads the variable instead: set only
+* here, it marks a spawned session and names the CLI that spawned it.
+*/
+function shimEnvPrefix(shim) {
+	return `PATH=${shellQuote$1(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote$1(shim)} `;
 }
 /**
 * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
@@ -7073,7 +7082,7 @@ function selfInvocation() {
 }
 /**
 * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
-* and return its directory. A spawned session gets that directory first on its PATH, so the
+* and return its path. A spawned session gets that directory first on its PATH, so the
 * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
 * the registry or the session's own PATH at report time.
 */
@@ -7083,7 +7092,7 @@ function writeSelfShim(dataDir, self) {
 	const shim = join(dir, "cyberlegion");
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote$1).join(" ")} "$@"\n`);
 	chmodSync(shim, 493);
-	return dir;
+	return shim;
 }
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
 function shellQuote$1(s) {

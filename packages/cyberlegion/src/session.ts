@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
@@ -334,8 +334,18 @@ export function labelFor(
  * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
  */
 export function composeLaunchLine(ctx: IdContext, muxName: string, id: string, launch: string): string {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
-	return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
+	return `${shim ? shimEnvPrefix(shim) : ''}${muxEnvPrefix(muxName)}${launch}`
+}
+
+/**
+ * Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+ * itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+ * cannot tell this shim from a stale global install), so it reads the variable instead: set only
+ * here, it marks a spawned session and names the CLI that spawned it.
+ */
+function shimEnvPrefix(shim: string): string {
+	return `PATH=${shellQuote(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote(shim)} `
 }
 
 /**
@@ -363,7 +373,7 @@ export function selfInvocation(): string[] {
 
 /**
  * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
- * and return its directory. A spawned session gets that directory first on its PATH, so the
+ * and return its path. A spawned session gets that directory first on its PATH, so the
  * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
  * the registry or the session's own PATH at report time.
  */
@@ -373,7 +383,7 @@ function writeSelfShim(dataDir: string, self: string[]): string {
 	const shim = join(dir, 'cyberlegion')
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote).join(' ')} "$@"\n`)
 	chmodSync(shim, 0o755)
-	return dir
+	return shim
 }
 
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */

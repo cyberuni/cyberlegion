@@ -1671,7 +1671,16 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		const bin = join(store.root, 'data', res.agent.id, 'bin')
-		expect(typed).toBe(`PATH='${bin}':"$PATH" CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`)
+		expect(typed.startsWith(`PATH='${bin}':"$PATH" `)).toBe(true)
+	})
+
+	it("names the shim in CYBERLEGION_CLI, so a plugin hook runs the spawner's CLI rather than one found on PATH", () => {
+		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
+		expect(typed).toBe(
+			`PATH='${join(shim, '..')}':"$PATH" CYBERLEGION_CLI='${shim}' CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`,
+		)
 	})
 
 	it('writes the shim before the session opens, so the harness never boots without it', () => {
@@ -1718,6 +1727,7 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		expect(existsSync(join(store.root, 'data', res.agent.id, 'bin'))).toBe(false)
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		expect(typed).not.toContain('PATH=')
+		expect(typed).not.toContain('CYBERLEGION_CLI=')
 	})
 })
 
