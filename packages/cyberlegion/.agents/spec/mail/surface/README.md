@@ -7,7 +7,7 @@ concept: [cyberlegion]
 
 ## What
 
-`mail hook --event SessionStart|PostToolUse` emits the harness hook payload that injects a session's
+`mail hook --event SessionStart` emits the harness hook payload that injects a session's
 unread mail and (when this session is the hub's main pane) the standing owner's unread mail. It
 carries no brief: a spawned peer's brief reaches it in the wake instruction (`unit/lifecycle`), not
 through this hook. Migrated CR-2 from `surfacing/surfacing.feature`
@@ -27,9 +27,12 @@ live presence (`attach/`).
 into its own next turn via the harness's own hook mechanism:
 
 - **The `--event` value is validated, and echoed back in the payload** — `mail hook --event <e>`
-  recognizes only `SessionStart` and `PostToolUse`; anything else throws naming both supported
-  values. When a payload is emitted, its `hookEventName` field carries back the value the caller
-  passed, so the harness sees the event it fired rather than a fixed one.
+  recognizes only `SessionStart`; anything else throws naming the supported value. `PostToolUse` is
+  **retired**: it re-injected every unread message on every Write/Edit, which cost more than the
+  mid-turn latency it saved, since the `mail send` doorbell already rings a busy unit's pane. It is
+  rejected like any other unsupported value, so a project hook an older `init` wrote for it fails
+  visibly until `init` removes it. When a payload is emitted, its `hookEventName` field carries back
+  the value the caller passed, so the harness sees the event it fired rather than a fixed one.
 - **A live-pane caller with no identity auto-registers; an unregistered non-pane caller injects
   nothing** — when the calling session has no resolvable self id but is in a live multiplexer pane,
   `mail hook` registers it first (best-effort: the same mux-agnostic `register` the CLI runs, so the
@@ -77,7 +80,7 @@ payload and the owner-mail surfacing gate.
 
 The per-harness hook installer (the old `admin install`) is **not** here — it folded into
 [`init/`](../../init/README.md), which now owns installation directly (CR-2 resolution #2: init's
-PostToolUse coverage was extended to include codex rather than duplicating the install scenarios).
+coverage was extended to include codex rather than duplicating the install scenarios).
 
 ## Control Flow
 
@@ -95,8 +98,8 @@ One detail the graph draws that a coarser one hides, because it is where a defec
 
 ```mermaid
 graph TD
-  A["mail hook --event e"] --> B{"e in SessionStart | PostToolUse?"}
-  B -- no --> B1["throw, naming both supported events"]
+  A["mail hook --event e"] --> B{"e is SessionStart?"}
+  B -- no --> B1["throw, naming the supported event"]
   B -- yes --> C{"self id resolves?"}
   C -- yes --> F
   C -- no --> D{"in a live mux pane?"}
@@ -171,7 +174,7 @@ implementation that drops the record gate appends the owner-mail section, so its
 |---|---|---|
 | `B -- no` reject | `--event PreToolUse`, a registered caller with one unread message | `an unsupported --event value is rejected` |
 | `B -- yes` + `Z1` echo | `--event SessionStart`, a caller with unread mail | `a SessionStart hook call echoes SessionStart as the hook event name` |
-| `B -- yes` + `Z1` echo | `--event PostToolUse`, a caller with unread mail | `a PostToolUse hook call echoes PostToolUse as the hook event name` |
+| `B -- no` reject | `--event PostToolUse` (retired), a caller with unread mail | `the retired PostToolUse event is rejected` |
 
 ### An unregistered caller registers from a live pane, or injects nothing
 

@@ -49,28 +49,28 @@ interface VendorSpec {
 	pluginHook: boolean
 }
 
-// SessionStart → all three; PostToolUse → Claude + Codex only (Cursor has none) — the same
-// asymmetry cyberplace's build-definition / vendors.json encodes.
 const VENDORS: Record<Harness, VendorSpec> = {
 	claude: {
 		file: '.claude/settings.json',
 		shape: 'claude',
-		events: { SessionStart: 'SessionStart', PostToolUse: 'PostToolUse' },
+		events: { SessionStart: 'SessionStart' },
 		pluginHook: true,
 	},
 	cursor: { file: '.cursor/hooks.json', shape: 'cursor', events: { SessionStart: 'sessionStart' }, pluginHook: false },
-	codex: {
-		file: '.codex/hooks.json',
-		shape: 'cursor',
-		events: { SessionStart: 'SessionStart', PostToolUse: 'PostToolUse' },
-		pluginHook: true,
-	},
+	codex: { file: '.codex/hooks.json', shape: 'cursor', events: { SessionStart: 'SessionStart' }, pluginHook: true },
 }
+
+// Events an earlier init registered and no hook fires on any more. PostToolUse re-injected every unread
+// message on every Write/Edit; the mail doorbell rings a busy unit instead. `mail hook` rejects it, so
+// a project hook an older init wrote for it is removed rather than left failing on every edit. Only
+// Claude and Codex ever had it (Cursor has no PostToolUse), and the event key is the same on both.
+type RetiredEvent = 'PostToolUse'
+const RETIRED_EVENTS: RetiredEvent[] = ['PostToolUse']
 
 type InstallStatus = 'registered' | 'already present' | 'provided by plugin' | 'removed project hook'
 export interface InstallResult {
 	harness: Harness
-	event: HookEvent
+	event: HookEvent | RetiredEvent
 	vendorEvent: string
 	file: string
 	status: InstallStatus
@@ -122,6 +122,16 @@ export function install(harness: Harness, projectDir = process.cwd(), pin?: stri
 		}
 		results.push({ harness, event: canonical, vendorEvent, file, status })
 	}
+	// Reported only when something was removed: a retired event has nothing to provide.
+	if (spec.pluginHook) {
+		for (const event of RETIRED_EVENTS) {
+			const removed =
+				spec.shape === 'claude' ? removeClaude(settings, event, event) : removeCursor(settings, event, event)
+			if (!removed) continue
+			changed = true
+			results.push({ harness, event, vendorEvent: event, file, status: 'removed project hook' })
+		}
+	}
 	if (changed) writeJson(file, settings)
 	return results
 }
@@ -148,9 +158,7 @@ function upsertClaude(settings: Record<string, unknown>, event: string, command:
 			}
 		}
 	}
-	const group: ClaudeGroup = { hooks: [{ type: 'command', command }] }
-	if (event === 'PostToolUse') group.matcher = 'Write|Edit'
-	groups.push(group)
+	groups.push({ hooks: [{ type: 'command', command }] })
 	return 'registered'
 }
 
@@ -174,9 +182,10 @@ function upsertCursor(settings: Record<string, unknown>, event: string, command:
 	return 'registered'
 }
 
-const isOurs = (command: string | undefined, event: HookEvent) => command !== undefined && hookTarget(command) === event
+const isOurs = (command: string | undefined, event: HookEvent | RetiredEvent) =>
+	command !== undefined && hookTarget(command) === event
 
-function removeClaude(settings: Record<string, unknown>, event: string, canonical: HookEvent): boolean {
+function removeClaude(settings: Record<string, unknown>, event: string, canonical: HookEvent | RetiredEvent): boolean {
 	const hooks = settings.hooks as Record<string, ClaudeGroup[]> | undefined
 	const groups = hooks?.[event]
 	if (!hooks || !groups) return false
@@ -193,7 +202,7 @@ function removeClaude(settings: Record<string, unknown>, event: string, canonica
 	return true
 }
 
-function removeCursor(settings: Record<string, unknown>, event: string, canonical: HookEvent): boolean {
+function removeCursor(settings: Record<string, unknown>, event: string, canonical: HookEvent | RetiredEvent): boolean {
 	const hooks = settings.hooks as Record<string, CursorEntry[]> | undefined
 	const list = hooks?.[event]
 	if (!hooks || !list) return false

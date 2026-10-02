@@ -8,11 +8,10 @@ concept: [invocation, surfacing]
 ## What
 
 The plugin carries the hook that surfaces Legion mail, so the hook runs **the CLI copy the session
-actually loaded**. `hooks/hooks.json` at the package root registers SessionStart and PostToolUse
-(matcher `Write|Edit`), each running:
+actually loaded**. `hooks/hooks.json` at the package root registers SessionStart only, running:
 
 ```
-node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event <event>
+node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart
 ```
 
 The canonical `plugin.json` declares the file (`extensions["org.cyberuni.universal-plugin"].hooks`),
@@ -32,13 +31,19 @@ invariant from #65: a session uses the CLI it was installed or spawned with (#69
   so one variable reaches the plugin root on both. universal-plugin passes a hooks *file* through
   untranslated, so the file uses `CLAUDE_PLUGIN_ROOT` rather than the canonical `${PLUGIN_ROOT}`, which
   Claude Code does not expand.
-- Codex's `Edit` and `Write` matcher names alias its `apply_patch` tool, so one matcher fits both.
 - `dist/cli.mjs` is committed, so `bin/cyberlegion.mjs` runs at an installed-shape copy with no
   `node_modules`, offline.
 
 **Non-goals** — what `mail hook` emits (the CLI's `mail/surface` node); what `init` writes into a
 project's own harness config, including the PATH-first cursor hook and removing an earlier project
 hook (the CLI's `init` node); Cursor plugin packaging (the plugin is not built for Cursor).
+
+**No PostToolUse.** The hook used to fire on PostToolUse for `Write|Edit` too, to surface mail a busy
+unit received mid-turn. It re-injected **every** unread message on **every** edit until acked, and paid
+a node cold start per edit; the `mail send` doorbell already types into the recipient's pane, and a
+harness that takes typed input mid-turn hands it over during the running turn
+(`.research/harness-hooks/conclusion.md`, follow-up 2). A project PostToolUse hook an older `init`
+wrote is removed by `init` (the CLI's `init` node), and `mail hook` rejects the event.
 
 **Known limit.** In a spawned unit, the plugin hook runs the plugin's CLI, not the spawner's PATH shim
 (#67); both read the same hub, and the hook's payload does not depend on which copy wrote it.
@@ -47,15 +52,15 @@ hook (the CLI's `init` node); Cursor plugin packaging (the plugin is not built f
 
 | Use case | Trigger | Inputs | Outcome |
 |---|---|---|---|
-| **surface mail at session start or after an edit** | the harness fires SessionStart, or PostToolUse for a Write/Edit | the installed plugin root | the plugin's own CLI runs `mail hook --event <event>` and its payload reaches the session |
+| **surface mail at session start** | the harness fires SessionStart | the installed plugin root | the plugin's own CLI runs `mail hook --event SessionStart` and its payload reaches the session |
 | **ship the hook to each vendor** | `universal-plugin plugin build` | the canonical `plugin.json` | each vendor manifest names `./hooks/hooks.json` |
 
 ## Control Flow
 
 ```mermaid
 graph TD
-  FIRE[harness fires SessionStart or PostToolUse] --> FILE[plugin hooks/hooks.json]
-  FILE --> CMD[node CLAUDE_PLUGIN_ROOT/bin/cyberlegion.mjs mail hook --event E]
+  FIRE[harness fires SessionStart] --> FILE[plugin hooks/hooks.json]
+  FILE --> CMD[node CLAUDE_PLUGIN_ROOT/bin/cyberlegion.mjs mail hook --event SessionStart]
   CMD --> RUN[the installed copy's dist/cli.mjs runs, no npx]
   BUILD[plugin build] --> MANIFEST[each vendor manifest names ./hooks/hooks.json]
 ```
@@ -64,7 +69,7 @@ graph TD
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `FIRE → FILE` | the plugin's hooks file | `the plugin's hook file registers SessionStart and PostToolUse` |
-| `FILE → CMD` | each hook command | `every plugin hook command runs the plugin's own CLI, never npx` |
+| `FIRE → FILE` | the plugin's hooks file | `the plugin's hook file registers SessionStart only` |
+| `FILE → CMD` | the hook command | `the plugin hook command runs the plugin's own CLI, never npx` |
 | `CMD → RUN` | an installed-shape plugin directory with no node_modules, a caller with unread mail | `the plugin hook runs from an installed-shape plugin directory` |
 | `BUILD → MANIFEST` | the canonical and vendor manifests | `every vendor manifest names the plugin's hook file` |

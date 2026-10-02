@@ -12,8 +12,7 @@ the hook mechanics themselves (the injection payload) live in `mail/surface`.
 
 `init` now **owns installation** directly. CR-2 (`cyberlegion-cli-realign`, ADR-0024) dissolved
 `surfacing/` and folded its per-harness `admin install` into `init`: rather than duplicate those
-scenarios, `init.feature`'s coverage was extended to add the codex path (SessionStart + PostToolUse)
-it previously lacked (CR-2 resolution #2). `admin doctor`/`mode` moved to `mux/`; minting the owner
+scenarios, `init.feature`'s coverage was extended to add the codex path it previously lacked (CR-2 resolution #2). `admin doctor`/`mode` moved to `mux/`; minting the owner
 inbox is `unit/registry` and binding the read-pane is `attach/`.
 
 ## Use Cases
@@ -28,12 +27,17 @@ which harness it runs under:
   hook fires with **the CLI the session was installed with**, never one npx resolves from the registry
   at run time (#65, #69). What that takes depends on the harness:
   - **claude, codex — the plugin ships the hook.** The plugin's own `hooks/hooks.json` runs `node
-    "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event <event>` for SessionStart and
-    PostToolUse. `${CLAUDE_PLUGIN_ROOT}` is the installed plugin copy (Codex sets it too, for
+    "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart`.
+    `${CLAUDE_PLUGIN_ROOT}` is the installed plugin copy (Codex sets it too, for
     compatibility), and `dist/cli.mjs` is committed, so the hook runs offline at exactly the enabled
     version. `init` therefore writes **no** project hook for these harnesses and reports each event as
     `provided by plugin`; a project hook an earlier `init` wrote is **removed** (reported `removed
     project hook`), otherwise the hook would fire twice. It creates no config file that did not exist.
+  - **claude, codex — the retired PostToolUse hook is removed.** An earlier `init` also wrote a
+    PostToolUse project hook (`Write|Edit`). No hook fires on that event any more and `mail hook`
+    rejects it, so `init` removes such an entry, by the same whole-command match, and reports it as a
+    `PostToolUse` result `removed project hook`. With nothing to remove it reports no PostToolUse
+    result at all.
   - **cursor — a PATH-first project hook.** Cursor's plugin is not built by this package, so `init`
     registers into `.cursor/hooks.json` `if command -v cyberlegion >/dev/null 2>&1; then cyberlegion
     mail hook --event <event>; else npx -y cyberlegion[@<pin>] mail hook --event <event>; fi`. A

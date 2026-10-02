@@ -9,17 +9,6 @@
 					}
 				]
 			}
-		],
-		"PostToolUse": [
-			{
-				"matcher": "Write|Edit",
-				"hooks": [
-					{
-						"type": "command",
-						"command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs\" mail hook --event PostToolUse"
-					}
-				]
-			}
 		]
 	}
 }

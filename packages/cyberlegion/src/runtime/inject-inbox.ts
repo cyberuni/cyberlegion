@@ -3,8 +3,8 @@ import { type IdContext, listAgents, loadAgent, register, resolveSelfId } from '
 import { inbox } from '../message.ts'
 import { normalizeMuxEnv } from '../mux-env.ts'
 
-export type HookEvent = 'SessionStart' | 'PostToolUse'
-const EVENTS: HookEvent[] = ['SessionStart', 'PostToolUse']
+export type HookEvent = 'SessionStart'
+const EVENTS: HookEvent[] = ['SessionStart']
 
 export interface InjectPayload {
 	hookSpecificOutput: { hookEventName: HookEvent; additionalContext: string }

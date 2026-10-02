@@ -20,7 +20,8 @@ Feature: init — the onboarding front door
     Given a fresh project directory
     When init --agent codex registers
     Then codex's config carries no cyberlegion mail hook entry
-    And the SessionStart and PostToolUse results each report "provided by plugin"
+    And the SessionStart result reports "provided by plugin"
+    And no PostToolUse result is reported
 
   Scenario: init for cursor registers a PATH-first SessionStart hook
     Given a fresh project directory
@@ -147,6 +148,24 @@ Feature: init — the onboarding front door
     When init runs again and resolves codex
     Then that entry is removed
     And the SessionStart result reports "removed project hook"
+
+  Scenario Outline: init removes a retired PostToolUse project hook an earlier init wrote
+    Given a project whose <harness> config carries an earlier "npx cyberlegion mail hook --event PostToolUse" entry beside an unrelated PostToolUse hook
+    When init runs again and resolves <harness>
+    Then the cyberlegion mail hook entry is removed
+    And the unrelated PostToolUse hook is kept
+    And a PostToolUse result reports "removed project hook"
+
+    Examples:
+      | harness |
+      | claude  |
+      | codex   |
+
+  Scenario: init leaves a user's own PostToolUse hook that calls cyberlegion untouched
+    Given a project whose claude config carries a PostToolUse hook "my-wrapper && cyberlegion mail hook --event PostToolUse"
+    When init runs again and resolves claude
+    Then that hook is kept unchanged
+    And no PostToolUse result is reported
 
   Scenario: init writes no config file for a plugin-hook harness that has none
     Given a fresh project directory

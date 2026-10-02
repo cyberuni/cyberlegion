@@ -126,8 +126,9 @@ Stream new matching mail as it arrives. An observer only: it never acks. Ctrl-C 
 npx cyberlegion mail hook [--event <event>]
 ```
 
-Emit the harness hook injection payload (raw JSON on stdout, not TOON). `--event` is `SessionStart`
-(default) or `PostToolUse`. This is the command the surfacing hook calls on every matching harness
+Emit the harness hook injection payload (raw JSON on stdout, not TOON). `--event` takes only
+`SessionStart` (the default). `PostToolUse` is retired and rejected: mail that arrives mid-turn
+reaches a busy session through the `mail send` doorbell instead. This is the command the surfacing hook calls on every matching harness
 event (the plugin's own hook on Claude Code and Codex, the project hook `init` registers on Cursor).
 It's rarely invoked by hand.
 
