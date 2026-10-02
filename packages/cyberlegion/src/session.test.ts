@@ -1284,6 +1284,26 @@ describe('clear does not type over a human draft in the peer pane', () => {
 	})
 })
 
+describe('clear does not wait on a doorbell the harness put back in the peer pane', () => {
+	it('clears the doorbell at once, then sends the reset', async () => {
+		registerUnit({ id: 'w2' })
+		const rule = '─'.repeat(40)
+		const literals: string[] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd !== 'tmux') return null
+			if (tmuxVerb(args) === 'send-keys' && args.includes('-l')) literals.push(args.at(-1) ?? '')
+			if (tmuxVerb(args) === 'capture-pane') return [rule, `❯\u00a0${DELIVERY_DOORBELL}`, rule].join('\n')
+			return ''
+		}
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await clearUnit({ ...ctx(), exec }, 'w2', { guardOpts: clock })
+		expect(t).toBeLessThan(20_000)
+		expect(literals.slice(0, 2)).toEqual(['\u0005', '\u0015'])
+		expect(literals).toContain('/clear')
+	})
+})
+
 describe('clear resolves each harness own fresh-context command from the per-harness map', () => {
 	it.each([
 		['claude', '/clear'],
@@ -1553,6 +1573,20 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(tmuxArgs(calls, 'send-keys')).toEqual([])
 	})
 
+	it('nudge clears a doorbell the harness put back in the input box and rings at once', async () => {
+		const rule = '─'.repeat(40)
+		const putBack = [rule, `❯\u00a0${DELIVERY_DOORBELL}`, rule, '  footer'].join('\n')
+		const { calls, ctx } = peerCtx({ captures: [putBack, 'peer output', 'scrolled away\n> '] })
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} }, guardOpts: clock })
+		expect(t).toBeLessThan(20_000)
+		const literals = tmuxArgs(calls, 'send-keys')
+			.filter((c) => c.includes('-l'))
+			.map((c) => c.at(-1))
+		expect(literals).toEqual(['\u0005', '\u0015', DELIVERY_DOORBELL])
+	})
+
 	it('nudge on a pane the backend no longer knows fails naming the gone pane', async () => {
 		// A gone pane and a booting one are different failures with different fixes, so the retry cap
 		// must not absorb the first: `paneExists` is probed up front and rejected outright.
@@ -1737,7 +1771,16 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		const bin = join(store.root, 'data', res.agent.id, 'bin')
-		expect(typed).toBe(`PATH='${bin}':"$PATH" CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`)
+		expect(typed.startsWith(`PATH='${bin}':"$PATH" `)).toBe(true)
+	})
+
+	it("names the shim in CYBERLEGION_CLI, so a plugin hook runs the spawner's CLI rather than one found on PATH", () => {
+		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
+		expect(typed).toBe(
+			`PATH='${join(shim, '..')}':"$PATH" CYBERLEGION_CLI='${shim}' CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`,
+		)
 	})
 
 	it('writes the shim before the session opens, so the harness never boots without it', () => {
@@ -1784,6 +1827,7 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		expect(existsSync(join(store.root, 'data', res.agent.id, 'bin'))).toBe(false)
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		expect(typed).not.toContain('PATH=')
+		expect(typed).not.toContain('CYBERLEGION_CLI=')
 	})
 })
 

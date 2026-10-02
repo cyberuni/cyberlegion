@@ -36,6 +36,13 @@ scrape `unit read` uses, through a per-harness shape (Claude Code, Codex, cursor
 - **Text the clear does not remove was never a draft** — an idle placeholder the reader does not
   know survives Ctrl-U; ours is typed and nothing is typed back.
 
+- **Text the CLI itself typed is not a draft** — a harness can take a ring and put its text back in
+  the box (cursor-agent with a rejected login does). The box's text, with whitespace ignored since
+  the box wraps it anywhere, is compared against the rings the CLI knows: the delivery doorbell, a
+  spawn doorbell, and the text about to be rung. On a match the box is cleared at once — no idle
+  wait, and no multi-row refusal, since the CLI's own ring holds no typed newline — ours is typed,
+  and nothing is typed back. A human draft that merely quotes a doorbell does not match.
+
 **Non-goals** — whether to ring at all (`mail/doorbell`: `--no-nudge`, the focus gate, recipient
 shapes); the submit-verify-flush taken-turn contract (`unit/lifecycle`); reading styling from the
 pane (`mux`'s read is plain text on every backend).
@@ -51,3 +58,4 @@ Every scenario in [`prompt-guard.feature`](./prompt-guard.feature) maps to one o
 | **still typing** | 60s of changes → nothing typed, the caller's failure path |
 | **multi-row** | idle multi-row draft → untouched, nothing sent |
 | **unremovable text** | survives the clear → sent, nothing typed back |
+| **own ring** | a doorbell the harness put back → cleared at once, sent, nothing typed back |

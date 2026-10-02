@@ -447,9 +447,13 @@ graph TD
 `SPS` — the self shim, written only past every refusal and before any session opens: the caller's
 CLI records its own invocation (node, loader flags, the entry file with symlinks resolved), spawn
 writes `<hub>/data/<id>/bin/cyberlegion` to exec it with the given arguments, and the typed launch
-prefixes `PATH='<that dir>':"$PATH"`. A caller that records no invocation writes no shim and leaves
-PATH alone. A shim, not an env var such as `CYBERLEGION_BIN`: a brief's `cyberlegion mail send` then
-works as written, whoever authored the brief, and nothing is resolved from the registry at report time.
+prefixes `PATH='<that dir>':"$PATH" CYBERLEGION_CLI='<that dir>/cyberlegion'`. A caller that records
+no invocation writes no shim and sets neither. A shim on PATH, not only an env var: a brief's
+`cyberlegion mail send` then works as written, whoever authored the brief, and nothing is resolved from
+the registry at report time. The env var is for what runs outside that PATH lookup: the plugin's
+SessionStart hook (`cyberlegion-plugin/mail-hook`) cannot tell a PATH `cyberlegion` that is this shim
+from a stale global install, so it runs `$CYBERLEGION_CLI` when that names an executable — set only
+here, it both marks a spawned session and names the CLI that spawned it (#108).
 
 ### spawn — the workspace label (only on a `workspace` placement)
 
@@ -678,7 +682,7 @@ column records. They are not gaps.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `SPS` shim written, PATH prefixed | a spawn from an installed cyberlegion | `spawn puts a cyberlegion command on the new session's PATH that re-invokes the caller's own CLI` |
+| `SPS` shim written, PATH prefixed, CYBERLEGION_CLI set | a spawn from an installed cyberlegion | `spawn puts a cyberlegion command on the new session's PATH that re-invokes the caller's own CLI` |
 | `SPS` before the open | any spawn that opens a session | `the shim is on disk before the session opens` |
 | `SPF -- no` writes no shim | a --cwd naming a missing directory | `a spawn refused at a guard writes no shim` |
 

@@ -1,8 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
-import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import { ringTurn } from './console/ring.ts'
 import { answerTrustPrompt, type TrustOptions, type TrustOutcome } from './console/trust.ts'
@@ -348,10 +348,34 @@ export function labelFor(
  * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
  * as a side effect, so call it only past every refusal, right before the session opens. Shared by
  * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+ *
+ * `bindSelf` has the new pane run `unit rebind <id>` through the shim before the harness starts, so
+ * the session binds itself to the unit even when the caller dies before its own bind write. It needs
+ * the shim, so a context with no recorded invocation gets no bind step.
  */
-export function composeLaunchLine(ctx: IdContext, muxName: string, id: string, launch: string): string {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
-	return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
+export function composeLaunchLine(
+	ctx: IdContext,
+	muxName: string,
+	id: string,
+	launch: string,
+	options: { bindSelf?: boolean } = {},
+): string {
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
+	const bind =
+		shim && options.bindSelf
+			? `${shellQuote(shim)} unit rebind ${shellQuote(id)} --space ${shellQuote(ctx.store.root)} >/dev/null 2>&1; `
+			: ''
+	return `${bind}${shim ? shimEnvPrefix(shim) : ''}${muxEnvPrefix(muxName)}${launch}`
+}
+
+/**
+ * Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+ * itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+ * cannot tell this shim from a stale global install), so it reads the variable instead: set only
+ * here, it marks a spawned session and names the CLI that spawned it.
+ */
+function shimEnvPrefix(shim: string): string {
+	return `PATH=${shellQuote(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote(shim)} `
 }
 
 /**
@@ -379,7 +403,7 @@ export function selfInvocation(): string[] {
 
 /**
  * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
- * and return its directory. A spawned session gets that directory first on its PATH, so the
+ * and return its path. A spawned session gets that directory first on its PATH, so the
  * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
  * the registry or the session's own PATH at report time.
  */
@@ -389,7 +413,7 @@ function writeSelfShim(dataDir: string, self: string[]): string {
 	const shim = join(dir, 'cyberlegion')
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote).join(' ')} "$@"\n`)
 	chmodSync(shim, 0o755)
-	return dir
+	return shim
 }
 
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
@@ -455,6 +479,7 @@ export async function nudgeUnit(
 		{
 			...options.guardOpts,
 			harness: agent.harness,
+			ownText: (text) => isRingText(text, message),
 		},
 	)
 	return { agent, pane: target.id, message, resubmits: result.resubmits }
@@ -503,6 +528,7 @@ export async function clearUnit(
 	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
 		...options.guardOpts,
 		harness: agent.harness,
+		ownText: (text) => isRingText(text),
 	})
 	return { agent, pane, command }
 }

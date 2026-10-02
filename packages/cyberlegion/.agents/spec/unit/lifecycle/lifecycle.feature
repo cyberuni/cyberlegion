@@ -417,12 +417,15 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
   # re-invokes the caller's own CLI — the same node, loader flags and entry file — and puts that dir
   # first on the launched session's PATH. The brief's command works as written, and the version a
   # unit reports through is the one that spawned it, never one resolved from the registry later.
+  # The launch also names the shim in CYBERLEGION_CLI, for a caller that runs outside that PATH
+  # lookup — the plugin's SessionStart hook — and cannot tell the shim from a stale global install.
 
   Scenario: spawn puts a cyberlegion command on the new session's PATH that re-invokes the caller's own CLI
     Given a caller running unit spawn --harness claude --task "report back" from an installed cyberlegion
     When unit spawn runs
     Then the unit's data dir holds an executable cyberlegion shim that runs the caller's own CLI entry with the arguments it is given
     And the typed launch command puts that shim's directory first on PATH
+    And the typed launch command sets CYBERLEGION_CLI to that shim's path
 
   Scenario: the shim is on disk before the session opens
     Given a caller running unit spawn --harness claude --task "report back" from an installed cyberlegion
