@@ -1,6 +1,6 @@
 {
 	"$schema": "https://unpkg.com/knip@6/schema.json",
-	"ignoreBinaries": ["cursor-agent"],
+	"ignoreBinaries": ["cursor-agent", "cyberlegion"],
 	"workspaces": {
 		"packages/cyberlegion": {
 			"project": ["src/**/*.ts"]

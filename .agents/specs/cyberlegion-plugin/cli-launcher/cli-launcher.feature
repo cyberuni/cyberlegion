@@ -45,6 +45,23 @@ Feature: cli-launcher — skills run the CLI they ship with
     When node runs a skill's launcher
     Then it exits non-zero naming the missing dist/cli.mjs and npx -y cyberlegion@<package version>, with no raw module-not-found error
 
+  # ── Running a bare cyberlegion in a Claude Code session ──
+
+  Scenario: the package ships an executable bin/cyberlegion
+    Given the cyberlegion package
+    When its bin directory and package.json files are inspected
+    Then bin/cyberlegion exists, is executable, and is covered by package.json files
+
+  Scenario: a bare cyberlegion runs the shipped CLI from an unrelated working directory
+    Given an installed-shape plugin directory whose bin is on PATH and a working directory outside it
+    When cyberlegion --version runs by bare name from that working directory
+    Then it prints the package.json version and exits zero
+
+  Scenario: arguments, output, and the exit code pass through the bare command unchanged
+    Given an installed-shape plugin directory whose bin is on PATH
+    When a bare cyberlegion runs with a command the CLI rejects
+    Then its stdout, stderr, and exit code equal those of bin/cyberlegion.mjs run with the same arguments
+
   # ── Falling back when the launcher cannot be resolved ──
 
   Scenario: each skill names one pinned npx fallback of the shipped version
