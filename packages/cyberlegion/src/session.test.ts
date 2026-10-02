@@ -534,7 +534,9 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			worktreePath: custom,
 			at: 'pane:right',
 		})
-		expect(res.agent.worktree).toEqual({ root: resolve(custom), branch: 'my-branch' })
+		// ...and the primary checkout of its repository, so a close run from any other repository can
+		// still find where git registered it once its directory is gone.
+		expect(res.agent.worktree).toEqual({ root: resolve(custom), branch: 'my-branch', primaryRoot })
 		const addCall = worktreeAddCalls[0]!
 		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '-b', 'my-branch', custom])
 	})
@@ -971,7 +973,11 @@ describe('spec:cyberlegion/mux', () => {
 			)
 			expect(gitWorktreeCalls).toHaveLength(0)
 			expect(herdrCalls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
-			expect(res.agent.worktree).toEqual({ root: resolve(worktreeRoot), branch: `cyberlegion/unit-${res.agent.id}` })
+			expect(res.agent.worktree).toEqual({
+				root: resolve(worktreeRoot),
+				branch: `cyberlegion/unit-${res.agent.id}`,
+				primaryRoot,
+			})
 			expect(res.agent.cwd).toBe(resolve(worktreeRoot))
 			expect(res.pane).toBe('w9:p1')
 		})

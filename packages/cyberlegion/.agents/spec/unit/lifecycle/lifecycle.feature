@@ -133,6 +133,11 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When unit spawn runs
     Then the peer's record carries a launch field equal to the launch the spawn reports
 
+  Scenario: spawn records the primary checkout of the repository its worktree belongs to
+    Given a caller running unit spawn creating a new worktree
+    When unit spawn runs
+    Then the peer's record carries the primary checkout of the repository the worktree was added to
+
   # ── The brief is delivered by file, never typed ──
 
   Scenario: the resolved brief is written to the peer's brief file, not into the launch command
@@ -528,6 +533,43 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then the worktree is removed
     And the session pane is torn down
     And the unit's registry record, pane pointer, and stored data are gone
+
+  # ── close finds the unit's repository from the unit, never from the caller's directory ──
+  # A fleet-level caller closes units from wherever its own session runs, usually another
+  # repository. Git asked from there to remove the unit's worktree refuses, and the close aborts.
+
+  Scenario Outline: close removes the unit's worktree whatever directory the caller runs it from
+    Given a registered unit whose worktree is a git worktree of repository A
+    And a caller whose working directory is <caller directory>
+    When the caller runs unit close on that unit
+    Then the worktree is removed from disk
+    And repository A no longer lists the worktree
+    And the unit's record is gone
+
+    Examples:
+      | caller directory                  |
+      | a checkout of another repository  |
+      | a directory outside any repository |
+      | the unit's own worktree           |
+
+  Scenario: close refuses a unit whose worktree is its own repository's primary checkout, from another repository
+    Given a registered unit whose worktree root is the primary checkout of repository A
+    And a caller whose working directory is a checkout of another repository
+    When the caller runs unit close <id>
+    Then it throws refusing the primary checkout
+    And repository A's primary checkout is still on disk
+    And the unit's record still exists
+
+  # A removal interrupted after the directory went leaves git's registration of the worktree behind,
+  # holding its branch. The retry finds no directory, so it clears the registration in the unit's
+  # own repository, found through the primary checkout spawn recorded.
+  Scenario: close of a worktree already gone from disk prunes its stale registration in the unit's repository
+    Given a registered unit whose record carries repository A's primary checkout
+    And the unit's worktree directory is gone while repository A still lists the worktree
+    And a caller whose working directory is a checkout of another repository
+    When the caller runs unit close <id>
+    Then repository A no longer lists the worktree
+    And the unit's record is gone
 
   # ── close on a --cwd unit tears down the session but touches no worktree ──
 

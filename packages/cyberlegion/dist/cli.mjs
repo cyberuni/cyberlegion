@@ -6897,7 +6897,10 @@ function spawn(ctx, input) {
 			assertDistinctFromPrimary(opened.worktree.root, primaryRoot);
 			ensureMarker(join(opened.worktree.root, ".agents", "cyberlegion"));
 			cwd = opened.worktree.root;
-			worktree = opened.worktree;
+			worktree = {
+				...opened.worktree,
+				primaryRoot
+			};
 			target = opened.target;
 		} else {
 			const added = gitWorktreeAdapter.add(exec, {
@@ -6908,7 +6911,10 @@ function spawn(ctx, input) {
 			assertDistinctFromPrimary(added.root, primaryRoot);
 			ensureMarker(join(added.root, ".agents", "cyberlegion"));
 			cwd = added.root;
-			worktree = added;
+			worktree = {
+				...added,
+				primaryRoot
+			};
 			target = sessionAdapter.open(exec, {
 				cwd,
 				launch: launchLine(),
@@ -7601,12 +7607,18 @@ function decommission(ctx, input) {
 	const exec = ctx.exec ?? realExec;
 	const env = ctx.env ?? process.env;
 	const worktreeRoot = rec.worktree?.root;
-	const primaryRoot = worktreeRoot ? resolvePrimaryRoot(exec) : void 0;
-	if (worktreeRoot && resolve(worktreeRoot) === resolve(primaryRoot)) throw new Error(`refusing to decommission "${input.id}" — its worktree is the primary checkout; neither --force nor --keep-worktree overrides this`);
 	const worktreeExists = worktreeRoot != null && existsSync(worktreeRoot);
+	const primaryRoot = worktreeExists ? primaryRootOf(exec, worktreeRoot) : rec.worktree?.primaryRoot;
+	if (worktreeRoot && primaryRoot && resolve(worktreeRoot) === resolve(primaryRoot)) throw new Error(`refusing to decommission "${input.id}" — its worktree is the primary checkout; neither --force nor --keep-worktree overrides this`);
 	const removesWorktree = worktreeExists && !input.keepWorktree;
 	if (removesWorktree && !input.force && isDirty(exec, worktreeRoot)) throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`);
 	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id);
+	if (worktreeRoot && !worktreeExists && primaryRoot && existsSync(primaryRoot)) exec("git", [
+		"-C",
+		primaryRoot,
+		"worktree",
+		"prune"
+	]);
 	if (removesWorktree) try {
 		gitWorktreeAdapter.remove(exec, worktreeRoot, { primaryRoot });
 	} catch (err) {
@@ -7625,6 +7637,22 @@ function decommission(ctx, input) {
 		retainedWorktree: worktreeExists && input.keepWorktree ? worktreeRoot : void 0,
 		pane
 	};
+}
+/**
+* The primary checkout of the repository `worktreeRoot` belongs to — `--git-common-dir` asked of the
+* worktree itself, so the answer does not depend on where the caller runs. Throws for a directory git
+* does not know: there is no repository to remove it from.
+*/
+function primaryRootOf(exec, worktreeRoot) {
+	const commonDir = exec("git", [
+		"-C",
+		worktreeRoot,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir"
+	]);
+	if (!commonDir) throw new Error(`cannot resolve the repository of worktree ${worktreeRoot} — git does not know it`);
+	return dirname(commonDir);
 }
 /**
 * Whether the worktree holds work a removal would discard. The marker `spawn` stamps into every

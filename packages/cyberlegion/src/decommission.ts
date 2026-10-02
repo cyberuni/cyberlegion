@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
+import { dirname, resolve } from 'node:path'
+import { gitWorktreeAdapter } from 'cyber-mux/worktree'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, realExec } from './identity.ts'
 import { deleteMailbox } from './message.ts'
 import { selectSessionAdapter } from './mux-select.ts'
@@ -55,19 +55,21 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 	const exec = ctx.exec ?? realExec
 	const env = ctx.env ?? process.env
 	const worktreeRoot = rec.worktree?.root
-	// Resolve the primary checkout once — reused by the primary-checkout guard and the worktree removal.
-	const primaryRoot = worktreeRoot ? resolvePrimaryRoot(exec) : undefined
+	// A worktree already gone from disk has nothing to check or remove — tolerated regardless of
+	// --force. Only a worktree that still exists is subject to the dirty check and real removal.
+	const worktreeExists = worktreeRoot != null && existsSync(worktreeRoot)
+	// The primary checkout of the UNIT's repository, never the caller's: close is run from wherever
+	// the caller's session sits, usually another repository, and git asked there to remove this
+	// worktree refuses. A worktree on disk names its own repository; one already gone is found only
+	// through the root spawn recorded. Reused by the primary-checkout guard and the removal.
+	const primaryRoot = worktreeExists ? primaryRootOf(exec, worktreeRoot as string) : rec.worktree?.primaryRoot
 
-	if (worktreeRoot && resolve(worktreeRoot) === resolve(primaryRoot as string)) {
+	if (worktreeRoot && primaryRoot && resolve(worktreeRoot) === resolve(primaryRoot)) {
 		throw new Error(
 			`refusing to decommission "${input.id}" — its worktree is the primary checkout; ` +
 				'neither --force nor --keep-worktree overrides this',
 		)
 	}
-
-	// A worktree already gone from disk has nothing to check or remove — tolerated regardless of
-	// --force. Only a worktree that still exists is subject to the dirty check and real removal.
-	const worktreeExists = worktreeRoot != null && existsSync(worktreeRoot)
 	// Under keepWorktree nothing is removed, so there is no removal to guard: the dirty check exists
 	// only to stop `git worktree remove` from discarding uncommitted work. Keeping it here would
 	// refuse a close that destroys nothing, and push the operator toward `--force` — the strictly
@@ -79,6 +81,13 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 	}
 
 	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id)
+
+	// A worktree whose directory is gone may still be registered with git — a removal interrupted
+	// after the directory went. Clear that registration where it lives so the branch is not held by a
+	// checkout that no longer exists. Best-effort: there is nothing on disk left to lose.
+	if (worktreeRoot && !worktreeExists && primaryRoot && existsSync(primaryRoot)) {
+		exec('git', ['-C', primaryRoot, 'worktree', 'prune'])
+	}
 
 	if (removesWorktree) {
 		try {
@@ -115,6 +124,17 @@ export function decommission(ctx: IdContext, input: DecommissionInput): Decommis
 		retainedWorktree: worktreeExists && input.keepWorktree ? (worktreeRoot as string) : undefined,
 		pane,
 	}
+}
+
+/**
+ * The primary checkout of the repository `worktreeRoot` belongs to — `--git-common-dir` asked of the
+ * worktree itself, so the answer does not depend on where the caller runs. Throws for a directory git
+ * does not know: there is no repository to remove it from.
+ */
+function primaryRootOf(exec: Exec, worktreeRoot: string): string {
+	const commonDir = exec('git', ['-C', worktreeRoot, 'rev-parse', '--path-format=absolute', '--git-common-dir'])
+	if (!commonDir) throw new Error(`cannot resolve the repository of worktree ${worktreeRoot} — git does not know it`)
+	return dirname(commonDir)
 }
 
 /**
