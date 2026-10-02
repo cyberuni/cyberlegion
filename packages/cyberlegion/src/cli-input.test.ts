@@ -36,6 +36,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn command options', () => {
 			handle: 'bob',
 			branch: 'topic',
 			worktreePath: '/tmp/wt',
+			repo: '/tmp/repo',
 			at: 'tab',
 		})
 		expect(input).toMatchObject({
@@ -45,6 +46,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn command options', () => {
 			handle: 'bob',
 			branch: 'topic',
 			worktreePath: '/tmp/wt',
+			repo: '/tmp/repo',
 			at: 'tab',
 		})
 	})

@@ -54,6 +54,12 @@ cleanly — the deterministic inverse pair:
     to a **sibling** of the primary checkout, `<parent>/<repo>.worktrees/legion-<id6>`, never nested
     inside the primary's own tree. With no `--branch`, it is created on `cyberlegion/unit-<id>`;
     `--branch <name>` names it instead.
+  - **Which repository the worktree comes from** — the repository the caller's current directory
+    is in, unless `-C, --repo <path>` names another: the worktree is then added against the primary
+    checkout of the repository containing `<path>`, and the default location above is beside *that*
+    checkout. A `<path>` in no git repository is refused before anything is created. The flag exists
+    so a caller spawning for another repository runs one bare `cyberlegion` command rather than
+    `cd <repo> && cyberlegion ...`, which a harness allow list scoped to the CLI does not cover.
   - **Which route creates the worktree** — when the selected backend offers worktree creation **and**
     the placement is `workspace`, one atomic backend call creates the worktree and opens its
     workspace together (herdr nests the worktree under its source workspace). Otherwise — a backend
@@ -67,7 +73,7 @@ cleanly — the deterministic inverse pair:
     peer is registered with that directory as its cwd and no created worktree. `--cwd` requires the
     directory to already exist (cyberlegion creates no directory), refuses the primary checkout (the
     same guard the created-worktree path enforces), and is mutually exclusive with the
-    worktree-creating flags (`--branch` / `--worktree-path`). This is the enabler that lets a caller
+    worktree-creating flags (`--branch` / `--worktree-path` / `--repo`). This is the enabler that lets a caller
     (e.g. the `cyberfleet` fleet layer) own the worktree lifecycle and hand cyberlegion a ready
     directory to run in.
   - **Spawn resolves the default placement by mode — own visible space vs the caller's current
@@ -409,15 +415,17 @@ graph TD
   SPB -- no --> SPB1["throw naming the map — no worktree, session or record"]
   SPB -- yes --> SPC{"a brief source given? --brief-file, --task -, or --task text"}
   SPC -- no --> SPC1["throw asking for a brief — no worktree, session or record"]
-  SPC -- yes --> SPD{"--cwd combined with --branch/--worktree-path?"}
+  SPC -- yes --> SPD{"--cwd combined with --branch/--worktree-path/--repo?"}
   SPD -- yes --> SPD1["throw: mutually exclusive"]
-  SPD -- no --> SPE{"--cwd given?"}
+  SPD -- no --> SPR{"--repo given and its path in no git repository?"}
+  SPR -- yes --> SPR1["throw: not inside a git repository — no worktree, session or record"]
+  SPR -- no --> SPE{"--cwd given?"}
   SPE -- yes --> SPF{"the dir exists?"}
   SPF -- no --> SPF1["throw: must already exist"]
   SPF -- yes --> SPG{"resolves onto the primary checkout?"}
   SPG -- yes --> SPG1["throw: refuses the primary checkout"]
   SPG -- no --> SPO["at := --at ?? tab; write the shim (SPS), open the session; worktree := none"]
-  SPE -- no --> SPI["branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace; path := --worktree-path ?? parent/repo.worktrees/legion-id6"]
+  SPE -- no --> SPI["primary := primary checkout of --repo's repository ?? the current directory's; branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace; path := --worktree-path ?? parent/repo.worktrees/legion-id6 (beside primary)"]
   SPI --> SPJ{"the resolved worktree path is the primary checkout?"}
   SPJ -- yes --> SPJ1["throw BEFORE anything is created or opened"]
   SPJ -- no --> SPK{"at = workspace AND the backend offers worktree creation?"}
@@ -699,6 +707,8 @@ column records. They are not gaps.
 | `SPI` default path | a new-worktree spawn with no --worktree-path | `a spawn with no --worktree-path checks out beside the primary checkout, never inside it` |
 | `SPI` default branch | a new-worktree spawn with no --branch | `a spawn with no --branch creates the worktree on a branch named for the unit` |
 | `SPI` explicit branch | a new-worktree spawn given --branch | `--branch names the branch the worktree is created on` |
+| `SPI` --repo names the repository | a new-worktree spawn given --repo inside another repository | `--repo creates the worktree from the repository containing the path it names, not the caller's` |
+| `SPR -- yes` | --repo naming a path in no git repository | `--repo naming a path outside any git repository errors before anything is created` |
 
 ### Which route creates the worktree
 
@@ -731,7 +741,7 @@ column records. They are not gaps.
 | `SPE -- yes` → `SPO` | --cwd naming an existing directory | `--cwd spawns a session into an existing directory and creates no worktree` |
 | `SPF -- no` | --cwd naming a directory that does not exist | `--cwd requires the directory to already exist` |
 | `SPG -- yes` | --cwd naming the primary checkout | `--cwd refuses the primary checkout, the same as a created worktree` |
-| `SPD -- yes` | --cwd combined with --branch/--worktree-path | `--cwd is mutually exclusive with the worktree-creating flags` |
+| `SPD -- yes` | --cwd combined with --branch/--worktree-path/--repo | `--cwd is mutually exclusive with the worktree-creating flags` |
 
 ### spawn delivers the peer's first turn
 
