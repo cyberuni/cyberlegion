@@ -29,7 +29,10 @@ export interface AgentRecord {
 	/** Absent for a standing record (a human/owner principal — no claude/cursor/codex harness). */
 	harness?: Harness
 	cwd: string
-	worktree?: { root: string; branch?: string } | null
+	/** `primaryRoot` is the primary checkout of the repository the worktree belongs to, recorded by
+	 * spawn — the one place to find git's registration of a worktree whose directory is gone. Absent
+	 * on a registered session and on records from before it was recorded. */
+	worktree?: { root: string; branch?: string; primaryRoot?: string } | null
 	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
 	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
 	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null

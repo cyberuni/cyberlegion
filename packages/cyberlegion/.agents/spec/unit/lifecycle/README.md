@@ -219,8 +219,14 @@ cleanly — the deterministic inverse pair:
     remove the unit's mailbox (read and unread messages alike) instead of deleting inbox files
     itself, so where a mailbox lives stays the mail side's concern. Only the closed unit's mailbox
     goes; every other unit's inbox is untouched.
+  - **The unit's repository comes from the unit, never from the caller's directory** — a
+    fleet-level caller closes units from wherever its own session runs, usually another repository,
+    and git asked there to remove the unit's worktree refuses. A worktree still on disk names its own
+    repository (`git -C <worktree> rev-parse --git-common-dir`); one already gone is found through the
+    primary checkout `spawn` records on the unit's `worktree` record. Close works the same from
+    another repository, from a directory outside any repository, and from inside the unit's own.
   - **Refuses the primary checkout even with --force** — a unit whose worktree root equals the
-    primary checkout is refused; `--force` never overrides this refusal.
+    primary checkout of its own repository is refused; `--force` never overrides this refusal.
   - **Refuses a dirty worktree unless --force** — uncommitted changes in the worktree abort the
     close and leave the worktree and its uncommitted changes on disk, together with the record, the
     pane pointer, and the stored brief — which is what makes the close retryable; `--force` discards the changes and proceeds, and
@@ -245,7 +251,10 @@ cleanly — the deterministic inverse pair:
     that checkout's record — so `--keep-worktree`, alone or with `--force`, still hits it.
   - **Completes the reap when the worktree or pane is already gone** — a worktree already absent from
     disk, or a pane the session backend can no longer find, is tolerated; the reap (record, pane
-    index, stored data) still completes. When **no pane can be resolved at all** (the record carries
+    index, stored data) still completes. A worktree whose directory is gone may still be registered
+    with git, holding its branch — a removal interrupted after the directory went — so close runs
+    `git worktree prune` in the repository the record names; a record with none (a registered
+    session, or one from before spawn recorded it) prunes nothing. When **no pane can be resolved at all** (the record carries
     no locator and the pane index holds no entry for it), nothing is torn down, another unit’s
     pane-index entry is left unchanged, the reap still completes, and the result names no pane.
   - **A genuine teardown failure aborts before any reap** — when worktree removal itself fails (not
@@ -419,7 +428,7 @@ graph TD
   SPBK -- yes --> SPBK1["throw — fires AFTER creation; nothing rolls it back"]
   SPBK -- no --> SPL["stamp the new worktree's own .agents/cyberlegion marker"]
   SPO --> SPN
-  SPL --> SPN["register: status active, handle, harness, cwd, worktree, pane locator, brief path, launch command, spawnedBy when the caller has an id"]
+  SPL --> SPN["register: status active, handle, harness, cwd, worktree and its repository's primary checkout, pane locator, brief path, launch command, spawnedBy when the caller has an id"]
   SPN --> SPIB{"the realized launch hands the def's instructions to the brief? — cursor only"}
   SPIB -- yes --> SPIB1["write the brief FILE: '## Agent instructions' + the instructions, then '## Brief' + the task (the label already read the task alone)"]
   SPIB -- no --> SPIB2["write the brief FILE: the task as given"]
@@ -508,10 +517,12 @@ graph TD
 graph TD
   CL0["unit close ref"] --> CL1{"ref resolves to a unit?"}
   CL1 -- no --> CL1X["throw; nothing is reaped"]
-  CL1 -- yes --> CL2{"its worktree root is the primary checkout?"}
+  CL1 -- yes --> CLR["resolve the unit's repository: from the worktree itself when on disk, else the primary checkout spawn recorded — never from the caller's directory"]
+  CLR --> CL2{"its worktree root is its repository's primary checkout?"}
   CL2 -- yes --> CL2X["throw — neither --force nor --keep-worktree overrides this"]
   CL2 -- no --> CL3{"a worktree still on disk?"}
-  CL3 -- no --> CL6["skip removal entirely — an already-gone worktree is tolerated"]
+  CL3 -- no --> CLP["skip removal — an already-gone worktree is tolerated; git worktree prune in the recorded repository, if any"]
+  CLP --> CL6
   CL3 -- yes --> CLK{"--keep-worktree?"}
   CLK -- yes --> CLK1["skip removal AND the dirty check — nothing is discarded; report the retained path"]
   CLK1 --> CL6
@@ -643,6 +654,7 @@ column records. They are not gaps.
 | `SPN` handle from --handle | a spawn given --handle | `--handle names the unit on its own record` |
 | `SPN` handle defaulted | a spawn with no --handle | `a spawn with no --handle defaults the handle to the unit's 6-character short id` |
 | `SPN` launch recorded | any spawn | `spawn records the launch command on the peer's record` |
+| `SPN` repository recorded | a spawn creating a new worktree | `spawn records the primary checkout of the repository its worktree belongs to` |
 
 ### The brief is delivered by file, never typed
 
@@ -751,12 +763,15 @@ column records. They are not gaps.
 | `CL3 -- no` nothing to remove | a unit spawned with --cwd (owns no worktree) | `close on a unit spawned with --cwd removes no worktree` |
 | `CL2 -- yes` | a unit with a live pane whose worktree is the primary checkout | `close refuses a unit whose worktree is the primary checkout` |
 | `CL2 -- yes` under --force | the same, with --force | `--force does not override the primary-checkout refusal` |
+| `CLR` → `CL10`, any caller directory | a real git worktree, close run from another repository, from outside any repository, and from the unit's own worktree | `close removes the unit's worktree whatever directory the caller runs it from` |
+| `CLR` → `CL2 -- yes` | a unit whose worktree is its own repository's primary checkout, close run from another repository | `close refuses a unit whose worktree is its own repository's primary checkout, from another repository` |
 | `CL4 -- yes` | a unit with a live pane, a pane pointer and a stored brief, uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
 | `CL4 -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
 | `CL4 -- no` under --force, real git | untracked and modified files in a real git worktree, with --force | `--force removes a worktree holding untracked and modified files` |
 | `CL4 -- no` marker only | a real git worktree whose only change is the untracked stamped marker, no --force | `close does not count the stamped marker as uncommitted work` |
 | `CL4 -- yes` beside the marker | the same, plus another untracked file beside the marker, no --force | `close still refuses when the unit left work beside the marker` |
 | `CL3 -- no` worktree already gone | a unit whose worktree is no longer on disk | `close completes the reap when the worktree no longer exists on disk` |
+| `CL3 -- no` → `CLP` prune | a real git worktree gone from disk but still listed by its repository, the record naming that repository, close run from another repository | `close of a worktree already gone from disk prunes its stale registration in the unit's repository` |
 | `CLK -- yes` → `CLK1` | a unit with a clean worktree and a live pane, with --keep-worktree | `--keep-worktree leaves the worktree on disk and reaps everything else` |
 | `CLK -- no` (no retained path) | the same, without the flag | `an ordinary close names no retained worktree` |
 | `CLK -- yes` skips the dirty check | a unit with uncommitted changes, with --keep-worktree and no --force | `--keep-worktree keeps a dirty worktree without --force` |

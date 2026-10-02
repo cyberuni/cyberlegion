@@ -147,7 +147,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const from = callerPane(sessionAdapter, normalizedEnv)
 
 	let cwd: string
-	let worktree: { root: string; branch: string } | null
+	let worktree: { root: string; branch: string; primaryRoot?: string } | null
 	let target: MuxTarget
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) {
@@ -190,7 +190,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			assertDistinctFromPrimary(opened.worktree.root, primaryRoot)
 			ensureMarker(join(opened.worktree.root, '.agents', 'cyberlegion'))
 			cwd = opened.worktree.root
-			worktree = opened.worktree
+			worktree = { ...opened.worktree, primaryRoot }
 			target = opened.target
 		} else {
 			const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
@@ -200,7 +200,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			// until then.
 			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
 			cwd = added.root
-			worktree = added
+			worktree = { ...added, primaryRoot }
 			target = sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
 		}
 	}

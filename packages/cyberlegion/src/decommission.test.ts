@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -14,13 +14,16 @@ const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args
 
 let store: FileStore
 let worktreeRoot: string
-const primaryRoot = '/repo'
+let primaryRoot: string
 
 beforeEach(() => {
 	const tmp = mkdtempSync(join(tmpdir(), 'cl-'))
 	store = new FileStore(join(tmp, 'hub'))
 	worktreeRoot = join(tmp, 'unit-worktree')
 	mkdirSync(worktreeRoot, { recursive: true })
+	// On disk: close resolves a worktree's repository from the worktree itself, so one that exists.
+	primaryRoot = join(tmp, 'repo')
+	mkdirSync(primaryRoot)
 })
 
 /** A fake `exec` covering git worktree/status calls plus tmux/herdr session calls, with hooks. */
@@ -467,37 +470,110 @@ describe('spec:cyberlegion/unit/lifecycle — a service endpoint is not a unit t
 	})
 })
 
+/** A git repo with one commit, at `<tmp>/<name>`. */
+function makeRepo(tmp: string, name: string): string {
+	const repo = join(tmp, name)
+	mkdirSync(repo)
+	const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
+	git('init', '-q', '-b', 'main')
+	writeFileSync(join(repo, 'file.txt'), 'one\n')
+	git('add', 'file.txt')
+	git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
+	return repo
+}
+
+/** The exec seam, run from `cwd` — where the CALLER of close sits, which a git call with no `-C`
+ * would resolve against. */
+function execFrom(cwd: string): Exec {
+	return (cmd, args) => {
+		try {
+			return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+		} catch {
+			return null
+		}
+	}
+}
+
+/** Whether `repo` still has a worktree registered at `path` — git's metadata, not the directory. */
+function registeredWorktree(repo: string, path: string): boolean {
+	const list = execFileSync('git', ['worktree', 'list', '--porcelain'], { cwd: repo, encoding: 'utf8' })
+	return list.split('\n').some((line) => line === `worktree ${path}`)
+}
+
 // Real git, not the fake above: the fake answers `worktree remove` whatever its flags, which is how
 // a `--force` close that git itself refused (#37) passed every test here.
 describe('spec:cyberlegion/unit/lifecycle — closing a real git worktree', () => {
+	let tmp: string
 	let repo: string
 	let unitRoot: string
 	let gitExec: Exec
 
 	beforeEach(() => {
-		const tmp = mkdtempSync(join(tmpdir(), 'cl-git-'))
-		repo = join(tmp, 'repo')
+		tmp = mkdtempSync(join(tmpdir(), 'cl-git-'))
+		repo = makeRepo(tmp, 'repo')
 		unitRoot = join(tmp, 'repo.worktrees', 'unit')
-		mkdirSync(repo)
-		const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'ignore' })
-		git('init', '-q', '-b', 'main')
-		writeFileSync(join(repo, 'file.txt'), 'one\n')
-		git('add', 'file.txt')
-		git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'init')
-		git('worktree', 'add', '-q', '-b', 'cyberlegion/unit-g', unitRoot)
-		// The exec seam, pinned to the temp repo: `resolvePrimaryRoot` runs git with no `-C`.
-		gitExec = (cmd, args) => {
-			try {
-				return execFileSync(cmd, args, { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
-			} catch {
-				return null
-			}
-		}
+		execFileSync('git', ['worktree', 'add', '-q', '-b', 'cyberlegion/unit-g', unitRoot], { cwd: repo, stdio: 'ignore' })
+		gitExec = execFrom(repo)
 	})
 
-	function register(id: string): void {
-		registerUnit({ id, cwd: unitRoot, worktree: { root: unitRoot, branch: 'cyberlegion/unit-g' }, pane: null })
+	function register(id: string, primary?: string): void {
+		registerUnit({
+			id,
+			cwd: unitRoot,
+			worktree: { root: unitRoot, branch: 'cyberlegion/unit-g', ...(primary ? { primaryRoot: primary } : {}) },
+			pane: null,
+		})
 	}
+
+	// A fleet-level caller closes units from wherever its own session runs — usually another repository.
+	describe("resolves the unit's repository from its worktree, not from the caller", () => {
+		it('removes the worktree when close is called from an unrelated repository', () => {
+			register('x1')
+			const other = makeRepo(tmp, 'other')
+			decommission({ store, env: {}, exec: execFrom(other) }, { id: 'x1' })
+			expect(existsSync(unitRoot)).toBe(false)
+			expect(registeredWorktree(repo, unitRoot)).toBe(false)
+			expect(store.getAgent('x1')).toBeUndefined()
+		})
+
+		it('removes the worktree when close is called from a directory outside any repository', () => {
+			register('x2')
+			const plain = join(tmp, 'plain')
+			mkdirSync(plain)
+			decommission({ store, env: {}, exec: execFrom(plain) }, { id: 'x2' })
+			expect(existsSync(unitRoot)).toBe(false)
+			expect(registeredWorktree(repo, unitRoot)).toBe(false)
+			expect(store.getAgent('x2')).toBeUndefined()
+		})
+
+		it('removes the worktree when close is called from inside the same repository', () => {
+			register('x3')
+			decommission({ store, env: {}, exec: execFrom(unitRoot) }, { id: 'x3' })
+			expect(existsSync(unitRoot)).toBe(false)
+			expect(registeredWorktree(repo, unitRoot)).toBe(false)
+			expect(store.getAgent('x3')).toBeUndefined()
+		})
+
+		it("refuses a unit whose worktree is its own repository's primary checkout, from another repository", () => {
+			registerUnit({ id: 'x4', cwd: repo, worktree: { root: repo }, pane: null })
+			const other = makeRepo(tmp, 'other')
+			expect(() => decommission({ store, env: {}, exec: execFrom(other) }, { id: 'x4' })).toThrow(/primary checkout/)
+			expect(existsSync(repo)).toBe(true)
+			expect(store.getAgent('x4')).toBeDefined()
+		})
+	})
+
+	// A removal that got as far as the directory and no further leaves git's registration behind; the
+	// retry finds no directory, so it must clear that registration in the unit's own repository.
+	it('a close of a worktree already gone from disk prunes its stale registration in the recorded repository', () => {
+		register('p1', repo)
+		rmSync(unitRoot, { recursive: true, force: true })
+		expect(registeredWorktree(repo, unitRoot)).toBe(true)
+		const other = makeRepo(tmp, 'other')
+		decommission({ store, env: {}, exec: execFrom(other) }, { id: 'p1' })
+		expect(registeredWorktree(repo, unitRoot)).toBe(false)
+		expect(store.getAgent('p1')).toBeUndefined()
+	})
 
 	it('--force removes a worktree holding untracked and modified files', () => {
 		register('g1')
