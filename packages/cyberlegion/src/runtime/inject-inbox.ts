@@ -80,24 +80,6 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 		}
 	}
 
-	// Session-start setup nudge — for a root session (no spawnedBy), prompt onboarding while
-	// incomplete: in a multiplexer pane, incomplete means no main pane bound; in no pane (non-mux),
-	// incomplete means no standing owner exists yet. Best-effort: never fails the harness turn.
-	if (rec && !rec.spawnedBy) {
-		try {
-			const incomplete = cur ? !ctx.store.getMainPane() : !listAgents(ctx.store).some((a) => a.kind === 'standing')
-			if (incomplete) {
-				parts.push(
-					'## Legion setup\n\n' +
-						'This pane has no owner inbox bound yet — run `cyberlegion init` to register the surfacing ' +
-						'hook and bind this pane as the owner live presence.',
-				)
-			}
-		} catch {
-			// the setup nudge is best-effort — never let a store read error fail the harness turn
-		}
-	}
-
 	if (parts.length === 0) return null
 	return { hookSpecificOutput: { hookEventName: event as HookEvent, additionalContext: parts.join('\n\n') } }
 }

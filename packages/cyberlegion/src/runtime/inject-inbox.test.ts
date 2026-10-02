@@ -140,9 +140,9 @@ describe('mail hook emits the SessionStart payload', () => {
 	})
 
 	it('a caller whose id resolves without an agent record still gets its own mail', () => {
-		// The inbox is keyed by id, the owner-mail and nudge gates are keyed by the RECORD. A caller
-		// whose record was reaped while its inbox survived must still be told what is in that inbox,
-		// and must get neither an owner section nor a nudge (both need a record to gate on).
+		// The inbox is keyed by id, the owner-mail gate is keyed by the RECORD. A caller whose record
+		// was reaped while its inbox survived must still be told what is in that inbox, and must get
+		// no owner section (it needs a record to gate on).
 		const homa = registerStanding({ store }, { handle: 'homa' })
 		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'owner report' })
 		const orphan = register(
@@ -153,18 +153,14 @@ describe('mail hook emits the SessionStart payload', () => {
 		store.removeAgent(orphan.id) // record gone, inbox kept — and no main pane is bound
 		expect(loadAgent(store, orphan.id)).toBeUndefined()
 
-		// The session runs IN ITS PANE, as the frozen Given puts it. Driving this unpaned instead
-		// suppressed the setup nudge through an unrelated arm — the non-mux branch needs a standing
-		// owner to be missing, and `homa` exists — so "no Legion setup" held for every implementation,
-		// including one whose record gate had been dropped. In a pane with no main pane bound, a
-		// RECORDED root session gets both sections, so both absences are now discriminating.
+		// The session runs IN ITS PANE with no main pane bound, as the frozen Given puts it: a RECORDED
+		// root session there gets the owner section, so its absence is discriminating.
 		const orphanEnv = { TMUX: 't', TMUX_PANE: '%40', CYBERLEGION_AGENT_ID: orphan.id }
 		const ctxText =
 			injectInbox({ store, env: orphanEnv, exec: () => null }, 'SessionStart')?.hookSpecificOutput.additionalContext ??
 			''
 		expect(ctxText).toContain('orphaned message')
 		expect(ctxText).not.toContain('Owner mail')
-		expect(ctxText).not.toContain('Legion setup')
 	})
 
 	it("a spawned peer's hook call injects no brief", () => {
@@ -217,10 +213,10 @@ describe('mail hook emits the SessionStart payload', () => {
 })
 
 describe('empty / error cases', () => {
-	it('injects nothing for an empty inbox once onboarding is complete', () => {
-		// The scenario's own preconditions: the caller sits in the bound main pane (so the mux nudge is
-		// silenced) and the standing owner has nothing unread (so no owner section accumulates). With
-		// its own inbox empty too, nothing accumulates at all.
+	it('injects nothing for an empty inbox', () => {
+		// The scenario's own preconditions: the caller sits in the bound main pane and the standing
+		// owner has nothing unread (so no owner section accumulates). With its own inbox empty too,
+		// nothing accumulates at all.
 		registerStanding({ store }, { handle: 'somebody' })
 		register({ store, env: { TMUX: 't', TMUX_PANE: '%9' }, exec: () => null }, { handle: 'lone', harness: 'claude' })
 		store.setMainPane('%9')
@@ -450,16 +446,20 @@ describe('owner mail gates on the bound main pane', () => {
 	})
 })
 
-describe('the session-start Legion setup nudge', () => {
-	it('an unbound root pane gets a Legion setup nudge pointing at cyberlegion init', () => {
+describe('the payload joins every accumulated section', () => {
+	it('an unbound root pane with nothing unread injects nothing', () => {
+		// No main pane bound and no standing owner: the state every root pane on a fleet hub stays in.
+		// The hook used to nag here with a setup nudge; it must now stay silent.
 		register({ store, env: { TMUX: 't', TMUX_PANE: '%30' }, exec: () => null }, { handle: 'root', harness: 'claude' })
-		const payload = injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%30' }, exec: () => null }, 'SessionStart')
-		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
-		expect(ctxStr).toContain('Legion setup')
-		expect(ctxStr).toContain('cyberlegion init')
+		expect(injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%30' }, exec: () => null }, 'SessionStart')).toBeNull()
 	})
 
-	it('an unbound root pane surfaces owner mail and the setup nudge with no unread-mail section', () => {
+	it('a non-multiplexer root session with no standing owner and nothing unread injects nothing', () => {
+		register({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux1' } }, { handle: 'nonmux', harness: 'claude' })
+		expect(injectInbox({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux1' } }, 'SessionStart')).toBeNull()
+	})
+
+	it('an unbound root pane surfaces owner mail with no unread-mail section', () => {
 		const homa = registerStanding({ store }, { handle: 'homa' })
 		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
 		const root = register(
@@ -473,15 +473,16 @@ describe('the session-start Legion setup nudge', () => {
 		const ctxStr = payload?.hookSpecificOutput.additionalContext ?? ''
 		expect(ctxStr).toContain('Owner mail — homa')
 		expect(ctxStr).toContain('status report')
-		expect(ctxStr).toContain('Legion setup')
-		expect(ctxStr).toContain('cyberlegion init')
 		// the caller's OWN section is omitted entirely rather than emitted empty — an "Unread mail (0)"
 		// heading would satisfy every other clause here
 		expect(ctxStr).not.toContain('Unread mail')
 		expect(ctxStr).not.toContain('already handled')
+		// the owner section is the whole payload: no other section rides along
+		expect(ctxStr.startsWith('## Owner mail — homa')).toBe(true)
+		expect(ctxStr).not.toContain('\n\n## ')
 	})
 
-	it('own mail, owner mail and the setup nudge appear in one payload, in that order', () => {
+	it('own mail and owner mail appear in one payload, in that order', () => {
 		const iris = registerStanding({ store }, { handle: 'iris' })
 		send({ store, now: () => 10 }, { fromId: bob.id, to: iris.id, body: 'iris report' })
 		const root = register(
@@ -494,68 +495,16 @@ describe('the session-start Legion setup nudge', () => {
 				.additionalContext ?? ''
 		const own = ctxStr.indexOf('## Unread mail')
 		const owner = ctxStr.indexOf('## Owner mail — iris')
-		const setup = ctxStr.indexOf('## Legion setup')
-		// all three present...
+		// both present...
 		expect(own).toBeGreaterThanOrEqual(0)
 		expect(owner).toBeGreaterThanOrEqual(0)
-		expect(setup).toBeGreaterThanOrEqual(0)
 		// ...in that order — the ordering is what makes the reader's own mail the first thing it sees
 		expect(own).toBeLessThan(owner)
-		expect(owner).toBeLessThan(setup)
-		// ...and each pair is separated by a blank line, so the sections do not run together into one
-		// paragraph the model reads as a single item
+		// ...separated by a blank line, so the sections do not run together into one paragraph the
+		// model reads as a single item
 		expect(ctxStr).toContain('\n\n## Owner mail — iris')
-		expect(ctxStr).toContain('\n\n## Legion setup')
-	})
-
-	it('binding a main pane silences the nudge', () => {
-		const root = register(
-			{ store, env: { TMUX: 't', TMUX_PANE: '%32' }, exec: () => null },
-			{ handle: 'root', harness: 'claude' },
-		)
-		send({ store, now: () => 11 }, { fromId: bob.id, to: root.id, body: 'bound own message' })
-		store.setMainPane('%32')
-		const ctxStr =
-			injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%32' }, exec: () => null }, 'SessionStart')?.hookSpecificOutput
-				.additionalContext ?? ''
-		expect(ctxStr).toContain('bound own message')
-		expect(ctxStr).not.toContain('Legion setup')
-	})
-
-	it('a spawned unit never gets the setup nudge', () => {
-		const unit = register(
-			{ store, env: { TMUX: 't', TMUX_PANE: '%33' }, exec: () => null },
-			{ handle: 'unit', harness: 'claude' },
-		)
-		saveAgent(store, { ...unit, spawnedBy: 'someone' })
-		send({ store, now: () => 11 }, { fromId: bob.id, to: unit.id, body: 'spawned own message' })
-		const ctxStr =
-			injectInbox({ store, env: { TMUX: 't', TMUX_PANE: '%33' }, exec: () => null }, 'SessionStart')?.hookSpecificOutput
-				.additionalContext ?? ''
-		// no main pane is bound, so an unspawned root session in this same pane WOULD be nudged
-		expect(ctxStr).toContain('spawned own message')
-		expect(ctxStr).not.toContain('Legion setup')
-	})
-
-	it('a non-multiplexer root session with no standing owner gets the setup nudge', () => {
-		register({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux1' } }, { handle: 'nonmux', harness: 'claude' })
-		const payload = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux1' } }, 'SessionStart')
-		expect(payload?.hookSpecificOutput.additionalContext ?? '').toContain('Legion setup')
-	})
-
-	it('a non-multiplexer root session that already has a standing owner gets no nudge', () => {
-		// the owner exists but has nothing unread, so no owner section accumulates either — the
-		// caller's own message is what keeps the payload non-empty, so "no nudge" is a real absence
-		const homa = registerStanding({ store }, { handle: 'homa2' })
-		const acked = send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'owner report' })
-		ack({ store }, homa.id, acked.id)
-		register({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux2' } }, { handle: 'nonmux', harness: 'claude' })
-		send({ store, now: () => 11 }, { fromId: bob.id, to: 'nonmux2', body: 'nonmux own message' })
-		const ctxStr =
-			injectInbox({ store, env: { CYBERLEGION_AGENT_ID: 'nonmux2' } }, 'SessionStart')?.hookSpecificOutput
-				.additionalContext ?? ''
-		expect(ctxStr).toContain('nonmux own message')
-		expect(ctxStr).not.toContain('Legion setup')
+		// ...and nothing follows the owner section: an unbound root pane gets no third section
+		expect(ctxStr.indexOf('\n\n## ', owner)).toBe(-1)
 	})
 
 	/** `store` with one method replaced by a thrower — the hub-read failures the hook must absorb. */
@@ -587,9 +536,10 @@ describe('the session-start Legion setup nudge', () => {
 		expect(ctxStr).not.toContain('Owner mail')
 	})
 
-	it("a failing registry listing drops the setup nudge but keeps the caller's own mail", () => {
-		// A non-mux root session with no standing owner — the nudge branch this session WOULD get
-		// (asserted two cases above) is computed from `listAgents`, so the failure is what removes it.
+	it("a failing registry listing drops the owner-mail section but keeps the caller's own mail", () => {
+		// No main pane bound, so the owner block reaches `listAgents` — the failure is what removes it.
+		const homa = registerStanding({ store }, { handle: 'homa' })
+		send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status report' })
 		register({ store, env: { CYBERLEGION_AGENT_ID: 'thrower2' } }, { handle: 'thrower2', harness: 'claude' })
 		send({ store, now: () => 11 }, { fromId: bob.id, to: 'thrower2', body: 'thrower2 own message' })
 		const env = { CYBERLEGION_AGENT_ID: 'thrower2' }
@@ -597,6 +547,6 @@ describe('the session-start Legion setup nudge', () => {
 			injectInbox({ store: storeThrowingOn('listAgents'), env }, 'SessionStart')?.hookSpecificOutput
 				.additionalContext ?? ''
 		expect(ctxStr).toContain('thrower2 own message')
-		expect(ctxStr).not.toContain('Legion setup')
+		expect(ctxStr).not.toContain('Owner mail')
 	})
 })

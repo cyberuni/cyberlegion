@@ -103,7 +103,6 @@ Feature: mail surface — inject unread mail into a session across harnesses
     When it runs mail hook --event SessionStart
     Then the payload lists the caller's own unread message
     And the payload contains no owner-mail section
-    And the payload includes no "Legion setup" nudge
 
   # ── Owner mail surfaces into the bound main pane, never into a spawned unit ──
 
@@ -191,58 +190,39 @@ Feature: mail surface — inject unread mail into a session across harnesses
     And the payload contains no owner-mail section
     And the command exits 0
 
-  # ── The session-start setup nudge for an unbound root session ──
-
-  Scenario: an unbound root pane gets a Legion setup nudge
-    Given a registered top-level session in a pane with no main pane bound
-    When it runs mail hook --event SessionStart
-    Then the payload includes a "Legion setup" nudge pointing at cyberlegion init
-
-  Scenario: binding a main pane silences the nudge
-    Given a registered top-level session in the pane bound as the hub's main pane
+  Scenario: a failing registry read drops the owner-mail section but keeps the caller's own mail
+    Given a registered top-level session in no multiplexer pane
     And one unread message addressed to that session
-    When it runs mail hook --event SessionStart
-    Then the payload lists that session's own unread message
-    And the payload includes no "Legion setup" nudge
-
-  Scenario: a spawned unit never gets the setup nudge
-    Given a registered session in a pane
-    And that session's record carries a spawnedBy
+    And a standing owner homa with one unread message
     And no main pane bound
-    And one unread message addressed to that session
-    When it runs mail hook --event SessionStart
-    Then the payload lists that session's own unread message
-    And the payload includes no "Legion setup" nudge
-
-  Scenario: a non-multiplexer root session with no standing owner gets the setup nudge
-    Given a registered top-level session in no multiplexer pane
-    And a hub registry holding only non-standing records
-    When it runs mail hook --event SessionStart
-    Then the payload includes a "Legion setup" nudge pointing at cyberlegion init
-
-  Scenario: a non-multiplexer root session that already has a standing owner gets no nudge
-    Given a registered top-level session in no multiplexer pane
-    And a standing owner homa whose messages have all been acked
-    And one unread message addressed to that session
-    When it runs mail hook --event SessionStart
-    Then the payload lists that session's own unread message
-    And the payload includes no "Legion setup" nudge
-
-  Scenario: a failing registry read drops the setup nudge but keeps the caller's own mail
-    Given a registered top-level session in no multiplexer pane
-    And one unread message addressed to that session
     And a hub store whose registry listing raises an error
     When it runs mail hook --event SessionStart
     Then the payload lists that session's own unread message
-    And the payload includes no "Legion setup" nudge
+    And the payload contains no owner-mail section
     And the command exits 0
 
   # ── The payload assembles every accumulated section ──
 
-  Scenario: a caller with an empty inbox and completed onboarding injects nothing
+  Scenario: a caller with an empty inbox injects nothing
     Given a registered top-level session in the pane bound as the hub's main pane
     And every message addressed to that session has been acked
     And a standing owner homa whose messages have all been acked
+    When it runs mail hook --event SessionStart
+    Then stdout is empty
+    And the command exits 0
+
+  Scenario: an unbound root pane with nothing unread injects nothing
+    Given a registered top-level session in a pane with no main pane bound
+    And no standing owner record
+    And no unread message addressed to that session
+    When it runs mail hook --event SessionStart
+    Then stdout is empty
+    And the command exits 0
+
+  Scenario: a non-multiplexer root session with no standing owner and nothing unread injects nothing
+    Given a registered top-level session in no multiplexer pane
+    And a hub registry holding only non-standing records
+    And no unread message addressed to that session
     When it runs mail hook --event SessionStart
     Then stdout is empty
     And the command exits 0
@@ -253,25 +233,25 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Then stdout is parseable JSON shaped as hookSpecificOutput with hookEventName and additionalContext
     And it is not TOON-formatted
 
-  Scenario: own mail, owner mail and the setup nudge appear in one payload in that order
+  Scenario: own mail and owner mail appear in one payload in that order
     Given a standing owner iris with one unread message
     And a registered top-level session in a pane with no main pane bound
     And one unread message addressed to that session
     When it runs mail hook --event SessionStart
-    Then the payload carries an "Unread mail" heading, an owner-mail heading naming iris, and a "Legion setup" heading
+    Then the payload carries an "Unread mail" heading and an owner-mail heading naming iris
     And the "Unread mail" heading appears before the owner-mail heading
-    And the owner-mail heading appears before the "Legion setup" heading
-    And a blank line separates each of the three sections from the next
+    And a blank line separates the two sections
+    And no section follows the owner-mail section
 
-  Scenario: an unbound root pane surfaces owner mail and the setup nudge without an unread-mail section
+  Scenario: an unbound root pane surfaces owner mail without an unread-mail section
     Given a standing owner homa with one unread message
     And no main pane bound
     And a registered top-level session in a pane
     And every message addressed to that session has been acked
     When it runs mail hook --event SessionStart
     Then the payload includes homa's unread message under an owner-mail heading naming homa
-    And the payload includes a "Legion setup" nudge pointing at cyberlegion init
     And the payload carries no "Unread mail" heading
+    And the owner-mail section is the only section in the payload
 
   # ── No brief is injected, whatever the peer's record carries ──
 

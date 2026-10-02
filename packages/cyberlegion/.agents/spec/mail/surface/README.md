@@ -19,8 +19,7 @@ sibling. The per-harness installer folded into [`init/`](../../init/README.md), 
 `spawnedBy` — nobody in the legion spawned it. A **spawned unit** is the opposite: its record names
 the agent that spawned it. The **standing owner** is the durable inbox a human reads
 (`unit/registry`). The **main pane** is the one multiplexer pane a human designated as the owner's
-live presence (`attach/`). **Onboarding is incomplete** while there is nothing to surface owner mail
-into — no main pane bound (in a multiplexer) or no standing owner minted (outside one).
+live presence (`attach/`).
 
 ## Use Cases
 
@@ -54,20 +53,15 @@ into its own next turn via the harness's own hook mechanism:
   until it is explicitly acked (`mail ack --owner`), and once acked it no longer surfaces (showing a
   message is a model printing text, not proof a human read it, so read stays a deliberate act). When no
   standing owner record exists at all, `mail hook` surfaces no owner section and still exits 0.
-- **An unbound root session gets a session-start setup nudge** — when the caller is a root session (no
-  `spawnedBy`) and onboarding is incomplete, `mail hook` appends a best-effort `## Legion setup` line
-  pointing at `cyberlegion init`, so a human is prompted to designate this pane as the owner's live
-  presence. Incomplete means: **in a multiplexer pane** → no main pane is bound; **in no pane**
-  (non-mux) → no standing owner record exists (there is no pane to bind, so a minted owner is the
-  completion signal). Binding a main pane (mux) or minting the standing owner (non-mux) silences the
-  nudge. A spawned unit never gets it. Computing the gate or the nudge is best-effort — each sits in
-  its **own** swallowing `try`, so a store error drops **that** section only and the rest of the
-  payload still emits, exit 0.
-- **The payload joins every accumulated section into one `additionalContext`** — the three sections
-  are independent. When nothing accumulated, `mail hook` prints nothing and exits 0. When something
+- **The payload joins every accumulated section into one `additionalContext`** — the two sections
+  are independent. When nothing accumulated, `mail hook` prints nothing and exits 0 — including for a
+  root session with no main pane bound and no standing owner, which is the permanent state of a root
+  pane on a hub whose owner is a claimed presence rather than a bound pane. The hook carries **no
+  setup or onboarding section**: onboarding is `init-cyberlegion`'s job, reached when asked, not a
+  line injected into every root session. When something
   did, stdout is one line of raw JSON in the harness's `hookSpecificOutput` shape (not TOON — this
   command is consumed by the harness, not a human), whose `additionalContext` carries the sections
-  that fired, blank-line separated, in the order **own mail → owner mail → setup nudge**.
+  that fired, blank-line separated, in the order **own mail → owner mail**.
 - **No brief is injected, whatever the peer's record carries** — no branch of this hook reads or
   injects a spawned peer's brief file. The brief stays on disk and the payload carries no brief
   section. A record migrated from an older hub may still carry the retired `spawning` status; it gets
@@ -79,7 +73,7 @@ into its own next turn via the harness's own hook mechanism:
 correlation and the bounded `mail await`/`watch` (`mail/wait`), the doorbell nudge and the spawn wake
 instruction that points a peer at its brief file (`unit/lifecycle`), minting the standing owner
 inbox (`unit/registry`) and binding the main pane (`attach/`), and the auto-detecting onboarding front door (`init/`) — this node only covers the hook
-payload and the owner-mail/nudge surfacing gate.
+payload and the owner-mail surfacing gate.
 
 The per-harness hook installer (the old `admin install`) is **not** here — it folded into
 [`init/`](../../init/README.md), which now owns installation directly (CR-2 resolution #2: init's
@@ -88,20 +82,16 @@ PostToolUse coverage was extended to include codex rather than duplicating the i
 ## Control Flow
 
 Every use case enters one graph: `mail hook` validates the event, resolves the caller, then appends up
-to three independent sections — the caller's own unread mail, every standing owner's unread mail, and
-the setup nudge — and emits only if something accumulated. **No branch reads the brief**: the payload
+to two independent sections — the caller's own unread mail and every standing owner's unread mail —
+and emits only if something accumulated. **No branch reads the brief**: the payload
 carries no brief section whatever the record's status, which is what retires the split ADR-0027 chose
 (ADR-0032).
 
-Two details the graph draws that a coarser one hides, because both are where the defects live:
+One detail the graph draws that a coarser one hides, because it is where a defect lives:
 
-- The eligibility test **"a record is present and carries no `spawnedBy`"** is evaluated **twice**, at
-  `H` and again at `M` — two textually identical guards, each inside its **own** `try`/`catch` and each
-  taking its **own** main-pane read. So an owner-block failure does **not** skip the nudge, and the two
-  reads need not agree.
 - The record loaded at `F` **may be missing**. A self id can come from `$CYBERLEGION_AGENT_ID` with no
-  record behind it; both eligibility guards then fail closed, so such a caller gets its own mail and
-  nothing else.
+  record behind it; the eligibility guard at `H` then fails closed, so such a caller gets its own mail
+  and nothing else.
 
 ```mermaid
 graph TD
@@ -120,23 +110,15 @@ graph TD
   G -- yes --> G1["append '## Unread mail (N)' — sender, subject when present, body, id"]
   G -- no --> H
   G1 --> H{"record present and carries no spawnedBy?"}
-  H -- no --> M
+  H -- no --> L
   H -- yes --> HT{"owner-block store read raises?"}
-  HT -- yes --> M
+  HT -- yes --> L
   HT -- no --> I{"no main pane bound, or this pane is the bound one?"}
-  I -- no --> M
+  I -- no --> L
   I -- yes --> I0{"per standing owner: any unread?"}
-  I0 -- "none, or no standing record" --> M
+  I0 -- "none, or no standing record" --> L
   I0 -- yes --> I1["append '## Owner mail — handle (N)' per owner; never acked"]
-  I1 --> M
-  M{"record present and carries no spawnedBy?"} -- no --> L
-  M -- yes --> MT{"nudge-block store read raises?"}
-  MT -- yes --> L
-  MT -- no --> N{"onboarding incomplete?"}
-  N -- "in a pane: no main pane bound" --> N1["append '## Legion setup' nudge"]
-  N -- "in no pane: no standing owner record" --> N1
-  N -- otherwise --> L
-  N1 --> L{"anything accumulated?"}
+  I1 --> L{"anything accumulated?"}
   L -- no --> Z0
   L -- yes --> Z1["emit hookSpecificOutput as raw JSON; hookEventName echoes e"]
 ```
@@ -159,10 +141,8 @@ established nothing else in the payload were narrowed so the absence they assert
 construct a state in which some wrong implementation would produce the thing the `Then` denies. Two
 narrowings exist only for that reason and are load-bearing — the rejected-`--event` scenario carries a
 registered caller with unread mail (otherwise no implementation, right or wrong, could emit a
-payload), and the record-less caller sits **in a pane with no main pane bound** (outside a
-multiplexer a standing owner already silences the nudge, so the nudge absence could not fail; in a
-pane with none bound, an implementation that conflates "no record" with "not eligible" appends *both*
-the owner-mail section and the nudge, and both absences fail together).
+payload), and the record-less caller sits **in a pane with no main pane bound** (there, an
+implementation that drops the record gate appends the owner-mail section, so its absence can fail).
 
 **Known gaps and co-owned rows**, recorded rather than papered over:
 
@@ -178,14 +158,12 @@ the owner-mail section and the nudge, and both absences fail together).
   It asserts what the installed harness config invokes, which this node's own Non-goals hand to
   `init/`. Its row is anchored to entry node `A` because there is no edge in this graph for it to
   name — the tell that it is co-owned. Relocating it to `init/` is a filed follow-up.
-- **Three implementation defects are specified as they behave today, and filed for review.** (1) A
+- **Two implementation defects are specified as they behave today, and filed for review.** (1) A
   pane in a multiplexer whose panes the registry cannot address (wezterm, zellij) auto-registers a
   record that nothing can ever resolve, then injects nothing — `E2 -- no`. (2) A caller whose id comes
-  from `$CYBERLEGION_AGENT_ID` with no record behind it loses **both** owner mail and the nudge,
-  because each guard conflates "is not a spawned unit" with "has a record" — `H -- no` / `M -- no`.
-  (3) The two main-pane reads at `HT` and `MT` need not agree, so a concurrent `attach` between them
-  can produce owner mail without the nudge, or the inverse. Each scenario below records the current
-  behavior; none of the three is fixed here.
+  from `$CYBERLEGION_AGENT_ID` with no record behind it loses owner mail, because the guard conflates
+  "is not a spawned unit" with "has a record" — `H -- no`. Each scenario below records the current
+  behavior; neither is fixed here.
 
 ### The `--event` value is validated and echoed
 
@@ -212,7 +190,7 @@ the owner-mail section and the nudge, and both absences fail together).
 | `G1` subject segment omitted | the one unread message carries no subject | `a message with no subject renders without a subject segment` |
 | `G -- yes` unread-only filter | two messages addressed to the caller, one already acked | `an acked message of the caller's own no longer surfaces` |
 | `G1` read-only, never acks | one unread message, the hook called twice | `surfacing the caller's own mail never acks it` |
-| `H -- no` / `M -- no` no record | an agent id whose record was removed while its inbox was kept, in a pane with none bound, an owner with unread mail | `a caller whose id resolves without an agent record still gets its own mail` |
+| `H -- no` no record | an agent id whose record was removed while its inbox was kept, in a pane with none bound, an owner with unread mail | `a caller whose id resolves without an agent record still gets its own mail` |
 
 ### Owner mail surfaces into the bound main pane, never into a spawned unit
 
@@ -228,26 +206,18 @@ the owner-mail section and the nudge, and both absences fail together).
 | `I0 -- none` the owner's mail is acked | the owner's only message already acked; the caller has own unread mail | `an acked owner message no longer surfaces` |
 | `I0 -- none` no standing record | no standing owner in the registry; the caller has own unread mail | `no standing owner means no owner-mail section` |
 | `HT -- yes` owner block swallows | the main-pane read raises; the caller has own unread mail, an owner has unread mail | `a failing main-pane lookup drops the owner-mail section but keeps the caller's own mail` |
-
-### The session-start setup nudge for an unbound root session
-
-| Edge | Path (Given) | Scenario |
-|---|---|---|
-| `N -- in a pane: no main pane bound` | a root session in a pane, none bound | `an unbound root pane gets a Legion setup nudge` |
-| `N -- otherwise` a main pane is bound | a root session in the bound main pane, with own unread mail | `binding a main pane silences the nudge` |
-| `M -- no` spawned unit skips the nudge | the record carries a `spawnedBy`, in a pane, none bound, with own unread mail | `a spawned unit never gets the setup nudge` |
-| `N -- in no pane: no standing owner record` | a root session in no mux pane, no standing owner | `a non-multiplexer root session with no standing owner gets the setup nudge` |
-| `N -- otherwise` a standing owner exists | a root session in no mux pane, a standing owner present, with own unread mail | `a non-multiplexer root session that already has a standing owner gets no nudge` |
-| `MT -- yes` nudge block swallows | the registry listing raises; a root session in no pane with own unread mail | `a failing registry read drops the setup nudge but keeps the caller's own mail` |
+| `HT -- yes` owner block swallows | the registry listing raises; a root session in no pane, none bound, with own unread mail, an owner with unread mail | `a failing registry read drops the owner-mail section but keeps the caller's own mail` |
 
 ### The payload joins every accumulated section
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `L -- no` nothing accumulated | a root session in the bound main pane, its mail and the owner's all acked | `a caller with an empty inbox and completed onboarding injects nothing` |
+| `L -- no` nothing accumulated | a root session in the bound main pane, its mail and the owner's all acked | `a caller with an empty inbox injects nothing` |
+| `L -- no` no setup section | a root session in a pane, none bound, no standing owner, nothing unread | `an unbound root pane with nothing unread injects nothing` |
+| `L -- no` no setup section | a root session in no mux pane, no standing owner, nothing unread | `a non-multiplexer root session with no standing owner and nothing unread injects nothing` |
 | `Z1` raw JSON envelope | a registered caller with unread mail | `the payload uses the harness hookSpecificOutput shape as raw JSON` |
-| `L -- yes` all three sections joined | own unread mail, an owner with unread mail, a root pane with none bound | `own mail, owner mail and the setup nudge appear in one payload in that order` |
-| `G -- no` + `I1` + `N1` | the caller's own mail all acked, an owner with unread mail, a root pane with none bound | `an unbound root pane surfaces owner mail and the setup nudge without an unread-mail section` |
+| `L -- yes` both sections joined | own unread mail, an owner with unread mail, a root pane with none bound | `own mail and owner mail appear in one payload in that order` |
+| `G -- no` + `I1` | the caller's own mail all acked, an owner with unread mail, a root pane with none bound | `an unbound root pane surfaces owner mail without an unread-mail section` |
 
 ### No brief is injected, whatever the peer's record carries
 
