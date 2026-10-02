@@ -33,7 +33,7 @@ service reads it with `mail inbox --owner <endpoint>`.
 | `kind` | `service` |
 | `service` | `{ project, name }` |
 | `cwd` | the project's root |
-| `pane` | `null`; no harness, no worktree, no brief |
+| `pane` | `null`; no harness, no worktree, no brief, and no `conversation` (the session-start hook never records one on an endpoint — `unit/runtime`) |
 | `status` | `active`, never changed by any verb |
 
 A service name is a path-safe token: lowercase letters, digits, `-` and `_`, starting with a
