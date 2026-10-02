@@ -20,8 +20,15 @@ path cannot be resolved. Those pins, and the plugin's `.plugin/pins.json` map, a
 release version flow (`pnpm version`) from `packages/cyberlegion/package.json`, and the test suite
 fails when either disagrees with that version. The pin can no longer lag the package.
 
+The package's `bin/` also carries `cyberlegion`, an extensionless, executable twin of
+`bin/cyberlegion.mjs` that forwards every argument to it. Claude Code puts a plugin's `bin/` on the
+Bash tool's PATH, where the file name is the command name, so a session (or a person at its prompt)
+that types a bare `cyberlegion` runs the CLI the plugin ships, with no global install.
+
 **Why.** The skills called `npx cyberlegion@0.3.1 …` while the package was at 0.4.0, because nothing
-moved the pin at release: a skill ran a CLI older than the one its own text describes. Each npx call
+moved the pin at release: a skill ran a CLI older than the one its own text describes. A session that typed a bare `cyberlegion`
+got `command not found` unless a global install existed, because the only name on PATH was
+`cyberlegion.mjs`. Each npx call
 also paid npx's resolve-and-spawn cost and, with several agents running at once, risked the
 `~/.npm/_npx` `ENOTEMPTY` race. The launcher removes npx from the common path entirely.
 
@@ -35,7 +42,8 @@ decisions, outside this plugin's skills); `npx cyberlegion@<version>` examples i
 site (documentation, not a skill's invocation); a spawned unit's PATH shim (a CLI concern, and absent in
 the user's own session, so no skill relies on it).
 
-**Key terms** — **launcher**: `skills/<skill>/scripts/cyberlegion.mjs`. **Installed shape**: the
+**Key terms** — **bare command**: `bin/cyberlegion`, the extensionless file Claude Code's PATH
+exposes as `cyberlegion`. **launcher**: `skills/<skill>/scripts/cyberlegion.mjs`. **Installed shape**: the
 package directory as a plugin install copies it — no `node_modules`, only what the checkout or tarball
 carries. **Fallback pin**: the one `npx -y cyberlegion@<version>` line a skill names for when the
 launcher cannot be resolved. **Version flow**: the repo's `pnpm version` script, run at release.
@@ -49,6 +57,7 @@ back to is kept equal to the version that shipped it.
 |---|---|---|---|
 | **run a CLI command from a skill** | a skill step names a `cyberlegion` command | the command's arguments; the working directory of the repo the agent works on | the command runs on the CLI shipped beside the skill, with its output and exit code unchanged |
 | **fall back when the launcher cannot be resolved** | the agent cannot resolve `scripts/cyberlegion.mjs` beside the skill | the same arguments | the command runs on the published CLI of the version that shipped the skill |
+| **run a bare `cyberlegion` in a Claude Code session** | the agent or the user types `cyberlegion <command>` in the Bash tool | the command's arguments | the command runs on the CLI shipped in the plugin's `bin/`, with its output and exit code unchanged |
 | **cut a release** | the maintainer runs `pnpm version` | the new `package.json` version | every skill's fallback pin and the pins map name the new version |
 | **catch a stale pin** | `pnpm verify` / CI | the tracked skills and the pins map | any pin that disagrees with `package.json` fails the run |
 
@@ -65,6 +74,12 @@ invoking anything: they get the CLI version the skill's text describes, and no n
   not a dependency. The checkout carries no `dist/cli.mjs` (a source install that was never
   built): the launcher fails loud, naming the missing file and the pinned published version to run
   instead, rather than a raw module-not-found. The working directory is never used to find the CLI.
+- *run a bare `cyberlegion`* — the plugin is distributed through claude.ai organization settings
+  (or installed in claude.ai or Cowork): those reject a plugin with a top-level `bin/`, whatever it
+  holds, so the bare command never exists there. This predates the bare command — `bin/cyberlegion.mjs`
+  already put the plugin in that case — and the skills' launchers do not rely on PATH, so they are
+  unaffected. A harness that does not put `bin/` on PATH (Cursor, Codex) has no bare command either;
+  this node promises it only where the harness exposes `bin/`.
 - *fall back* — `init-cyberlegion` takes its fallback version from the plugin's `.plugin/pins.json`
   map (its own frozen suite, `init/`), which the version flow regenerates like the literal pins; every
   other skill names the version literally.
@@ -98,7 +113,22 @@ fallback exists. `INITFB` belongs to the `init/` node, whose frozen suite alread
 current (`SYNC → MAP`), so it carries no scenario for `INITFB`. `ROOT` never consults the working directory: that is the user's repo, the command's
 input, not where the CLI lives.
 
-### 1 — Release keeps every pin current
+### 1 — A bare `cyberlegion` in a Claude Code session
+
+*Entered by:* run a bare `cyberlegion` in a Claude Code session
+
+```mermaid
+graph TD
+  BARE[Bash tool runs cyberlegion args] --> LOOKUP[PATH lookup finds bin/cyberlegion in the plugin root]
+  LOOKUP --> FWD[bin/cyberlegion forwards to the bin/cyberlegion.mjs beside it]
+  FWD --> BRUN[shipped CLI runs; args, output, exit code pass through]
+```
+
+`LOOKUP` is Claude Code's behavior; this node owns that the file is there, named `cyberlegion`,
+executable, and shipped in the tarball. `FWD` locates `cyberlegion.mjs` from the file's own path, never
+the working directory.
+
+### 2 — Release keeps every pin current
 
 *Entered by:* cut a release · catch a stale pin
 
@@ -135,6 +165,14 @@ every scenario in that suite has exactly one row.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `FIND → FALLBACK` | a skill that runs the CLI | `each skill names one pinned npx fallback of the shipped version` |
+
+### run a bare `cyberlegion` in a Claude Code session
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `BARE → LOOKUP` | the package's bin/ | `the package ships an executable bin/cyberlegion` |
+| `LOOKUP → FWD` | an installed-shape bin/ on PATH, run from an unrelated working directory | `a bare cyberlegion runs the shipped CLI from an unrelated working directory` |
+| `FWD → BRUN` | a command the CLI rejects | `arguments, output, and the exit code pass through the bare command unchanged` |
 
 ### cut a release
 
