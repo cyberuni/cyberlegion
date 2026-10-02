@@ -24,7 +24,8 @@ result and exit. A standing owner can have a **presence**: one live unit standin
 - **self id** — the caller's own unit id, recovered by `resolveSelfId`.
 - **harness** — the agent program running the session: `claude`, `cursor`, or `codex`.
 - **kind** — `session` (the default; a record with no `kind` field is a session, so records written
-  before the field existed need no migration), `standing`, or `service`.
+  before the field existed need no migration), `standing`, or `service` (a project service's
+  endpoint, spec'd in [`service/endpoint`](../../service/endpoint/README.md)).
 - **staleness window** — 15 minutes. A record with no pane is judged dead when its `lastSeen` is
   older than this.
 - **standing record** — a session-independent, prune-exempt owner inbox, keyed by handle.
@@ -229,7 +230,8 @@ Extensions — each is a record `prune` leaves alone:
   about a runtime that was ended deliberately, so `prune` skips it however old its `lastSeen` is.
   This is what keeps a stopped unit addressable by handle (a handle never resolves to an exited
   unit), and so what keeps its mail arriving while it has no session.
-- **A standing record is never pruned** (see `unit register --standing`).
+- **A standing record is never pruned** (see `unit register --standing`), nor is a service endpoint
+  (`service/endpoint`).
 - **`prune` never adopts** — the reaper never mints records.
 
 ### unit who --reconcile — cull and adopt against the live multiplexer

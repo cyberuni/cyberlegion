@@ -28,10 +28,13 @@ any session, so a person moving between sessions manages one hub-level inbox fro
 - **standing owner** — a durable, session-independent record for a human principal
   (`unit/registry`). Its inbox is the **owner mailbox**.
 - **--owner** — a selector on `inbox`, `read`, and `ack` that targets a standing owner's inbox
-  instead of the caller's own.
+  instead of the caller's own. It also reaches a project service's endpoint inbox, spec'd in
+  [`service/endpoint`](../../service/endpoint/README.md).
 
 **Non-goals.**
 
+- **Service endpoint mailboxes** — `--owner` on a service endpoint's id or handle is spec'd in
+  [`service/endpoint`](../../service/endpoint/README.md).
 - **Thread correlation and waiting** — `send --thread/--reply-to`, `inbox --thread`, `mail await`,
   and `mail watch` are spec'd in [`mail/wait`](../wait/README.md).
 - **Injecting mail into a harness turn** — the hook payload and the owner-mail surfacing gate are
