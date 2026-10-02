@@ -1,0 +1,5 @@
+#!/bin/sh
+# Claude Code puts a plugin's bin/ on the Bash tool's PATH, where the file name is the command name.
+# This extensionless twin of cyberlegion.mjs makes a bare `cyberlegion` resolve to the CLI this
+# plugin ships, with no global install.
+exec node "$(dirname -- "$0")/cyberlegion.mjs" "$@"

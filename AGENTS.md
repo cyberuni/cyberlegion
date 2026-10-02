@@ -93,9 +93,15 @@ won't ship it.
 | `skills/<name>/SKILL.md` | All of them (fixed location) |
 | `agents/<name>.md` | Claude Code (and any client that reads Agent Plugins subagents) |
 | `dist/cli.mjs` | `bin/cyberlegion.mjs`, at a source install — committed, see below |
+| `bin/cyberlegion` | Claude Code, which puts `bin/` on the Bash PATH — the bare `cyberlegion` command; keep it executable |
 
 After editing `plugin.json`, run `pnpm exec universal-plugin plugin build --root packages/cyberlegion`
 and commit what it writes as-is — `biome.json` excludes the generated files, so never reformat them.
+
+claude.ai and Cowork refuse to install a plugin with a top-level `bin/`, including one distributed
+through claude.ai organization settings, so this plugin reaches Claude Code and the other harnesses
+but not those channels. The skills never rely on `bin/` being on PATH; they run the CLI through their
+`scripts/cyberlegion.mjs` launchers.
 
 `dist/cli.mjs` is the one build output in git. A marketplace install copies the package directory
 from the repo, and no harness runs a build after the copy, so the bundled CLI has to be in the
