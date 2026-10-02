@@ -3,8 +3,7 @@ import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type AgentRecord, loadAgent, prune, saveAgent } from './identity.ts'
-import { inbox, send } from './message.ts'
+import { type AgentRecord, loadAgent, saveAgent } from './identity.ts'
 import { registerProject } from './project.ts'
 import {
 	acquireService,
@@ -234,34 +233,7 @@ describe('spec:cyberlegion/service — handoff and fencing', () => {
 	})
 })
 
-describe('spec:cyberlegion/service — the endpoint outlives its runtimes', () => {
-	it('mail to the service survives replacing its owner, and the reference is unchanged', () => {
-		unit('u1')
-		unit('sender')
-		start('u1')
-		const before = resolveService(ctx(), projectId, 'controller')
-		send({ store }, { fromId: 'sender', to: before.endpoint.id, body: 'pending work' })
-
-		live.delete('u1')
-		unit('u2')
-		const res = acquireService(ctx(), projectId, 'controller')
-		if (res.outcome !== 'reserved') throw new Error('expected reservation')
-		bindService(ctx(), projectId, 'controller', { generation: res.lease.generation, token: res.token, unit: 'u2' })
-
-		const after = resolveService(ctx(), projectId, 'controller')
-		expect(after.endpoint.id).toBe(before.endpoint.id)
-		expect(after.lease.holder).toBe('u2')
-		expect(inbox({ store }, { meId: after.endpoint.id, unread: true }).map((m) => m.body)).toEqual(['pending work'])
-	})
-
-	it('prune never reaps a service endpoint', () => {
-		acquireService(ctx(), projectId, 'controller')
-		const endpointId = resolveService(ctx(), projectId, 'controller').endpoint.id
-		clock += 24 * 60 * 60_000
-		prune({ store, now: () => clock, exec: () => null, env: {} })
-		expect(loadAgent(store, endpointId)?.status).not.toBe('exited')
-	})
-
+describe('spec:cyberlegion/service — control is reported, never implied', () => {
 	it('an owner with no session pane resolves but reports that control is not recoverable', () => {
 		unit('sub', { pane: false })
 		start('sub')

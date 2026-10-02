@@ -1,13 +1,14 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
-import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import { ringTurn } from './console/ring.ts'
 import { answerTrustPrompt, type TrustOptions, type TrustOutcome } from './console/trust.ts'
 import {
 	type AgentRecord,
+	type Exec,
 	type Harness,
 	type IdContext,
 	randomId,
@@ -91,8 +92,23 @@ export interface SpawnInput {
 	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
 	cwd?: string
+	/** Create the worktree from the repository containing this path rather than the caller's cwd —
+	 * so a caller spawns for another repository without a `cd` chained in front of the command.
+	 * Mutually exclusive with `cwd` (that one creates no worktree to place). */
+	repo?: string
 	/** Placement relative to the caller; defaults to 'tab'. */
 	at?: MuxPlacement
+}
+
+/** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
+ * rather than from the process cwd. */
+function primaryRootOfRepo(exec: Exec, repo: string): string {
+	const dir = resolve(repo)
+	try {
+		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === 'git' ? ['-C', dir, ...args] : args))
+	} catch {
+		throw new Error(`--repo ${repo} is not inside a git repository`)
+	}
 }
 
 export interface SpawnResult {
@@ -130,12 +146,12 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		throw new Error('spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>')
 	}
 
-	if (input.cwd && (input.branch || input.worktreePath)) {
-		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path')
+	if (input.cwd && (input.branch || input.worktreePath || input.repo)) {
+		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo')
 	}
 
 	const id = randomId()
-	const primaryRoot = resolvePrimaryRoot(exec)
+	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec)
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
 	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
@@ -332,10 +348,57 @@ export function labelFor(
  * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
  * as a side effect, so call it only past every refusal, right before the session opens. Shared by
  * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+ *
+ * `bindSelf` has the new pane run `unit rebind <id>` through the shim before the harness starts, so
+ * the session binds itself to the unit even when the caller dies before its own bind write. It needs
+ * the shim, so a context with no recorded invocation gets no bind step.
  */
-export function composeLaunchLine(ctx: IdContext, muxName: string, id: string, launch: string): string {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
-	return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
+export function composeLaunchLine(
+	ctx: IdContext,
+	muxName: string,
+	id: string,
+	launch: string,
+	options: { bindSelf?: boolean; fallback?: string } = {},
+): string {
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
+	const bind =
+		shim && options.bindSelf
+			? `${shellQuote(shim)} unit rebind ${shellQuote(id)} --space ${shellQuote(ctx.store.root)} >/dev/null 2>&1; `
+			: ''
+	const prefix = `${shim ? shimEnvPrefix(shim) : ''}${muxEnvPrefix(muxName)}`
+	// A `VAR=val cmd` prefix scopes to one command, so the fallback carries its own copy.
+	const fallback = options.fallback ? ` || ${prefix}${options.fallback}` : ''
+	return `${bind}${prefix}${launch}${fallback}`
+}
+
+/**
+ * How each harness resumes a conversation by id, appended to the unit's own launch command. Cursor is
+ * absent: its hook's id is not confirmed to be the chat id `cursor-agent --resume` takes, so a cursor
+ * unit restarts fresh and is rebriefed.
+ */
+const RESUME_MAP: Partial<Record<Harness, (id: string) => string>> = {
+	claude: (id) => `--resume ${shellQuote(id)}`,
+	codex: (id) => `resume ${shellQuote(id)}`,
+}
+
+/**
+ * The launch that resumes `conversation`, or undefined when this harness has no resume here or the
+ * launch is not the harness's own command — a wrapper script may not take the harness's flags.
+ */
+export function resumeLaunch(harness: Harness, launch: string, conversation: string): string | undefined {
+	const resume = RESUME_MAP[harness]
+	if (!resume || launch.split(/\s+/)[0] !== LAUNCH_MAP[harness]) return undefined
+	return `${launch} ${resume(conversation)}`
+}
+
+/**
+ * Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+ * itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+ * cannot tell this shim from a stale global install), so it reads the variable instead: set only
+ * here, it marks a spawned session and names the CLI that spawned it.
+ */
+function shimEnvPrefix(shim: string): string {
+	return `PATH=${shellQuote(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote(shim)} `
 }
 
 /**
@@ -363,7 +426,7 @@ export function selfInvocation(): string[] {
 
 /**
  * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
- * and return its directory. A spawned session gets that directory first on its PATH, so the
+ * and return its path. A spawned session gets that directory first on its PATH, so the
  * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
  * the registry or the session's own PATH at report time.
  */
@@ -373,7 +436,7 @@ function writeSelfShim(dataDir: string, self: string[]): string {
 	const shim = join(dir, 'cyberlegion')
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote).join(' ')} "$@"\n`)
 	chmodSync(shim, 0o755)
-	return dir
+	return shim
 }
 
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
@@ -439,6 +502,7 @@ export async function nudgeUnit(
 		{
 			...options.guardOpts,
 			harness: agent.harness,
+			ownText: (text) => isRingText(text, message),
 		},
 	)
 	return { agent, pane: target.id, message, resubmits: result.resubmits }
@@ -487,6 +551,7 @@ export async function clearUnit(
 	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
 		...options.guardOpts,
 		harness: agent.harness,
+		ownText: (text) => isRingText(text),
 	})
 	return { agent, pane, command }
 }

@@ -6292,6 +6292,9 @@ const KILL_LINE = "";
 *   throws without sending. A multi-row draft cannot be typed back exactly: a scrape cannot tell a
 *   wrapped row from a newline, and a newline typed back would submit it.
 *
+* Text `ownText` recognizes is the caller's own, not a draft: it is cleared at once, whatever rows it
+* wraps onto, `send` runs, and nothing is typed back.
+*
 * Text the clear leaves in place was never a draft — an idle placeholder this reader does not know —
 * so `send` runs and nothing is typed back.
 */
@@ -6308,10 +6311,11 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 			return { kind: "unknown" };
 		}
 	};
+	const isOwn = (s) => s.kind === "draft" && options.ownText?.(s.text) === true;
 	let state = read();
 	const start = now();
 	let changedAt = start;
-	while (state.kind === "draft" && now() - changedAt < idleMs) {
+	while (state.kind === "draft" && !isOwn(state) && now() - changedAt < idleMs) {
 		if (now() - start + pollMs > maxWaitMs) throw new Error(`pane ${target.id} holds a draft the user is still editing — gave up after ${maxWaitMs / 1e3}s without typing`);
 		await sleep(pollMs);
 		const next = read();
@@ -6319,12 +6323,13 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 		state = next;
 	}
 	if (state.kind !== "draft") return send();
+	if (isOwn(state)) {
+		await clearLine(adapter, exec, target, sleep);
+		return send();
+	}
 	if (state.rows > 1) throw new Error(`pane ${target.id} holds an idle draft spanning ${state.rows} rows, which cannot be typed back exactly — left it untouched`);
 	const draft = state.text;
-	adapter.sendText(exec, target, END_OF_LINE);
-	await sleep(KEY_SETTLE_MS);
-	adapter.sendText(exec, target, KILL_LINE);
-	await sleep(KEY_SETTLE_MS);
+	await clearLine(adapter, exec, target, sleep);
 	const after = read();
 	if (after.kind === "draft" && after.text === draft) return send();
 	try {
@@ -6333,6 +6338,12 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 		await sleep(KEY_SETTLE_MS);
 		adapter.sendText(exec, target, draft);
 	}
+}
+async function clearLine(adapter, exec, target, sleep) {
+	adapter.sendText(exec, target, END_OF_LINE);
+	await sleep(KEY_SETTLE_MS);
+	adapter.sendText(exec, target, KILL_LINE);
+	await sleep(KEY_SETTLE_MS);
 }
 //#endregion
 //#region src/console/ring.ts
@@ -6404,6 +6415,28 @@ const DELIVERY_DOORBELL = "You have unread mail — check your inbox.";
 function spawnDoorbell(briefPath) {
 	return `Read your brief at ${briefPath}, then begin work.`;
 }
+const SPAWN_DOORBELL = /^Readyourbriefat.+,thenbeginwork\.$/;
+const RESUME_DOORBELL = /^Yoursessionwasrestartedwithitsconversationresumed—continueyourwork\.Ifyouhavenoearlierconversation,readyourbriefat.+,thenbeginwork\.$/;
+/**
+* Whether `text`, read out of a peer's input box, is a ring cyberlegion typed — the delivery doorbell,
+* a spawn or resume doorbell, or `message`, the one about to be rung — rather than a human's draft. A harness
+* can take a ring and put its text back in the box (cursor-agent with a rejected login). Whitespace is
+* ignored, since the box wraps the text onto rows wherever it likes.
+*/
+function isRingText(text, message) {
+	const squeeze = (s) => s.replace(/\s+/g, "");
+	const box = squeeze(text);
+	if (box === "") return false;
+	return box === squeeze("You have unread mail — check your inbox.") || SPAWN_DOORBELL.test(box) || RESUME_DOORBELL.test(box) || message !== void 0 && box === squeeze(message);
+}
+/**
+* The first-turn instruction for a restarted session that resumed its conversation. The resume can
+* fall back to a fresh session (the harness no longer has the conversation), and the ring cannot tell
+* which one took the turn, so it names the brief for a session that finds no earlier conversation.
+*/
+function resumeDoorbell(briefPath) {
+	return `Your session was restarted with its conversation resumed — continue your work. If you have no earlier conversation, read your brief at ${briefPath}, then begin work.`;
+}
 /**
 * A freshly-launched harness cold-boots slower than an already-running peer, so the spawn first-turn
 * ring gets a wider retry budget than a plain `mail send` doorbell (nudge's own 10 × 400ms): flush the
@@ -6472,7 +6505,8 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		const target = { id: pane };
 		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
 			...guardOpts,
-			harness
+			harness,
+			ownText: (text) => isRingText(text)
 		});
 		return {
 			rung: true,
@@ -6505,9 +6539,11 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 	if (input.noWake) return { rung: false };
 	try {
 		const adapter = getAdapter();
-		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts), {
+		const doorbell = (input.resumed ? resumeDoorbell : spawnDoorbell)(input.briefPath);
+		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, doorbell, nudgeOpts), {
 			...guardOpts,
-			harness: input.harness
+			harness: input.harness,
+			ownText: (text) => isRingText(text)
 		});
 		return {
 			rung: true,
@@ -6836,6 +6872,20 @@ function resetCommandFor(harness) {
 	if (FALSE_FRIEND_HARNESSES.has(harness)) throw new Error(`"${harness}" has no honest fresh-context command — its own "/clear" clears only the terminal screen, not the model context, so unit clear refuses to send a false-friend reset that would leave stale context behind`);
 	throw new Error(`"${harness}" is not in the reset map (${Object.keys(RESET_MAP).join(" | ")}) — unit clear refuses to guess a command`);
 }
+/** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
+* rather than from the process cwd. */
+function primaryRootOfRepo(exec, repo) {
+	const dir = resolve(repo);
+	try {
+		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === "git" ? [
+			"-C",
+			dir,
+			...args
+		] : args));
+	} catch {
+		throw new Error(`--repo ${repo} is not inside a git repository`);
+	}
+}
 /**
 * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
 * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
@@ -6859,9 +6909,9 @@ function spawn(ctx, input) {
 	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`spawn needs a --harness in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")})`);
 	const brief = resolveBrief(input);
 	if (brief == null) throw new Error("spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>");
-	if (input.cwd && (input.branch || input.worktreePath)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path");
+	if (input.cwd && (input.branch || input.worktreePath || input.repo)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo");
 	const id = randomId();
-	const primaryRoot = resolvePrimaryRoot(exec);
+	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
 	const launchLine = () => composeLaunchLine(ctx, sessionAdapter.name, id, launch);
 	const from = callerPane(sessionAdapter, normalizedEnv);
@@ -7041,10 +7091,43 @@ function labelFor(at, input, brief, id) {
 * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
 * as a side effect, so call it only past every refusal, right before the session opens. Shared by
 * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+*
+* `bindSelf` has the new pane run `unit rebind <id>` through the shim before the harness starts, so
+* the session binds itself to the unit even when the caller dies before its own bind write. It needs
+* the shim, so a context with no recorded invocation gets no bind step.
 */
-function composeLaunchLine(ctx, muxName, id, launch) {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
-	return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
+function composeLaunchLine(ctx, muxName, id, launch, options = {}) {
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
+	const bind = shim && options.bindSelf ? `${shellQuote$1(shim)} unit rebind ${shellQuote$1(id)} --space ${shellQuote$1(ctx.store.root)} >/dev/null 2>&1; ` : "";
+	const prefix = `${shim ? shimEnvPrefix(shim) : ""}${muxEnvPrefix(muxName)}`;
+	return `${bind}${prefix}${launch}${options.fallback ? ` || ${prefix}${options.fallback}` : ""}`;
+}
+/**
+* How each harness resumes a conversation by id, appended to the unit's own launch command. Cursor is
+* absent: its hook's id is not confirmed to be the chat id `cursor-agent --resume` takes, so a cursor
+* unit restarts fresh and is rebriefed.
+*/
+const RESUME_MAP = {
+	claude: (id) => `--resume ${shellQuote$1(id)}`,
+	codex: (id) => `resume ${shellQuote$1(id)}`
+};
+/**
+* The launch that resumes `conversation`, or undefined when this harness has no resume here or the
+* launch is not the harness's own command — a wrapper script may not take the harness's flags.
+*/
+function resumeLaunch(harness, launch, conversation) {
+	const resume = RESUME_MAP[harness];
+	if (!resume || launch.split(/\s+/)[0] !== LAUNCH_MAP[harness]) return void 0;
+	return `${launch} ${resume(conversation)}`;
+}
+/**
+* Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+* itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+* cannot tell this shim from a stale global install), so it reads the variable instead: set only
+* here, it marks a spawned session and names the CLI that spawned it.
+*/
+function shimEnvPrefix(shim) {
+	return `PATH=${shellQuote$1(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote$1(shim)} `;
 }
 /**
 * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
@@ -7073,7 +7156,7 @@ function selfInvocation() {
 }
 /**
 * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
-* and return its directory. A spawned session gets that directory first on its PATH, so the
+* and return its path. A spawned session gets that directory first on its PATH, so the
 * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
 * the registry or the session's own PATH at report time.
 */
@@ -7083,7 +7166,7 @@ function writeSelfShim(dataDir, self) {
 	const shim = join(dir, "cyberlegion");
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote$1).join(" ")} "$@"\n`);
 	chmodSync(shim, 493);
-	return dir;
+	return shim;
 }
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
 function shellQuote$1(s) {
@@ -7135,7 +7218,8 @@ async function nudgeUnit(ctx, ref, options = {}) {
 	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
 	const result = await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, message, options.nudgeOpts), {
 		...options.guardOpts,
-		harness: agent.harness
+		harness: agent.harness,
+		ownText: (text) => isRingText(text, message)
 	});
 	return {
 		agent,
@@ -7174,7 +7258,8 @@ async function clearUnit(ctx, ref, options = {}) {
 	const adapter = selectSessionAdapter(env, exec);
 	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
 		...options.guardOpts,
-		harness: agent.harness
+		harness: agent.harness,
+		ownText: (text) => isRingText(text)
 	});
 	return {
 		agent,
@@ -7469,6 +7554,7 @@ function spawnCommandInput(opts, listCursorModels) {
 			branch: opts.branch,
 			worktreePath: opts.worktreePath,
 			cwd: opts.cwd,
+			repo: opts.repo,
 			at: opts.at
 		},
 		noWake: opts.wake === false,
@@ -8846,8 +8932,11 @@ function stopUnit(ctx, ref) {
 /**
 * Give a unit a fresh runtime and keep the unit: stop a still-running session (the same verified stop
 * as `stopUnit`), open a new session at the unit's cwd with the launch it was spawned with, bind the
-* record to the new pane, and ring it to read its brief — a rebrief, since a new session starts with
-* an empty context. Every refusal runs before anything is torn down.
+* record to the new pane, and ring it. When the record carries the harness's conversation id and the
+* harness can resume by id, the session resumes that conversation and is rung to continue, with the
+* plain launch as a shell fallback should the harness reject the id; otherwise (or with `fresh`) it
+* starts empty and is rung to read its brief — a rebrief. Every refusal runs before anything is torn
+* down.
 *
 * The unit is recorded `stopped` before the open, so a restart interrupted between the two leaves an
 * ordinary stopped unit and a rerun recovers it; nothing needs a separate repair path.
@@ -8869,6 +8958,7 @@ async function restartUnit(ctx, ref, options = {}) {
 	const env = ctx.env ?? process.env;
 	const exec = ctx.exec ?? realExec;
 	const launch = stopped.launch ?? LAUNCH_MAP[harness];
+	const resume = stopped.conversation && !options.fresh ? resumeLaunch(harness, launch, stopped.conversation) : void 0;
 	const at = stopped.worktree ? "workspace" : "tab";
 	let target;
 	let adapter;
@@ -8881,7 +8971,10 @@ async function restartUnit(ctx, ref, options = {}) {
 		}) } : {};
 		target = adapter.open(exec, {
 			cwd: stopped.cwd,
-			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch),
+			launch: resume ? composeLaunchLine(ctx, adapter.name, rec.id, resume, {
+				bindSelf: true,
+				fallback: launch
+			}) : composeLaunchLine(ctx, adapter.name, rec.id, launch, { bindSelf: true }),
 			at,
 			from: callerPane(adapter, normalizeMuxEnv(env)),
 			...label
@@ -8905,13 +8998,15 @@ async function restartUnit(ctx, ref, options = {}) {
 	const wake = await wakeSpawn(() => adapter, exec, {
 		target,
 		briefPath: briefPath ?? "",
-		noWake: options.noWake || !briefPath
+		noWake: options.noWake || !briefPath,
+		resumed: !!resume
 	}, options.nudgeOpts);
 	return {
 		agent: bound,
 		...previousPane ? { previousPane } : {},
 		pane: target.id,
 		launch,
+		resumed: !!resume,
 		rung: wake.rung,
 		...wake.warning ? { warning: wake.warning } : {}
 	};
@@ -9008,6 +9103,29 @@ function showUnit(ctx, ref) {
 		lastSeen: rec.lastSeen,
 		controls: controlsFor(ctx, rec, liveness)
 	};
+}
+/**
+* Record the harness's conversation id on the calling unit, from the JSON its SessionStart hook hands
+* `mail hook` on stdin (`session_id`, which Claude Code and Codex both send). The hook fires on every
+* session start in the pane — a fresh start, a resume, a `/clear` — so the record follows the
+* conversation the pane is in now. Best-effort and silent: an unparseable input, no id, or a caller
+* that is not a unit records nothing and never fails the harness hook.
+*/
+function recordConversation(ctx, hookInput) {
+	let id;
+	try {
+		id = JSON.parse(hookInput)?.session_id;
+	} catch {
+		return;
+	}
+	if (typeof id !== "string" || id === "") return;
+	const meId = resolveSelfId(ctx);
+	const rec = meId ? loadAgent(ctx.store, meId) : void 0;
+	if (!rec || rec.kind === "standing" || rec.kind === "service" || rec.conversation === id) return;
+	saveAgent(ctx.store, {
+		...rec,
+		conversation: id
+	});
 }
 //#endregion
 //#region src/wake/await.ts
@@ -9301,7 +9419,7 @@ function warnEffortNotApplied(spawnInput) {
 }
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd) {
-	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
+	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("-C, --repo <path>", "create the worktree from the git repository containing <path>, not the current directory's").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
 		"pane:right",
 		"pane:down",
 		"tab",
@@ -9401,15 +9519,19 @@ withGlobals(unit.command("stop")).description("end a unit's session and keep the
 	});
 	if (!res.alreadyStopped) nextStep(`cyberlegion unit restart ${res.agent.handle}`);
 });
-withGlobals(unit.command("restart")).description("give a unit a fresh session and keep the unit — stops a running session, relaunches it, and rebriefs it").argument("<ref>", "unit id, handle, or worktree branch/CR ref").option("--no-wake", "do not ring the new session to read its brief (the caller briefs it by mail)").action(async (ref, opts) => {
+withGlobals(unit.command("restart")).description("give a unit a new session and keep the unit — stops a running session, relaunches it resuming the harness's recorded conversation where it can, and otherwise rebriefs it").argument("<ref>", "unit id, handle, or worktree branch/CR ref").option("--no-wake", "do not ring the new session to read its brief (the caller briefs it by mail)").option("--fresh", "start an empty session and rebrief it, even when the unit's conversation could be resumed").action(async (ref, opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
-	const res = await restartUnit(ctx, ref, { noWake: opts.wake === false });
+	const res = await restartUnit(ctx, ref, {
+		noWake: opts.wake === false,
+		fresh: opts.fresh === true
+	});
 	emit(formatOf(opts), {
 		toon: toonObject({
 			restarted: res.agent.id,
 			previous: res.previousPane ?? "-",
 			pane: res.pane,
+			resumed: res.resumed,
 			rung: res.rung
 		}),
 		json: res
@@ -9893,6 +10015,9 @@ withGlobals(mail.command("watch")).description("stream new matching mail as it a
 withGlobals(mail.command("hook")).description("emit the harness hook injection payload (raw JSON on stdout, not TOON)").option("--event <event>", "SessionStart", "SessionStart").action((opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
+	if (!process.stdin.isTTY) try {
+		recordConversation(ctx, readFileSync(0, "utf8"));
+	} catch {}
 	const payload = injectInbox(ctx, opts.event);
 	if (payload) console.log(JSON.stringify(payload));
 });

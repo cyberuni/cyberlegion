@@ -56,7 +56,7 @@ import {
 } from './service.ts'
 import { clearUnit, focusUnit, nudgeUnit, readUnit, selfInvocation, spawnAndWake } from './session.ts'
 import { FileStore } from './store/file-store.ts'
-import { rebindUnit, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
+import { rebindUnit, recordConversation, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
 
@@ -313,8 +313,12 @@ function withSpawnOptions(cmd: Command): Command {
 		.option('--branch <name>', 'branch for the new worktree (default cyberlegion/unit-<id>)')
 		.option('--worktree-path <path>', 'where to check out the new worktree')
 		.option(
+			'-C, --repo <path>',
+			"create the worktree from the git repository containing <path>, not the current directory's",
+		)
+		.option(
 			'--cwd <path>',
-			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)',
+			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)',
 		)
 		.addOption(
 			// No hard default here — spawn resolves the default by mode (new-worktree → workspace,
@@ -442,19 +446,21 @@ withGlobals(unit.command('stop'))
 
 withGlobals(unit.command('restart'))
 	.description(
-		'give a unit a fresh session and keep the unit — stops a running session, relaunches it, and rebriefs it',
+		"give a unit a new session and keep the unit — stops a running session, relaunches it resuming the harness's recorded conversation where it can, and otherwise rebriefs it",
 	)
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
 	.option('--no-wake', 'do not ring the new session to read its brief (the caller briefs it by mail)')
+	.option('--fresh', "start an empty session and rebrief it, even when the unit's conversation could be resumed")
 	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const res = await restartUnit(ctx, ref, { noWake: opts.wake === false })
+		const res = await restartUnit(ctx, ref, { noWake: opts.wake === false, fresh: opts.fresh === true })
 		emit(formatOf(opts), {
 			toon: toonObject({
 				restarted: res.agent.id,
 				previous: res.previousPane ?? '-',
 				pane: res.pane,
+				resumed: res.resumed,
 				rung: res.rung,
 			}),
 			json: res,
@@ -1014,6 +1020,14 @@ withGlobals(mail.command('hook'))
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
+		// The harness pipes its hook input as JSON; a person running this at a terminal pipes nothing.
+		if (!process.stdin.isTTY) {
+			try {
+				recordConversation(ctx, readFileSync(0, 'utf8'))
+			} catch {
+				// no readable stdin — nothing to record, and never a failed harness hook
+			}
+		}
 		const payload = injectInbox(ctx, opts.event)
 		if (payload) console.log(JSON.stringify(payload))
 	})

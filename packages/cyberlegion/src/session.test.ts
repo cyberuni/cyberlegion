@@ -799,6 +799,72 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 	})
 })
 
+describe('--repo creates the worktree from the named repository, not the caller cwd', () => {
+	/** A git that answers for `otherRoot` only when asked with `-C` inside it, and for the caller's
+	 * own repository (`primaryRoot`) otherwise — so a spawn that ignored --repo lands in the wrong one. */
+	function repoExec(otherRoot: string): Exec {
+		return (cmd, args) => {
+			allCalls.push([cmd, ...args])
+			if (cmd === 'git') {
+				const at = args[0] === '-C' ? args[1] : undefined
+				if (args.includes('--git-common-dir')) {
+					if (at === undefined) return `${primaryRoot}/.git`
+					return at.startsWith(otherRoot) ? `${otherRoot}/.git` : null
+				}
+				if (args.includes('worktree')) {
+					worktreeAddCalls.push(args)
+					return ''
+				}
+				return null
+			}
+			if (tmuxVerb(args) === 'split-window' || tmuxVerb(args) === 'new-window') return '%9\t@1'
+			if (tmuxVerb(args) === 'send-keys') sent.push(args)
+			return null
+		}
+	}
+
+	it("adds the worktree against that repository's primary checkout, beside it by default", () => {
+		const otherRoot = mkdtempSync(join(tmpdir(), 'cl-other-'))
+		const res = spawn(
+			{ store, env: { TMUX: 't' }, exec: repoExec(otherRoot), now: () => 1 },
+			{ harness: 'claude', task: 't', repo: join(otherRoot, 'sub'), at: 'pane:right' },
+		)
+		const expected = resolve(
+			join(dirname(otherRoot), `${basename(otherRoot)}.worktrees`, `legion-${res.agent.id.slice(0, 6)}`),
+		)
+		expect(worktreeAddCalls[0]).toEqual(expect.arrayContaining(['-C', otherRoot, 'worktree', 'add']))
+		expect(res.agent.worktree).toEqual({
+			root: expected,
+			branch: `cyberlegion/unit-${res.agent.id}`,
+			primaryRoot: otherRoot,
+		})
+		expect(res.agent.cwd).toBe(expected)
+	})
+
+	it('throws when the path is not inside a git repository, creating and registering nothing', () => {
+		const notRepo = mkdtempSync(join(tmpdir(), 'cl-not-repo-'))
+		expect(() =>
+			spawn(
+				{ store, env: { TMUX: 't' }, exec: repoExec('/nowhere'), now: () => 1 },
+				{ harness: 'claude', task: 't', repo: notRepo, at: 'pane:right' },
+			),
+		).toThrow(/--repo .* not inside a git repository/)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(sent).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
+	})
+
+	it('is mutually exclusive with --cwd', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, repo: primaryRoot })).toThrow(
+			/cannot combine/,
+		)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(sent).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
+	})
+})
+
 // spec: mux/mux.feature — "a pane placement splits the calling pane, not whichever pane is active".
 // A pane:* open must name the caller's own pane explicitly (`from`) — each backend's own default
 // tracks whichever pane a HUMAN is looking at, which is only coincidentally the caller's and diverges
@@ -1218,6 +1284,26 @@ describe('clear does not type over a human draft in the peer pane', () => {
 	})
 })
 
+describe('clear does not wait on a doorbell the harness put back in the peer pane', () => {
+	it('clears the doorbell at once, then sends the reset', async () => {
+		registerUnit({ id: 'w2' })
+		const rule = '─'.repeat(40)
+		const literals: string[] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd !== 'tmux') return null
+			if (tmuxVerb(args) === 'send-keys' && args.includes('-l')) literals.push(args.at(-1) ?? '')
+			if (tmuxVerb(args) === 'capture-pane') return [rule, `❯\u00a0${DELIVERY_DOORBELL}`, rule].join('\n')
+			return ''
+		}
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await clearUnit({ ...ctx(), exec }, 'w2', { guardOpts: clock })
+		expect(t).toBeLessThan(20_000)
+		expect(literals.slice(0, 2)).toEqual(['\u0005', '\u0015'])
+		expect(literals).toContain('/clear')
+	})
+})
+
 describe('clear resolves each harness own fresh-context command from the per-harness map', () => {
 	it.each([
 		['claude', '/clear'],
@@ -1487,6 +1573,20 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(tmuxArgs(calls, 'send-keys')).toEqual([])
 	})
 
+	it('nudge clears a doorbell the harness put back in the input box and rings at once', async () => {
+		const rule = '─'.repeat(40)
+		const putBack = [rule, `❯\u00a0${DELIVERY_DOORBELL}`, rule, '  footer'].join('\n')
+		const { calls, ctx } = peerCtx({ captures: [putBack, 'peer output', 'scrolled away\n> '] })
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} }, guardOpts: clock })
+		expect(t).toBeLessThan(20_000)
+		const literals = tmuxArgs(calls, 'send-keys')
+			.filter((c) => c.includes('-l'))
+			.map((c) => c.at(-1))
+		expect(literals).toEqual(['\u0005', '\u0015', DELIVERY_DOORBELL])
+	})
+
 	it('nudge on a pane the backend no longer knows fails naming the gone pane', async () => {
 		// A gone pane and a booting one are different failures with different fixes, so the retry cap
 		// must not absorb the first: `paneExists` is probed up front and rejected outright.
@@ -1671,7 +1771,16 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		const bin = join(store.root, 'data', res.agent.id, 'bin')
-		expect(typed).toBe(`PATH='${bin}':"$PATH" CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`)
+		expect(typed.startsWith(`PATH='${bin}':"$PATH" `)).toBe(true)
+	})
+
+	it("names the shim in CYBERLEGION_CLI, so a plugin hook runs the spawner's CLI rather than one found on PATH", () => {
+		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
+		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
+		expect(typed).toBe(
+			`PATH='${join(shim, '..')}':"$PATH" CYBERLEGION_CLI='${shim}' CYBER_MUX=tmux CYBER_MUX_PANE=$TMUX_PANE claude`,
+		)
 	})
 
 	it('writes the shim before the session opens, so the harness never boots without it', () => {
@@ -1718,6 +1827,7 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		expect(existsSync(join(store.root, 'data', res.agent.id, 'bin'))).toBe(false)
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		expect(typed).not.toContain('PATH=')
+		expect(typed).not.toContain('CYBERLEGION_CLI=')
 	})
 })
 
