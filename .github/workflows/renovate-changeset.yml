@@ -98,7 +98,7 @@ jobs:
       # `packages/cyberlegion/dist/cli.mjs` is committed so a source install of the plugin
       # can run it (see scripts/check-cli-bundle.mjs). Rebuild it against the bumped
       # dependencies so the PR carries a fresh copy.
-      - uses: cyberuni/.github/.github/actions/setup-node-pnpm@v1
+      - uses: cyberuni/.github/.github/actions/setup-node-pnpm@v2
 
       - name: Rebuild the committed CLI bundle
         run: |
