@@ -572,6 +572,16 @@ describe('mail group', () => {
 	// returns a payload in-process and observes NO exit code at all, so a `process.exitCode` set
 	// inside any of those catches (or on the way out of the command) fails every real harness turn
 	// with the suite green. Only a real process shows it.
+	it('rejects the retired PostToolUse event with a non-zero exit and no payload', () => {
+		// A project hook an older init wrote still calls --event PostToolUse; the failure is the signal
+		// to re-run init, which removes it.
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'], { CYBERLEGION_AGENT_ID: 'alice1' })
+		const res = legionOut(['mail', 'hook', '--event', 'PostToolUse'], { CYBERLEGION_AGENT_ID: 'alice1' })
+		expect(res.status).not.toBe(0)
+		expect(res.stdout).toBe('')
+		expect(JSON.parse(res.stderr).error).toBe('unsupported --event "PostToolUse" (expected SessionStart)')
+	})
+
 	describe('mail hook exits 0 on every degraded path', () => {
 		/** A registered caller in no multiplexer pane, holding one unread message. Returns its id. */
 		function callerWithMail(handle: string, id: string): string {
@@ -582,18 +592,6 @@ describe('mail group', () => {
 			legion(['mail', 'send', '--from', senderId, '--to', handle, '--body', `${handle} own message`, '--no-nudge'])
 			return senderId
 		}
-
-		it('a PostToolUse call emits parseable JSON echoing PostToolUse, and exits 0', () => {
-			// No process-level test ever ran --event PostToolUse: the in-process binding proves the
-			// payload object echoes the event, never that the COMMAND serializes and prints it. A
-			// `console.log` reached only on the SessionStart branch is invisible to that binding.
-			callerWithMail('alice', 'alice1')
-			const res = legionOut(['mail', 'hook', '--event', 'PostToolUse'], { CYBERLEGION_AGENT_ID: 'alice1' })
-			expect(res.status).toBe(0)
-			const parsed = JSON.parse(res.stdout) // raw JSON on stdout — a TOON payload throws here
-			expect(parsed.hookSpecificOutput.hookEventName).toBe('PostToolUse')
-			expect(parsed.hookSpecificOutput.additionalContext).toContain('alice own message')
-		})
 
 		it('no standing owner means no owner-mail section, and the command exits 0', () => {
 			callerWithMail('alice', 'alice1') // a registry of non-standing records only

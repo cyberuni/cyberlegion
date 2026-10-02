@@ -62,12 +62,11 @@ describe('init resolves the harness and leaves the hook to the plugin where it s
 		expect(out).toContain('harness claude')
 	})
 
-	it('codex reports SessionStart and PostToolUse as provided by plugin', () => {
+	it('codex reports SessionStart as provided by plugin, and no PostToolUse', () => {
 		const dir = freshProjectDir()
 		const out = JSON.parse(legion(['init', '--agent', 'codex', '--dir', dir, '--format', 'json']))
 		expect(out.hooks.map((h: { event: string; status: string }) => [h.event, h.status])).toEqual([
 			['SessionStart', 'provided by plugin'],
-			['PostToolUse', 'provided by plugin'],
 		])
 		expect(existsSync(join(dir, '.codex/hooks.json'))).toBe(false)
 	})

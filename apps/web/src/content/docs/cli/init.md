@@ -24,7 +24,7 @@ registry when the hook fires. How `init` gets there depends on the harness:
 
 | Harness | What `init` does | The hook command |
 |---|---|---|
-| Claude Code, Codex | writes no project hook: the plugin ships its own `hooks/hooks.json`. Removes a project hook an earlier `init` wrote, so the hook does not fire twice | `node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event <event>`, for SessionStart and PostToolUse |
+| Claude Code, Codex | writes no project hook: the plugin ships its own `hooks/hooks.json`. Removes a project hook an earlier `init` wrote, so the hook does not fire twice, and a PostToolUse project hook an earlier `init` wrote, since that event is retired | `node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart` |
 | Cursor | registers a SessionStart hook in `.cursor/hooks.json` | `if command -v cyberlegion >/dev/null 2>&1; then cyberlegion mail hook --event SessionStart; else npx -y cyberlegion[@<pin>] mail hook --event SessionStart; fi` |
 
 On Cursor, a `cyberlegion` on `PATH` (a spawned unit's shim, or one you installed) runs first. The

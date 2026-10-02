@@ -18,17 +18,17 @@ const hooks = readJson('hooks/hooks.json').hooks as Record<string, HookGroup[]>
 const commandOf = (event: string) => hooks[event]?.[0]?.hooks[0]?.command ?? ''
 
 describe('mail-hook: the plugin ships the surfacing hook', () => {
-	it('registers SessionStart, and PostToolUse matching Write|Edit', () => {
-		expect(Object.keys(hooks).sort()).toEqual(['PostToolUse', 'SessionStart'])
+	it('registers SessionStart only, with no PostToolUse', () => {
+		expect(Object.keys(hooks)).toEqual(['SessionStart'])
 		expect(hooks.SessionStart).toHaveLength(1)
-		expect(hooks.PostToolUse).toHaveLength(1)
-		expect(hooks.PostToolUse?.[0]?.matcher).toBe('Write|Edit')
 	})
 
-	it.each(['SessionStart', 'PostToolUse'])("the %s command runs the plugin's own CLI, never npx", (event) => {
-		expect(hooks[event]?.[0]?.hooks).toHaveLength(1)
-		expect(hooks[event]?.[0]?.hooks[0]?.type).toBe('command')
-		expect(commandOf(event)).toBe(`node "\${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event ${event}`)
+	it("the SessionStart command runs the plugin's own CLI, never npx", () => {
+		expect(hooks.SessionStart?.[0]?.hooks).toHaveLength(1)
+		expect(hooks.SessionStart?.[0]?.hooks[0]?.type).toBe('command')
+		expect(commandOf('SessionStart')).toBe(
+			`node "\${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart`,
+		)
 	})
 
 	it.each(['plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'])(

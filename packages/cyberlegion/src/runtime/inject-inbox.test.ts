@@ -81,12 +81,10 @@ describe('mail hook emits the SessionStart payload', () => {
 		expect(deployLine).not.toContain('alice')
 	})
 
-	it('echoes PostToolUse as the hook event name on a PostToolUse call', () => {
-		// The event is ECHOED, not hardcoded: an implementation that always wrote 'SessionStart' passes
-		// every SessionStart assertion in this file, and the harness then discards the injection.
-		const payload = injectInbox(bobCtx(), 'PostToolUse')
-		expect(payload?.hookSpecificOutput.hookEventName).toBe('PostToolUse')
-		expect(payload?.hookSpecificOutput.additionalContext).toContain('ping')
+	it('rejects the retired PostToolUse event', () => {
+		// The plugin no longer fires on Write/Edit: re-injecting every unread message on every edit cost
+		// more than the mid-turn latency it saved, and the mail doorbell rings a busy unit instead.
+		expect(() => injectInbox(bobCtx(), 'PostToolUse')).toThrow(/unsupported --event "PostToolUse"/)
 	})
 
 	it('renders a message with no subject with the body straight after the sender', () => {
@@ -265,11 +263,10 @@ describe('empty / error cases', () => {
 	})
 
 	it('rejects an unsupported --event', () => {
-		// it names BOTH supported events — an error that only says "unsupported" leaves the caller
+		// it names the supported event — an error that only says "unsupported" leaves the caller
 		// guessing which values are legal
 		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/unsupported/)
-		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/SessionStart/)
-		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/PostToolUse/)
+		expect(() => injectInbox(bobCtx(), 'Frobnicate')).toThrow(/expected SessionStart\)/)
 		// ...and no payload comes back. `bob` HAS unread mail, so a validation placed after assembly
 		// would have produced one — the refusal is what suppresses it, not an empty inbox.
 		expect(injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext).toContain('ping')

@@ -1003,7 +1003,7 @@ withGlobals(mail.command('watch'))
 
 withGlobals(mail.command('hook'))
 	.description('emit the harness hook injection payload (raw JSON on stdout, not TOON)')
-	.option('--event <event>', 'SessionStart | PostToolUse', 'SessionStart')
+	.option('--event <event>', 'SessionStart', 'SessionStart')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)

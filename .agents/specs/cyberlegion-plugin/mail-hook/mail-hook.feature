@@ -1,19 +1,19 @@
 @frozen
 Feature: mail-hook — the plugin ships the mail-surfacing hook
-  The plugin's hooks/hooks.json registers SessionStart and PostToolUse, each running the installed
-  plugin copy's own CLI through ${CLAUDE_PLUGIN_ROOT}, so the hook never resolves a CLI from the
+  The plugin's hooks/hooks.json registers SessionStart only, running the installed plugin copy's own
+  CLI through ${CLAUDE_PLUGIN_ROOT}, so the hook never resolves a CLI from the
   registry at run time. What mail hook emits is the CLI's mail/surface node; what init writes into a
   project is the CLI's init node.
 
-  Scenario: the plugin's hook file registers SessionStart and PostToolUse
+  Scenario: the plugin's hook file registers SessionStart only
     Given the plugin's hooks/hooks.json
     When its events are read
-    Then it registers SessionStart, and PostToolUse with the matcher "Write|Edit"
+    Then SessionStart is the only event it registers
 
-  Scenario: every plugin hook command runs the plugin's own CLI, never npx
+  Scenario: the plugin hook command runs the plugin's own CLI, never npx
     Given the plugin's hooks/hooks.json
-    When each hook command is read
-    Then it is node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event naming its own event, with no npx
+    When the SessionStart hook command is read
+    Then it is node "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart, with no npx
 
   Scenario: the plugin hook runs from an installed-shape plugin directory
     Given an installed-shape plugin directory holding bin, dist/cli.mjs, hooks, and package.json but no node_modules

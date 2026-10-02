@@ -7689,10 +7689,7 @@ const VENDORS = {
 	claude: {
 		file: ".claude/settings.json",
 		shape: "claude",
-		events: {
-			SessionStart: "SessionStart",
-			PostToolUse: "PostToolUse"
-		},
+		events: { SessionStart: "SessionStart" },
 		pluginHook: true
 	},
 	cursor: {
@@ -7704,13 +7701,11 @@ const VENDORS = {
 	codex: {
 		file: ".codex/hooks.json",
 		shape: "cursor",
-		events: {
-			SessionStart: "SessionStart",
-			PostToolUse: "PostToolUse"
-		},
+		events: { SessionStart: "SessionStart" },
 		pluginHook: true
 	}
 };
+const RETIRED_EVENTS = ["PostToolUse"];
 function readJson(file) {
 	if (!existsSync(file)) return {};
 	try {
@@ -7754,6 +7749,17 @@ function install(harness, projectDir = process.cwd(), pin) {
 			status
 		});
 	}
+	if (spec.pluginHook) for (const event of RETIRED_EVENTS) {
+		if (!(spec.shape === "claude" ? removeClaude(settings, event, event) : removeCursor(settings, event, event))) continue;
+		changed = true;
+		results.push({
+			harness,
+			event,
+			vendorEvent: event,
+			file,
+			status: "removed project hook"
+		});
+	}
 	if (changed) writeJson$1(file, settings);
 	return results;
 }
@@ -7768,12 +7774,10 @@ function upsertClaude(settings, event, command) {
 			return "already present";
 		}
 	}
-	const group = { hooks: [{
+	groups.push({ hooks: [{
 		type: "command",
 		command
-	}] };
-	if (event === "PostToolUse") group.matcher = "Write|Edit";
-	groups.push(group);
+	}] });
 	return "registered";
 }
 function upsertCursor(settings, event, command) {
@@ -7977,7 +7981,7 @@ function byPath(ctx, dir) {
 }
 //#endregion
 //#region src/runtime/inject-inbox.ts
-const EVENTS = ["SessionStart", "PostToolUse"];
+const EVENTS = ["SessionStart"];
 /**
 * Resolve the calling agent, gather its unread mail (and a standing owner's, when this session is
 * the hub's main pane), and return the SessionStart-style injection payload — or null when there is
@@ -9834,7 +9838,7 @@ withGlobals(mail.command("watch")).description("stream new matching mail as it a
 		});
 	});
 });
-withGlobals(mail.command("hook")).description("emit the harness hook injection payload (raw JSON on stdout, not TOON)").option("--event <event>", "SessionStart | PostToolUse", "SessionStart").action((opts) => {
+withGlobals(mail.command("hook")).description("emit the harness hook injection payload (raw JSON on stdout, not TOON)").option("--event <event>", "SessionStart", "SessionStart").action((opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
 	const payload = injectInbox(ctx, opts.event);

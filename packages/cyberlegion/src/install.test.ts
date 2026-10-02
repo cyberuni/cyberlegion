@@ -22,8 +22,7 @@ const pathFirst = (event: string, pin?: string) =>
 describe('harnesses whose plugin ships the hook', () => {
 	it.each(['claude', 'codex'] as const)('%s gets no project hook and reports provided by plugin', (harness) => {
 		const results = install(harness, dir)
-		expect(results.map((r) => r.event)).toEqual(['SessionStart', 'PostToolUse'])
-		expect(results.every((r) => r.status === 'provided by plugin')).toBe(true)
+		expect(results.map((r) => [r.event, r.status])).toEqual([['SessionStart', 'provided by plugin']])
 	})
 
 	it.each([
@@ -53,10 +52,28 @@ describe('harnesses whose plugin ships the hook', () => {
 		expect(cfg.hooks.SessionStart).toEqual([{ hooks: [{ type: 'command', command: 'echo unrelated' }] }])
 		expect(cfg.model).toBe('opus')
 		expect(results.find((r) => r.event === 'SessionStart')?.status).toBe('removed project hook')
-		expect(results.find((r) => r.event === 'PostToolUse')?.status).toBe('provided by plugin')
+		expect(results.find((r) => r.event === 'PostToolUse')).toBeUndefined()
 	})
 
-	it('drops a claude event key left empty after removing the hook', () => {
+	// PostToolUse is retired: no hook fires on it any more, and `mail hook` rejects it. A project hook an
+	// earlier init wrote for it is still removed, so it is not left calling a rejected event.
+	it.each(['npx cyberlegion mail hook --event PostToolUse', pathFirst('PostToolUse', '0.2.0')])(
+		'removes the retired claude PostToolUse project hook %j and keeps unrelated hooks',
+		(command) => {
+			const unrelated = { matcher: 'Write|Edit', hooks: [{ type: 'command', command: 'echo unrelated' }] }
+			writeCfg('.claude/settings.json', {
+				hooks: { PostToolUse: [{ matcher: 'Write|Edit', hooks: [{ type: 'command', command }] }, unrelated] },
+			})
+			const results = install('claude', dir)
+			expect(readCfg('.claude/settings.json').hooks.PostToolUse).toEqual([unrelated])
+			expect(results.map((r) => [r.event, r.status])).toEqual([
+				['SessionStart', 'provided by plugin'],
+				['PostToolUse', 'removed project hook'],
+			])
+		},
+	)
+
+	it('drops a claude PostToolUse key left empty after removing the retired hook', () => {
 		writeCfg('.claude/settings.json', {
 			hooks: {
 				PostToolUse: [
@@ -69,6 +86,24 @@ describe('harnesses whose plugin ships the hook', () => {
 		})
 		install('claude', dir)
 		expect(readCfg('.claude/settings.json').hooks.PostToolUse).toBeUndefined()
+	})
+
+	it('removes the retired codex PostToolUse project hook and keeps unrelated ones', () => {
+		writeCfg('.codex/hooks.json', {
+			version: 1,
+			hooks: { PostToolUse: [{ command: 'npx cyberlegion mail hook --event PostToolUse' }, { command: 'x' }] },
+		})
+		const results = install('codex', dir)
+		expect(readCfg('.codex/hooks.json').hooks.PostToolUse).toEqual([{ command: 'x' }])
+		expect(results.find((r) => r.event === 'PostToolUse')?.status).toBe('removed project hook')
+	})
+
+	it("leaves the user's own PostToolUse hook alone and reports nothing for it", () => {
+		const command = 'my-wrapper && cyberlegion mail hook --event PostToolUse'
+		writeCfg('.claude/settings.json', { hooks: { PostToolUse: [{ hooks: [{ type: 'command', command }] }] } })
+		const results = install('claude', dir)
+		expect(readCfg('.claude/settings.json').hooks.PostToolUse[0].hooks[0].command).toBe(command)
+		expect(results.map((r) => r.event)).toEqual(['SessionStart'])
 	})
 
 	it('removes the earlier codex project hook', () => {

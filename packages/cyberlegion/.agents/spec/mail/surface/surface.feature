@@ -13,7 +13,7 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Given a caller running mail hook --event PreToolUse
     And a registered caller with one unread message
     When the hook runs
-    Then it throws naming SessionStart and PostToolUse as the supported events
+    Then it throws naming SessionStart as the supported event
     And no payload is emitted
 
   Scenario: a SessionStart hook call echoes SessionStart as the hook event name
@@ -22,11 +22,11 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Then stdout is parseable JSON whose hookEventName reads SessionStart
     And the payload lists that unread message
 
-  Scenario: a PostToolUse hook call echoes PostToolUse as the hook event name
+  Scenario: the retired PostToolUse event is rejected
     Given a registered caller with one unread message
     When it runs mail hook --event PostToolUse
-    Then stdout is parseable JSON whose hookEventName reads PostToolUse
-    And the payload lists that unread message
+    Then it throws naming PostToolUse as an unsupported event
+    And no payload is emitted
 
   # ── An unregistered caller registers from a live pane, or injects nothing ──
 
