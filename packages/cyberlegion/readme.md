@@ -161,6 +161,11 @@ launcher cannot be resolved, a skill names one fallback pinned to the version th
 `npx -y cyberlegion@<version>`. `pnpm version` rewrites those pins and `.plugin/pins.json` at every
 release, and the test suite fails on a stale one.
 
+Claude Code puts the plugin's `bin/` on the Bash tool's PATH, and `bin/cyberlegion` forwards to
+`bin/cyberlegion.mjs`, so a bare `cyberlegion …` runs the shipped CLI in any Claude Code session with
+no global install. claude.ai and Cowork, including plugins distributed through claude.ai organization
+settings, refuse a plugin with a top-level `bin/`, so the plugin does not install there.
+
 ## License
 
 MIT

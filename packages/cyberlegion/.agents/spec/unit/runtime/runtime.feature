@@ -191,6 +191,13 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     When a caller runs unit restart <id>
     Then the unit's record has status active and the new pane
 
+  Scenario: a restart that dies after the open leaves the new session bound to the unit
+    Given a registered unit with status stopped
+    And a restart whose caller dies after the new session opens and before it binds the record
+    When the new session's launch line runs in its pane
+    Then the unit's record has status active and the new pane
+    And the pane pointer for the new pane names the unit
+
   Scenario: restart opens nothing when the running session's stop does not take effect
     Given a registered unit with a live session pane
     And a backend that still lists that pane after the teardown

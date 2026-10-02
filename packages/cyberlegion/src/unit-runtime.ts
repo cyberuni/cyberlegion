@@ -183,7 +183,7 @@ export async function restartUnit(
 				: {}
 		target = adapter.open(exec, {
 			cwd: stopped.cwd,
-			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch),
+			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch, { bindSelf: true }),
 			at,
 			from: callerPane(adapter, normalizeMuxEnv(env)),
 			...label,

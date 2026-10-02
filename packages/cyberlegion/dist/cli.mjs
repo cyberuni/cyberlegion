@@ -7067,10 +7067,14 @@ function labelFor(at, input, brief, id) {
 * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
 * as a side effect, so call it only past every refusal, right before the session opens. Shared by
 * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+*
+* `bindSelf` has the new pane run `unit rebind <id>` through the shim before the harness starts, so
+* the session binds itself to the unit even when the caller dies before its own bind write. It needs
+* the shim, so a context with no recorded invocation gets no bind step.
 */
-function composeLaunchLine(ctx, muxName, id, launch) {
+function composeLaunchLine(ctx, muxName, id, launch, options = {}) {
 	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
-	return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
+	return `${shimDir && options.bindSelf ? `${shellQuote$1(join(shimDir, "cyberlegion"))} unit rebind ${shellQuote$1(id)} --space ${shellQuote$1(ctx.store.root)} >/dev/null 2>&1; ` : ""}${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
 }
 /**
 * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
@@ -8909,7 +8913,7 @@ async function restartUnit(ctx, ref, options = {}) {
 		}) } : {};
 		target = adapter.open(exec, {
 			cwd: stopped.cwd,
-			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch),
+			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch, { bindSelf: true }),
 			at,
 			from: callerPane(adapter, normalizeMuxEnv(env)),
 			...label
