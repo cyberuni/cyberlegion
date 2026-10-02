@@ -617,15 +617,18 @@ describe('mail group', () => {
 			expect(res.stdout).not.toContain('owner report')
 		})
 
-		it('a failing registry read drops the setup nudge, keeps own mail, and exits 0', () => {
+		it('a failing registry read drops the owner-mail section, keeps own mail, and exits 0', () => {
 			callerWithMail('alice', 'alice1')
-			// No standing owner and no pane, so this caller WOULD be nudged — the failure is what
-			// removes it. A junk record file makes the registry listing throw inside the command.
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			legion(['mail', 'send', '--from', 'alice', '--to', 'homa', '--body', 'owner report', '--no-nudge'])
+			// No main pane bound, so the owner block reaches the registry listing — the failure is what
+			// removes it. A junk record file makes the listing throw inside the command.
 			writeFileSync(join(space, 'agents', 'broken.json'), '{ not json')
 			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], { CYBERLEGION_AGENT_ID: 'alice1' })
 			expect(res.status).toBe(0)
 			expect(res.stdout).toContain('alice own message')
-			expect(res.stdout).not.toContain('Legion setup')
+			expect(res.stdout).not.toContain('Owner mail')
+			expect(res.stdout).not.toContain('owner report')
 		})
 
 		// The two auto-register arms are the degraded paths this block missed. Both frozen scenarios
@@ -634,8 +637,7 @@ describe('mail group', () => {
 		// green while every hook call from a real live pane failed the harness turn. The in-process
 		// bindings assert `injectInbox(...)` returns null and observe no exit code at all.
 		it('a live-pane session with no identity auto-registers and still exits 0', () => {
-			// The frozen Given puts this pane in as the bound main pane, which is what silences the
-			// setup nudge and makes "stdout is empty" a determined outcome rather than an accident.
+			// The frozen Given puts this pane in as the bound main pane.
 			mkdirSync(space, { recursive: true })
 			writeFileSync(join(space, 'main-pane.id'), 'herdr-pane-e2e-1')
 			const res = legionOut(['mail', 'hook', '--event', 'SessionStart'], {
@@ -664,9 +666,8 @@ describe('mail group', () => {
 	})
 
 	it('mail hook injects nothing for a registered caller with an empty inbox', () => {
-		// A standing owner already exists, so the (non-mux) session-start setup nudge is silenced —
-		// isolating this test to the empty-inbox precondition it targets. NOTE: this covers the
-		// "injects nothing" scenario only. The raw-JSON/not-TOON payload SHAPE is a different
+		// A standing owner with nothing unread exists, so no owner section accumulates either.
+		// NOTE: this covers the "injects nothing" scenario only. The raw-JSON/not-TOON payload SHAPE is a different
 		// scenario and is not asserted here — the old title claimed it and the body never checked it.
 		legion(['unit', 'register', '--standing', '--handle', 'homa'])
 		legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])

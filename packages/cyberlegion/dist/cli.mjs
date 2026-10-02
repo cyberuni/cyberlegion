@@ -7980,9 +7980,6 @@ function injectInbox(ctx, event) {
 			}
 		}
 	} catch {}
-	if (rec && !rec.spawnedBy) try {
-		if (cur ? !ctx.store.getMainPane() : !listAgents(ctx.store).some((a) => a.kind === "standing")) parts.push("## Legion setup\n\nThis pane has no owner inbox bound yet — run `cyberlegion init` to register the surfacing hook and bind this pane as the owner live presence.");
-	} catch {}
 	if (parts.length === 0) return null;
 	return { hookSpecificOutput: {
 		hookEventName: event,
