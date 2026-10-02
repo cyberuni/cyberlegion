@@ -20,8 +20,12 @@ npx cyberlegion mux doctor
 ```
 
 Probe harness, multiplexer (ancestry-discovered), hub root, and self-id. Output: `harness`, `mux`,
-`pane`, `via`, `hubRoot`, `selfId`. When a multiplexer is found, suggests exporting
+`pane`, `via`, `hubRoot`, `selfId`, `permissionRule`. When a multiplexer is found, suggests exporting
 `CYBER_MUX`/`CYBER_MUX_PANE` to pin the fast path and skip ancestry discovery on later calls.
+
+`permissionRule` says whether Claude Code's user settings allow the `cyberlegion` CLI: `present`,
+`missing`, or `unreadable`, and `n/a` on any other harness. When it is `missing`, `doctor` suggests
+[`init --allow-cli`](/cyberlegion/cli/init/#the-permission-rule-claude-code), which adds the rule.
 
 This is the first command the [`init-cyberlegion` skill](/cyberlegion/skills/init-cyberlegion/) runs, and the
 one `dispatch-governance` runs to check whether a **channel** dispatch strategy (a live peer pane)

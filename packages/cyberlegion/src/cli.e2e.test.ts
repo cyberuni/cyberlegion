@@ -916,6 +916,17 @@ describe('spec:cyberlegion/mux', () => {
 		expect(out).toContain(space)
 	})
 
+	it('doctor reports whether Claude Code allows the cyberlegion CLI, advising init --allow-cli when not', () => {
+		const claudeDir = mkdtempSync(join(tmpdir(), 'cl-claude-'))
+		const missing = legionOut(['mux', 'doctor'], { CLAUDECODE: '1', CLAUDE_CONFIG_DIR: claudeDir })
+		expect(missing.stdout).toContain('permissionRule: missing')
+		expect(missing.stderr).toMatch(/init --allow-cli/)
+		writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(cyberlegion *)'] } }))
+		const present = legionOut(['mux', 'doctor'], { CLAUDECODE: '1', CLAUDE_CONFIG_DIR: claudeDir })
+		expect(present.stdout).toContain('permissionRule: present')
+		expect(present.stderr).not.toMatch(/init --allow-cli/)
+	})
+
 	it('mode reports the detected session-backend mode', () => {
 		const out = legion(['mux', 'mode'])
 		expect(out).toContain('mode:')

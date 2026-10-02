@@ -7860,6 +7860,58 @@ function fail(msg) {
 	process.exit(1);
 }
 //#endregion
+//#region src/permission.ts
+const CLI_RULE = "Bash(cyberlegion *)";
+const COVERING = /^Bash(?:\((?:\*|cyberlegion(?: \*|:\*|\*))\))?$/;
+/** Claude Code's user settings file: `$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`. */
+function claudeUserSettingsFile(env = process.env) {
+	return join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
+}
+function readSettings(file) {
+	if (!existsSync(file)) return {
+		settings: {},
+		allow: []
+	};
+	let settings;
+	try {
+		settings = JSON.parse(readFileSync(file, "utf8"));
+	} catch {
+		throw new Error(`cannot parse Claude Code settings ${file} — fix it by hand, then re-run`);
+	}
+	if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new Error(`Claude Code settings ${file} is not a JSON object — fix it by hand, then re-run`);
+	const { permissions } = settings;
+	const allow = permissions?.allow ?? [];
+	if (permissions !== void 0 && (typeof permissions !== "object" || permissions === null) || !Array.isArray(allow)) throw new Error(`Claude Code settings ${file} has a malformed permissions.allow — fix it by hand, then re-run`);
+	return {
+		settings,
+		allow
+	};
+}
+const covers = (allow) => allow.some((rule) => typeof rule === "string" && COVERING.test(rule));
+/** Whether the settings file's allow list already lets `cyberlegion` subcommands run. */
+function permissionRuleState(file) {
+	try {
+		return covers(readSettings(file).allow) ? "present" : "missing";
+	} catch {
+		return "unreadable";
+	}
+}
+/**
+* Add the CLI rule to the settings file's allow list, merged in after every existing entry. A
+* covering rule already there is a no-op; a file that cannot be read as settings is never rewritten.
+*/
+function addPermissionRule(file) {
+	const { settings, allow } = readSettings(file);
+	if (covers(allow)) return "present";
+	settings.permissions = {
+		...settings.permissions ?? {},
+		allow: [...allow, CLI_RULE]
+	};
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+	return "added";
+}
+//#endregion
 //#region src/project.ts
 /**
 * The canonical git common dir for `dir`, or undefined outside a repository. The common dir is the
@@ -9935,30 +9987,33 @@ withGlobals(agent.command("path")).description("print the resolved def file path
 		json: { path: def.path }
 	});
 });
+const ALLOW_CLI_HINT = `cyberlegion init --allow-cli to add ${CLI_RULE} to Claude Code's permissions.allow, so units can mail their results back`;
 const mux = program.command("mux").description("the unit-agnostic pane layer — multiplexer detection and diagnostics");
 withGlobals(mux.command("doctor")).description("probe harness, multiplexer (ancestry-discovered), hub root, and self-id").action((opts) => {
 	const ctx = ctxOf(opts);
 	const harness = detectHarness(void 0, ctx) ?? "unknown";
 	const probe = probeMultiplexer(ctx.exec ?? realExec, normalizeMuxEnv(ctx.env ?? process.env));
 	const selfId = resolveSelfId(ctx) ?? "-";
+	const permissionRule = harness === "claude" ? permissionRuleState(claudeUserSettingsFile(ctx.env ?? process.env)) : "n/a";
+	const report = {
+		harness,
+		mux: probe.mux,
+		pane: probe.pane,
+		via: probe.via,
+		hubRoot: ctx.store.root,
+		selfId
+	};
 	emit(formatOf(opts), {
 		toon: toonObject({
-			harness,
-			mux: probe.mux,
-			pane: probe.pane,
-			via: probe.via,
-			hubRoot: ctx.store.root,
-			selfId
+			...report,
+			permissionRule
 		}),
 		json: {
-			harness,
-			mux: probe.mux,
-			pane: probe.pane,
-			via: probe.via,
-			hubRoot: ctx.store.root,
-			selfId
+			...report,
+			permissionRule
 		}
 	});
+	if (permissionRule === "missing") nextStep(ALLOW_CLI_HINT);
 	if (probe.mux !== "none") nextStep(`export CYBER_MUX=${probe.mux}${probe.pane ? ` CYBER_MUX_PANE=${probe.pane}` : ""} — pin the fast-path, skip ancestry discovery on later calls`);
 });
 withGlobals(mux.command("mode")).description("report the detected session-backend mode").action((opts) => {
@@ -10009,7 +10064,7 @@ withGlobals(program.command("admin").description("hub-state maintenance").comman
 		json: res
 	});
 });
-withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").action((opts) => {
+withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").option("--allow-cli", `add ${CLI_RULE} to Claude Code's user permissions.allow (claude only)`).action((opts) => {
 	const ctx = ctxOf(opts);
 	let harness;
 	try {
@@ -10018,6 +10073,16 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 		harness = detected;
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
+	}
+	if (opts.allowCli && harness !== "claude") fail(`--allow-cli applies to claude only, not ${harness}`);
+	let permissionRule;
+	if (harness === "claude") {
+		const settingsFile = claudeUserSettingsFile(ctx.env ?? process.env);
+		try {
+			permissionRule = opts.allowCli ? addPermissionRule(settingsFile) : permissionRuleState(settingsFile);
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err));
+		}
 	}
 	let results;
 	try {
@@ -10039,12 +10104,14 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 				key: "file",
 				get: (r) => r.file
 			}
-		], `harness ${harness}, ${results.length} hooks`),
+		], `harness ${harness}, ${results.length} hooks${permissionRule ? `, permission rule ${permissionRule}` : ""}`),
 		json: {
 			harness,
-			hooks: results
+			hooks: results,
+			...permissionRule && { permissionRule }
 		}
 	});
+	if (permissionRule === "missing") nextStep(ALLOW_CLI_HINT);
 	if (!listAgents(ctx.store).some((a) => a.kind === "standing")) {
 		nextStep("cyberlegion unit register --standing --handle <name> to mint the durable owner inbox");
 		nextStep("cyberlegion attach to bind this pane as the owner live presence");

@@ -174,6 +174,13 @@ Feature: mux — the unit-agnostic pane abstraction
     Then it reports harness, mux, pane, hub root, and self-id
     And it prints an export CYBER_MUX=<m> hint so the caller can pin the fast-path
 
+  Scenario: mux doctor reports whether Claude Code allows the cyberlegion CLI
+    Given a claude session whose Claude Code user settings carry no permissions.allow rule covering cyberlegion
+    When it runs cyberlegion mux doctor
+    Then it reports the permission rule as missing
+    And it prints a next-step toward init --allow-cli
+    And once a covering rule is added it reports the permission rule as present with no such next-step
+
   Scenario: unit spawn propagates the fast-path to the spawned child
     Given a caller spawning a new peer session behind a detected multiplexer
     When cyberlegion unit spawn opens the new session

@@ -105,6 +105,40 @@ Feature: init — the onboarding front door
     Then no standing owner record is created
     And no main pane is bound
 
+  # ── init --allow-cli: the Claude Code permission rule for the CLI ──
+
+  Scenario: init --allow-cli merges the CLI rule into Claude Code's user allow list
+    Given Claude Code user settings whose permissions.allow carries other rules and no rule covering cyberlegion
+    When init --agent claude --allow-cli runs
+    Then permissions.allow ends with "Bash(cyberlegion *)" after every rule it already had
+    And every other setting in the file is kept
+    And the result reports the permission rule as added
+
+  Scenario: init --allow-cli is a no-op when a covering rule is already present
+    Given Claude Code user settings whose permissions.allow already covers cyberlegion
+    When init --agent claude --allow-cli runs
+    Then the settings file is unchanged
+    And the result reports the permission rule as present
+
+  Scenario: init without --allow-cli reports a missing rule and writes nothing
+    Given Claude Code user settings with no rule covering cyberlegion
+    When init --agent claude runs with no --allow-cli
+    Then the result reports the permission rule as missing
+    And it emits a next-step toward init --allow-cli
+    And the Claude Code user settings file is not written
+
+  Scenario: init --allow-cli refuses to rewrite a settings file it cannot read as settings
+    Given Claude Code user settings that are not valid JSON, not a JSON object, or carry a non-array permissions.allow
+    When init --agent claude --allow-cli runs
+    Then the command is rejected naming the settings file
+    And the settings file is left byte-for-byte unchanged
+
+  Scenario: init --allow-cli is rejected for a harness other than claude
+    Given a fresh project directory
+    When init --agent cursor --allow-cli runs
+    Then the command is rejected naming --allow-cli
+    And no Claude Code user settings are written
+
   # ── init is idempotent and upgrades older hook generations ──
 
   Scenario: re-running init does not duplicate the hook entry
