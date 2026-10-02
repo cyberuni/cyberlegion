@@ -1,5 +1,20 @@
 # cyberlegion
 
+## 1.3.0
+
+### Minor Changes
+
+- 595d3af: `cyberlegion init --allow-cli` adds `Bash(cyberlegion *)` to Claude Code's user `permissions.allow` (`~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json`). It appends the rule to the existing list, writes nothing when a covering rule is already there, and refuses to rewrite a settings file it cannot parse. Without the rule, Claude Code's auto-mode classifier can deny a unit's `cyberlegion mail send` as an external write, so the unit cannot report back. `mux doctor` and `init` on Claude Code now report the rule as `present`, `missing`, or `unreadable`, and suggest `init --allow-cli` when it is missing.
+- 2463909: `unit restart` resumes a claude or codex unit's last conversation instead of always starting an empty session. The SessionStart hook (`mail hook`) now records the harness's session id on the unit each time a session starts in its pane, and restart relaunches with `claude --resume <id>` or `codex resume <id>`, ringing the session to continue its work. If the harness rejects the id, the plain launch runs instead. Cursor units, units with no recorded session, units launched through a wrapper command, and `unit restart --fresh` still get an empty session and a rebrief. The restart result gains a `resumed` field.
+- 2118659: `unit spawn` takes `-C, --repo <path>` to create the unit's worktree from another repository without `cd`-ing there first, so the call stays one bare `cyberlegion` command a `Bash(cyberlegion *)` allow rule covers.
+
+### Patch Changes
+
+- 17880fd: The plugin now ships `bin/cyberlegion`, an extensionless twin of `bin/cyberlegion.mjs`. Claude Code puts a plugin's `bin/` on the Bash tool's PATH, so a bare `cyberlegion …` now runs the shipped CLI in any Claude Code session instead of failing with `command not found` when there is no global install.
+- 7019060: A spawned unit's SessionStart mail hook now runs the CLI that spawned it, not the installed plugin's copy. `unit spawn` sets `CYBERLEGION_CLI` to the unit's CLI shim, and the plugin hook runs it when it names an executable, falling back to the plugin's own CLI otherwise — never to whatever `cyberlegion` is on PATH.
+- 7c4ddaa: `unit restart` no longer leaves a running session unbound when it dies between opening the new pane and binding the unit to it. The new pane's launch line now runs `unit rebind <id>` through the unit's CLI shim before the harness starts, so the session binds itself to the unit. The unit comes back `active` in the new pane, with no rerun and no second pane.
+- 9bbd63f: Stop treating a doorbell that a harness put back in its input box as a human's unsent draft. cursor-agent with a rejected login restores the ring's text after taking it, and the next ring then waited 20 seconds on it, or refused when it wrapped onto two rows. The draft guard now recognizes the CLI's own ring text, clears it at once, and types nothing back.
+
 ## 1.2.0
 
 ### Minor Changes
