@@ -7,7 +7,7 @@ import type { Exec } from '../identity.ts'
 import { claimPresence, registerStanding, saveAgent } from '../identity.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
-import { DELIVERY_DOORBELL, spawnDoorbell, wakeRecipient, wakeSpawn } from './doorbell.ts'
+import { DELIVERY_DOORBELL, isRingText, spawnDoorbell, wakeRecipient, wakeSpawn } from './doorbell.ts'
 
 // spec: mail/doorbell/doorbell.feature — one test per frozen scenario, unit-level with a fake
 // MuxAdapter (mirrors cyber-mux's own nudge.test.ts fakeAdapter: reads queue + submit spy, text vs
@@ -546,6 +546,24 @@ describe('the doorbell does not type over a human draft', () => {
 		expect(typed.at(-1)).toBe('half a thought')
 	})
 
+	it('a doorbell the harness put back in the box is cleared and rung at once, not waited out', async () => {
+		peer('bob', '%1')
+		const typed: string[] = []
+		let cleared = false
+		const { adapter, sendCalls } = fakeAdapter([])
+		adapter.sendText = (_e, _t, text) => {
+			typed.push(text)
+			if (text === '\u0015') cleared = true
+		}
+		adapter.read = () => ({ text: cleared ? SCROLLED_OUT : claudeBox(DELIVERY_DOORBELL) })
+		const clock = fakeClock()
+		const result = await wakeRecipient(store, () => adapter, exec, { toId: 'bob', fromId: 'alice' }, undefined, clock)
+		expect(result.rung).toBe(true)
+		expect(clock.now()).toBeLessThan(20_000)
+		expect(sendCalls).toEqual([DELIVERY_DOORBELL])
+		expect(typed).toEqual(['\u0005', '\u0015'])
+	})
+
 	it('the spawn wake waits out a draft in the new pane the same way', async () => {
 		let n = 0
 		const { adapter, sendCalls } = fakeAdapter([])
@@ -560,5 +578,27 @@ describe('the doorbell does not type over a human draft', () => {
 		expect(result.rung).toBe(false)
 		expect(result.warning).toMatch(/draft/)
 		expect(sendCalls).toEqual([])
+	})
+})
+
+describe('isRingText', () => {
+	it('recognizes the delivery doorbell and any spawn doorbell', () => {
+		expect(isRingText(DELIVERY_DOORBELL)).toBe(true)
+		expect(isRingText(spawnDoorbell('/hub/briefs/w1.md'))).toBe(true)
+	})
+
+	it('recognizes the message being rung', () => {
+		expect(isRingText('wake up and rebase', 'wake up and rebase')).toBe(true)
+	})
+
+	it('recognizes a doorbell however the box wrapped it', () => {
+		expect(isRingText('You have unread mail —\ncheck your inbox.')).toBe(true)
+		expect(isRingText('You have unread mail — check your in\nbox.')).toBe(true)
+	})
+
+	it('does not recognize a human draft, even one that quotes a doorbell', () => {
+		expect(isRingText('half a thought')).toBe(false)
+		expect(isRingText(`why does it say ${DELIVERY_DOORBELL}`)).toBe(false)
+		expect(isRingText('wake up', 'wake up and rebase')).toBe(false)
 	})
 })
