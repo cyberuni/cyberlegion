@@ -7073,8 +7073,17 @@ function labelFor(at, input, brief, id) {
 * the shim, so a context with no recorded invocation gets no bind step.
 */
 function composeLaunchLine(ctx, muxName, id, launch, options = {}) {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
-	return `${shimDir && options.bindSelf ? `${shellQuote$1(join(shimDir, "cyberlegion"))} unit rebind ${shellQuote$1(id)} --space ${shellQuote$1(ctx.store.root)} >/dev/null 2>&1; ` : ""}${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
+	return `${shim && options.bindSelf ? `${shellQuote$1(shim)} unit rebind ${shellQuote$1(id)} --space ${shellQuote$1(ctx.store.root)} >/dev/null 2>&1; ` : ""}${shim ? shimEnvPrefix(shim) : ""}${muxEnvPrefix(muxName)}${launch}`;
+}
+/**
+* Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+* itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+* cannot tell this shim from a stale global install), so it reads the variable instead: set only
+* here, it marks a spawned session and names the CLI that spawned it.
+*/
+function shimEnvPrefix(shim) {
+	return `PATH=${shellQuote$1(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote$1(shim)} `;
 }
 /**
 * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
@@ -7103,7 +7112,7 @@ function selfInvocation() {
 }
 /**
 * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
-* and return its directory. A spawned session gets that directory first on its PATH, so the
+* and return its path. A spawned session gets that directory first on its PATH, so the
 * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
 * the registry or the session's own PATH at report time.
 */
@@ -7113,7 +7122,7 @@ function writeSelfShim(dataDir, self) {
 	const shim = join(dir, "cyberlegion");
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote$1).join(" ")} "$@"\n`);
 	chmodSync(shim, 493);
-	return dir;
+	return shim;
 }
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
 function shellQuote$1(s) {

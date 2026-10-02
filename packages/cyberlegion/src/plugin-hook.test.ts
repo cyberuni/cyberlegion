@@ -1,12 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-// spec:cyberlegion-plugin/mail-hook — the plugin ships the mail-surfacing hook, which runs the
-// installed copy's own CLI through ${CLAUDE_PLUGIN_ROOT}, never npx.
+// spec:cyberlegion-plugin/mail-hook — the plugin ships the mail-surfacing hook, which runs a spawned
+// unit's spawner CLI ($CYBERLEGION_CLI) or else the installed copy's own CLI through
+// ${CLAUDE_PLUGIN_ROOT}, never npx.
 const PKG_DIR = fileURLToPath(new URL('..', import.meta.url))
 const readJson = (rel: string) => JSON.parse(readFileSync(join(PKG_DIR, rel), 'utf8'))
 
@@ -23,12 +24,51 @@ describe('mail-hook: the plugin ships the surfacing hook', () => {
 		expect(hooks.SessionStart).toHaveLength(1)
 	})
 
-	it("the SessionStart command runs the plugin's own CLI, never npx", () => {
+	it("the SessionStart command prefers CYBERLEGION_CLI, else the plugin's own CLI, never npx", () => {
 		expect(hooks.SessionStart?.[0]?.hooks).toHaveLength(1)
 		expect(hooks.SessionStart?.[0]?.hooks[0]?.type).toBe('command')
 		expect(commandOf('SessionStart')).toBe(
-			`node "\${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart`,
+			`if [ -x "$CYBERLEGION_CLI" ]; then "$CYBERLEGION_CLI" mail hook --event SessionStart; else node "\${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart; fi`,
 		)
+		expect(commandOf('SessionStart')).not.toMatch(/npx/)
+	})
+
+	// A spawned unit's launch names the spawner's CLI shim in $CYBERLEGION_CLI (unit/lifecycle). The
+	// hook prefers it over the plugin's own copy, and falls back when it is unset or not executable.
+	describe('which CLI the SessionStart command runs', () => {
+		const run = (env: NodeJS.ProcessEnv) =>
+			spawnSync('sh', ['-c', commandOf('SessionStart')], { encoding: 'utf8', env: { PATH: process.env.PATH, ...env } })
+		const fakeCli = (dir: string, name: string) => {
+			const file = join(dir, name)
+			writeFileSync(file, `#!/bin/sh\necho ${name} "$@"\n`)
+			chmodSync(file, 0o755)
+			return file
+		}
+		const pluginRoot = () => {
+			const root = mkdtempSync(join(tmpdir(), 'cyberlegion-plugin-'))
+			mkdirSync(join(root, 'bin'))
+			writeFileSync(join(root, 'bin/cyberlegion.mjs'), 'console.log("plugin", ...process.argv.slice(2))')
+			return root
+		}
+
+		it("runs the spawner's CLI named in CYBERLEGION_CLI", () => {
+			const shim = fakeCli(mkdtempSync(join(tmpdir(), 'cl-shim-')), 'spawner')
+			const res = run({ CLAUDE_PLUGIN_ROOT: pluginRoot(), CYBERLEGION_CLI: shim })
+			expect(res.stdout.trim()).toBe('spawner mail hook --event SessionStart')
+		})
+
+		it("runs the plugin's own CLI when CYBERLEGION_CLI is unset, even with another cyberlegion on PATH", () => {
+			const stale = mkdtempSync(join(tmpdir(), 'cl-global-'))
+			fakeCli(stale, 'cyberlegion')
+			const res = run({ CLAUDE_PLUGIN_ROOT: pluginRoot(), PATH: `${stale}:${process.env.PATH}` })
+			expect(res.stdout.trim()).toBe('plugin mail hook --event SessionStart')
+		})
+
+		it("runs the plugin's own CLI when CYBERLEGION_CLI names no executable file", () => {
+			const gone = join(mkdtempSync(join(tmpdir(), 'cl-pruned-')), 'cyberlegion')
+			const res = run({ CLAUDE_PLUGIN_ROOT: pluginRoot(), CYBERLEGION_CLI: gone })
+			expect(res.stdout.trim()).toBe('plugin mail hook --event SessionStart')
+		})
 	})
 
 	it.each(['plugin.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json'])(

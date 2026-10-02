@@ -1,5 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
@@ -344,12 +344,22 @@ export function composeLaunchLine(
 	launch: string,
 	options: { bindSelf?: boolean } = {},
 ): string {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
 	const bind =
-		shimDir && options.bindSelf
-			? `${shellQuote(join(shimDir, 'cyberlegion'))} unit rebind ${shellQuote(id)} --space ${shellQuote(ctx.store.root)} >/dev/null 2>&1; `
+		shim && options.bindSelf
+			? `${shellQuote(shim)} unit rebind ${shellQuote(id)} --space ${shellQuote(ctx.store.root)} >/dev/null 2>&1; `
 			: ''
-	return `${bind}${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
+	return `${bind}${shim ? shimEnvPrefix(shim) : ''}${muxEnvPrefix(muxName)}${launch}`
+}
+
+/**
+ * Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+ * itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+ * cannot tell this shim from a stale global install), so it reads the variable instead: set only
+ * here, it marks a spawned session and names the CLI that spawned it.
+ */
+function shimEnvPrefix(shim: string): string {
+	return `PATH=${shellQuote(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote(shim)} `
 }
 
 /**
@@ -377,7 +387,7 @@ export function selfInvocation(): string[] {
 
 /**
  * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
- * and return its directory. A spawned session gets that directory first on its PATH, so the
+ * and return its path. A spawned session gets that directory first on its PATH, so the
  * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
  * the registry or the session's own PATH at report time.
  */
@@ -387,7 +397,7 @@ function writeSelfShim(dataDir: string, self: string[]): string {
 	const shim = join(dir, 'cyberlegion')
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote).join(' ')} "$@"\n`)
 	chmodSync(shim, 0o755)
-	return dir
+	return shim
 }
 
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
