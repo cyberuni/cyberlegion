@@ -408,7 +408,7 @@ outcome does not depend on how the edge was reached.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `INFLIGHT → WHO` | each role and sender pair in turn | `the role and the sender decide whether a mid-turn message is an order` |
+| `INFLIGHT → WHO → {BANNED, ORDER, NOTORDER}` | each role and sender pair in turn | `the role and the sender decide whether a mid-turn message is an order` |
 | `WHO → ORDER` | an owned unit with no pane of its own, messaged by its owner | `an owner may message mid-turn the unit it is running as a subagent` |
 
 ### authority attenuates across the hop
