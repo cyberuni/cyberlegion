@@ -34,14 +34,22 @@ resolves to an exited unit.
   backend answered and the pane is not in the list), `unknown` (no pane is recorded, or the backend
   gave no answer), `stopped`, or `exited` (from the recorded status). A standing or service record
   has no runtime and reports `none`.
-- **rebrief** — a restarted session starts with an empty context. It is told to read its brief again,
-  and its pending mail is still in its inbox.
+- **conversation** — the harness's own session id, which its SessionStart hook hands `mail hook` on
+  stdin (`session_id`). The hook fires on every session start in the unit's pane — a fresh start, a
+  resume, a `/clear` — and records the id on the unit's record, so the record follows the conversation
+  the pane is in now.
+- **resume** — a restarted session that reopens the unit's recorded conversation, so it keeps its
+  context. It is told to continue its work.
+- **rebrief** — a restarted session that starts with an empty context. It is told to read its brief
+  again, and its pending mail is still in its inbox.
 
 **Non-goals.**
 
-- **Resuming a harness conversation.** Restart always starts a fresh session and rebriefs it. Claude
-  Code, Codex, and Cursor each have their own resume flags with different scopes; wiring them is a
-  separate change. See *Backend recovery* below.
+- **Resuming a cursor conversation.** Cursor's hook id is not confirmed to be the chat id
+  `cursor-agent --resume` takes, so a cursor unit always restarts fresh and is rebriefed.
+- **Resuming without a recorded id.** A harness's "continue the latest conversation in this
+  directory" (`claude --continue`, `codex resume --last`) is not used: a `--cwd` unit shares its
+  directory with other sessions, and the latest conversation there may not be the unit's.
 - **Supervising runtimes.** Nothing here watches a runtime or restarts it on its own. A controller
   decides; these verbs act.
 - **A client owner.** No verb records which client is watching. Closing a dashboard therefore
@@ -58,8 +66,8 @@ resolves to an exited unit.
 | herdr | yes — close the pane, verified by listing panes | yes — fresh workspace or tab at the unit's cwd | yes — from inside a herdr pane |
 | no multiplexer | no pane to stop; the record is marked stopped | refused — no backend can open a session | refused — the caller has no pane to bind |
 
-Every harness restarts as a fresh session plus a rebrief. None resumes its prior conversation
-through these verbs. A unit whose worktree or cwd is gone cannot be restarted: it needs a new unit
+A claude or codex unit whose record carries a conversation resumes it on restart; every other
+restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone cannot be restarted: it needs a new unit
 (`unit spawn`) and a new brief.
 
 ## Use Cases
@@ -70,6 +78,8 @@ through these verbs. A unit whose worktree or cwd is gone cannot be restarted: i
   crashed runtime replaced while the work continues.
 - **A person at the terminal** — wants to stop an agent for now and come back to it, or start the
   harness by hand (for example with its own resume flag) and have it be the same unit.
+- **The harness's SessionStart hook** — runs `mail hook` in the unit's pane on every session start,
+  and so is what records the unit's conversation.
 - **An observing client** (a dashboard, a status view) — wants to show where each unit's runtime is
   and what can be done with it, and to reconnect after it restarts without disturbing anything.
 - **Stakeholder: a peer sending mail** — never invokes these verbs, but its mail must not be lost or
@@ -109,14 +119,22 @@ through these verbs. A unit whose worktree or cwd is gone cannot be restarted: i
 
 - **Actor / goal:** a controller wants a working session for this unit again, after a crash, a
   wedge, or a stop.
-- **Entry point:** `unit restart <ref> [--no-wake]`. It stops a still-running session first (the
-  same verified stop as above), opens a new session at the unit's cwd with the launch command the
-  unit was spawned with (its harness's default when the record has none), binds the record to the
-  new pane (status `active`, a new pane pointer, last-seen now), and rings the new session to read its
-  brief. The placement follows spawn's rule: its own workspace for a unit with a worktree, a tab for
-  a `--cwd` unit. Reports the previous pane, the new pane, and whether the ring landed.
+- **Entry point:** `unit restart <ref> [--no-wake] [--fresh]`. It stops a still-running session first
+  (the same verified stop as above), opens a new session at the unit's cwd with the launch command
+  the unit was spawned with (its harness's default when the record has none), binds the record to the
+  new pane (status `active`, a new pane pointer, last-seen now), and rings the new session. The
+  placement follows spawn's rule: its own workspace for a unit with a worktree, a tab for a `--cwd`
+  unit. Reports the previous pane, the new pane, whether the session resumed, and whether the ring
+  landed.
+- **Resume or rebrief.** When the record carries a conversation and the harness resumes by id, the
+  launch resumes it — claude appends `--resume <id>`, codex appends `resume <id>` — and the ring tells
+  the session to continue its work, naming the brief in case it finds no earlier conversation.
+  Otherwise the session starts empty and the ring tells it to read its brief. The resume runs only
+  when the launch's first word is the harness's own command: a wrapper script may not take the
+  harness's flags.
 - **Surface trace:** `--no-wake` — a controller that will brief the unit by mail itself; skips the
-  ring. No other flag.
+  ring. `--fresh` — a controller replacing a session whose conversation is itself the problem (a
+  wedged or overfull context); starts empty and rebriefs even when the conversation could resume.
 - **Extensions:**
   - the ref resolves to no unit → error; nothing changes.
   - a standing or service record → refused.
@@ -135,6 +153,11 @@ through these verbs. A unit whose worktree or cwd is gone cannot be restarted: i
   - the ring never completes → a warning on the result; the restart still succeeds (same rule as
     spawn's first-turn ring).
   - the unit was `exited` (pruned after a crash) → restarted like a stopped unit.
+  - the harness rejects the resume (the conversation is gone) and exits non-zero → the launch line
+    falls back to the plain launch command, so the pane still gets a session. The ring already named
+    the brief for this case.
+  - the harness never ran the hook (no plugin, no `init`) → the record carries no conversation, and
+    restart rebriefs a fresh session as before.
 
 ### unit rebind — make a hand-started session be this unit
 
@@ -224,16 +247,23 @@ graph TD
   RS7 -- stopped --> RS8
   RS6 -- yes --> RS8{"open a session at cwd with the recorded launch — succeeds?"}
   RS8 -- no --> RS8X["throw: unit left stopped, rerun restart"]
+  RS8 -- "yes, conversation recorded, harness resumes by id, launch is its own command, no --fresh" --> RS8R["launch resumes the conversation"]
+  RS8R -- "the harness rejects the resume" --> RS8F["the plain launch runs: a fresh session"]
+  RS8R --> RS9
   RS8 -- yes --> RS9["bind: new pane, status active, new pane pointer, last-seen now"]
   RS8 -- "yes, caller dies before RS9" --> RS8B["the new pane runs unit rebind id before the harness: bound to the new pane"]
   RS9 --> RS10{"--no-wake?"}
   RS10 -- yes --> RS10Y["ring nothing"]
+  RS10 -- "no, resumed" --> RS11R["ring: continue, naming the brief"]
+  RS11R --> RS11
   RS10 -- no --> RS11{"the brief ring completes?"}
   RS11 -- yes --> RS11Y["rung"]
   RS11 -- no --> RS11N["warning on the result; the restart still succeeds"]
 ```
 
 The launch is the record's own `launch` when present, else the harness's default command (RS8).
+A resumed launch is `<launch> <resume> || <launch>`, each half with its own PATH shim and mux env
+prefix, so a rejected resume still opens a session (RS8F).
 The typed launch line starts with `unit rebind <id>` through the unit's shim, so the new pane binds
 itself whether or not the caller survives to RS9 (RS8B). When both binds run, they write the same pane:
 `unit rebind` on a unit already bound to the calling pane changes nothing.
@@ -328,6 +358,22 @@ convergence claim.
 | `RS2X` standing | a standing record | `restart refuses a standing record` |
 | `RS2X` service | a service endpoint record | `restart refuses a service endpoint` |
 | `RS1X` | a registered unit and an unknown ref | `restart on an unresolvable ref errors and opens nothing` |
+| `RS8R` claude | a stopped claude unit with a recorded conversation | `restart resumes a claude unit's recorded conversation` |
+| `RS8R` codex | a stopped codex unit with a recorded conversation | `restart resumes a codex unit's recorded conversation` |
+| `RS11` no conversation | a stopped unit with no recorded conversation | `restart rebriefs a fresh session when no conversation was recorded` |
+| `RS8` cursor | a stopped cursor unit with a recorded conversation | `restart rebriefs a cursor unit even with a recorded conversation` |
+| `RS8` wrapper | a stopped unit whose launch is not the harness's own command | `restart resumes nothing when the recorded launch is not the harness's own command` |
+| `RS8` --fresh | a stopped unit with a recorded conversation, --fresh | `restart --fresh starts a fresh session despite a recorded conversation` |
+| `RS11R` | a stopped unit with a recorded conversation and a brief | `a resumed restart rings the session to continue, naming its brief` |
+| `RS8F` | a harness that rejects every resume | `a resume the harness rejects falls back to a fresh session` |
+
+### conversation recording
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| hook records | a unit bound to the calling pane, a hook input with a session id | `the session-start hook records the harness's conversation id on the calling unit` |
+| hook ignores | a hook input that is empty, not JSON, or has no session id | `a session-start hook input with no conversation id records nothing` |
+| CLI stdin | the CLI hook run with the harness's JSON on stdin | `the session-start hook records the harness's conversation id from its stdin` |
 
 ### unit rebind
 

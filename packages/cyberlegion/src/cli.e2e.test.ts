@@ -1011,3 +1011,17 @@ describe('spec:cyberlegion/init', () => {
 		)
 	})
 })
+
+describe('spec:cyberlegion/unit/runtime — CLI mail hook records the conversation', () => {
+	it("the session-start hook records the harness's conversation id from its stdin", () => {
+		const pane = { TMUX: 't', TMUX_PANE: '%77' }
+		legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'], pane)
+		execFileSync('node', [BIN, 'mail', 'hook', '--event', 'SessionStart', '--space', space], {
+			encoding: 'utf8',
+			env: baseEnv(pane),
+			input: JSON.stringify({ session_id: 'c-7', hook_event_name: 'SessionStart', source: 'startup' }),
+		})
+		const bob = new FileStore(space).listAgents().find((a) => a.handle === 'bob')
+		expect(bob?.conversation).toBe('c-7')
+	})
+})

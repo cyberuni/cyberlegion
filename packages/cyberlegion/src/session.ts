@@ -342,14 +342,37 @@ export function composeLaunchLine(
 	muxName: string,
 	id: string,
 	launch: string,
-	options: { bindSelf?: boolean } = {},
+	options: { bindSelf?: boolean; fallback?: string } = {},
 ): string {
 	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
 	const bind =
 		shimDir && options.bindSelf
 			? `${shellQuote(join(shimDir, 'cyberlegion'))} unit rebind ${shellQuote(id)} --space ${shellQuote(ctx.store.root)} >/dev/null 2>&1; `
 			: ''
-	return `${bind}${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
+	const prefix = `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}`
+	// A `VAR=val cmd` prefix scopes to one command, so the fallback carries its own copy.
+	const fallback = options.fallback ? ` || ${prefix}${options.fallback}` : ''
+	return `${bind}${prefix}${launch}${fallback}`
+}
+
+/**
+ * How each harness resumes a conversation by id, appended to the unit's own launch command. Cursor is
+ * absent: its hook's id is not confirmed to be the chat id `cursor-agent --resume` takes, so a cursor
+ * unit restarts fresh and is rebriefed.
+ */
+const RESUME_MAP: Partial<Record<Harness, (id: string) => string>> = {
+	claude: (id) => `--resume ${shellQuote(id)}`,
+	codex: (id) => `resume ${shellQuote(id)}`,
+}
+
+/**
+ * The launch that resumes `conversation`, or undefined when this harness has no resume here or the
+ * launch is not the harness's own command — a wrapper script may not take the harness's flags.
+ */
+export function resumeLaunch(harness: Harness, launch: string, conversation: string): string | undefined {
+	const resume = RESUME_MAP[harness]
+	if (!resume || launch.split(/\s+/)[0] !== LAUNCH_MAP[harness]) return undefined
+	return `${launch} ${resume(conversation)}`
 }
 
 /**

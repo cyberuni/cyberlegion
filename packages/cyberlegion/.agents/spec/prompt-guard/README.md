@@ -39,7 +39,7 @@ scrape `unit read` uses, through a per-harness shape (Claude Code, Codex, cursor
 - **Text the CLI itself typed is not a draft** — a harness can take a ring and put its text back in
   the box (cursor-agent with a rejected login does). The box's text, with whitespace ignored since
   the box wraps it anywhere, is compared against the rings the CLI knows: the delivery doorbell, a
-  spawn doorbell, and the text about to be rung. On a match the box is cleared at once — no idle
+  spawn doorbell, a restart's resume doorbell, and the text about to be rung. On a match the box is cleared at once — no idle
   wait, and no multi-row refusal, since the CLI's own ring holds no typed newline — ours is typed,
   and nothing is typed back. A human draft that merely quotes a doorbell does not match.
 

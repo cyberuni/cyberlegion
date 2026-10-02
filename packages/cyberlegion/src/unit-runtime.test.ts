@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -10,7 +10,7 @@ import { send } from './message.ts'
 import { paths } from './paths.ts'
 import { LAUNCH_MAP } from './session.ts'
 import { FileStore } from './store/file-store.ts'
-import { type RuntimeContext, rebindUnit, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
+import { type RuntimeContext, rebindUnit, recordConversation, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
 
 // Fakes answer by the tmux verb, wherever it sits.
 const tmuxVerb = (args: readonly string[]) => (args[0] === '-u' ? args[1] : args[0])
@@ -477,6 +477,101 @@ describe('spec:cyberlegion/unit/runtime — unit restart', () => {
 		await expect(restartUnit(rctx(be.adapter), 'no-such-unit', noSleep)).rejects.toThrow(/no-such-unit/)
 		expect(be.torn).toEqual([])
 		expect(be.opened).toEqual([])
+	})
+})
+
+describe('spec:cyberlegion/unit/runtime — restart resumes the conversation', () => {
+	it("restart resumes a claude unit's recorded conversation", async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, launch: 'claude --model opus', conversation: 'c-1' })
+		const be = fakeBackend()
+		const res = await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		expect(be.opened[0]?.launch).toMatch(/(^| )claude --model opus --resume 'c-1' \|\| (.* )?claude --model opus$/)
+		expect(res.resumed).toBe(true)
+	})
+
+	it("restart resumes a codex unit's recorded conversation", async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, harness: 'codex', launch: 'codex', conversation: 'c-1' })
+		const be = fakeBackend()
+		await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		expect(be.opened[0]?.launch).toMatch(/(^| )codex resume 'c-1' \|\| (.* )?codex$/)
+	})
+
+	it('restart rebriefs a fresh session when no conversation was recorded', async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, launch: 'claude', brief: '/hub/data/u1/brief.md' })
+		const be = fakeBackend()
+		const res = await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		expect(be.opened[0]?.launch).not.toContain('--resume')
+		expect(be.submitted[0]?.text).toBe('Read your brief at /hub/data/u1/brief.md, then begin work.')
+		expect(res.resumed).toBe(false)
+	})
+
+	it('restart rebriefs a cursor unit even with a recorded conversation', async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, harness: 'cursor', launch: 'cursor-agent', conversation: 'c-1' })
+		const be = fakeBackend()
+		const res = await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		expect(be.opened[0]?.launch).not.toContain('c-1')
+		expect(res.resumed).toBe(false)
+	})
+
+	it("restart resumes nothing when the recorded launch is not the harness's own command", async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, launch: 'my-claude-wrapper', conversation: 'c-1' })
+		const be = fakeBackend()
+		const res = await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		expect(be.opened[0]?.launch).not.toContain('c-1')
+		expect(res.resumed).toBe(false)
+	})
+
+	it('restart --fresh starts a fresh session despite a recorded conversation', async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, launch: 'claude', conversation: 'c-1' })
+		const be = fakeBackend()
+		const res = await restartUnit(rctx(be.adapter), 'u1', { ...noSleep, fresh: true })
+		expect(be.opened[0]?.launch).not.toContain('c-1')
+		expect(res.resumed).toBe(false)
+	})
+
+	it('a resumed restart rings the session to continue, naming its brief', async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, conversation: 'c-1', brief: '/hub/data/u1/brief.md' })
+		const be = fakeBackend()
+		await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		expect(be.submitted).toHaveLength(1)
+		expect(be.submitted[0]?.text).toMatch(/continue/i)
+		expect(be.submitted[0]?.text).toContain('/hub/data/u1/brief.md')
+	})
+
+	it('a resume the harness rejects falls back to a fresh session', async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, launch: 'claude', conversation: 'c-1' })
+		const be = fakeBackend()
+		await restartUnit(rctx(be.adapter), 'u1', noSleep)
+		// A stand-in claude that refuses every resume, the way a harness answers an unknown session id.
+		const bin = join(unitDir, 'fake-bin')
+		mkdirSync(bin)
+		const log = join(unitDir, 'claude.log')
+		writeFileSync(
+			join(bin, 'claude'),
+			`#!/bin/sh\necho "args:$*" >> '${log}'\n[ "$1" = --resume ] && exit 1\nexit 0\n`,
+			{ mode: 0o755 },
+		)
+		execFileSync('sh', ['-c', be.opened[0]?.launch ?? ''], {
+			cwd: unitDir,
+			env: { PATH: `${bin}:${process.env.PATH}` },
+		})
+		expect(readFileSync(log, 'utf8').trim().split('\n')).toEqual(['args:--resume c-1', 'args:'])
+	})
+
+	it("the session-start hook records the harness's conversation id on the calling unit", () => {
+		unit({ id: 'u1' })
+		recordConversation(ctx(tmux().exec, { TMUX: 't', TMUX_PANE: '%9' }), '{"session_id":"c-2","source":"startup"}')
+		expect(loadAgent(store, 'u1')?.conversation).toBe('c-2')
+	})
+
+	it('a session-start hook input with no conversation id records nothing', () => {
+		unit({ id: 'u1', conversation: 'c-1' })
+		const before = recordBytes('u1')
+		const env = { TMUX: 't', TMUX_PANE: '%9' }
+		recordConversation(ctx(tmux().exec, env), '')
+		recordConversation(ctx(tmux().exec, env), 'not json')
+		recordConversation(ctx(tmux().exec, env), '{"source":"startup"}')
+		expect(recordBytes('u1')).toBe(before)
 	})
 })
 
