@@ -6139,6 +6139,7 @@ function reconcile(ctx, opts) {
 	const cur = storablePane(ctx.env ?? process.env);
 	if (!cur) return [];
 	const panes = PANE_ADAPTERS[cur.mux].listPanes(exec);
+	if (panes.length === 0) return [];
 	const live = new Set(panes.map((p) => p.id));
 	const changed = [];
 	for (const rec of listAgents(ctx.store)) {
@@ -6154,18 +6155,34 @@ function reconcile(ctx, opts) {
 	if (opts?.adopt) changed.push(...adopt(ctx, panes));
 	return changed;
 }
-/** Mark agents whose pane is gone or whose last-seen is stale as exited. Reconcile-culls against the
-* current mux's live set first, then falls through to the per-record paneExists + staleness check
-* (covers the other mux and sessions outside any multiplexer pane). */
+/**
+* Whether a record's pane is positively gone: its existence probe fails AND its mux answers with a
+* pane list that does not hold it. `paneExists` alone collapses "unreachable" into "gone", so a mux
+* that answers no list at all (server down, a failed query) leaves the pane undecided — never gone.
+* The list is read at most once per mux per call.
+*/
+function paneGone(exec, pane, lists) {
+	const adapter = PANE_ADAPTERS[pane.mux];
+	if (adapter.paneExists(exec, { id: pane.id })) return false;
+	let panes = lists.get(pane.mux);
+	if (!panes) {
+		panes = adapter.listPanes(exec);
+		lists.set(pane.mux, panes);
+	}
+	return panes.length > 0 && !panes.some((p) => p.id === pane.id);
+}
+/** Mark agents whose session is gone as exited. Reconcile-culls against the current mux's live set
+* first, then judges each remaining record (covers the other mux and sessions outside any
+* multiplexer pane): a pane-bound record by its pane alone — a live or unprobeable pane keeps it
+* whatever its last-seen — and a pane-less record by the staleness timer, its only signal. */
 function prune(ctx) {
 	const exec = ctx.exec ?? realExec;
 	const now = ctx.now?.() ?? Date.now();
 	const changed = reconcile(ctx);
+	const lists = /* @__PURE__ */ new Map();
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue;
-		const paneGone = rec.pane ? !PANE_ADAPTERS[rec.pane.mux].paneExists(exec, { id: rec.pane.id }) : false;
-		const stale = now - new Date(rec.lastSeen).getTime() > STALE_MS;
-		if (paneGone || stale) {
+		if (rec.pane ? paneGone(exec, rec.pane, lists) : now - new Date(rec.lastSeen).getTime() > STALE_MS) {
 			rec.status = "exited";
 			saveAgent(ctx.store, rec);
 			changed.push(rec);

@@ -502,6 +502,9 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
 	const cur = storablePane(env)
 	if (!cur) return []
 	const panes = PANE_ADAPTERS[cur.mux].listPanes(exec)
+	// The caller is itself inside a pane of this mux, so an empty live set means the query failed, not
+	// that every pane died — cull nothing on it (fail toward keeping a possibly live unit).
+	if (panes.length === 0) return []
 	const live = new Set(panes.map((p) => p.id))
 	const changed: AgentRecord[] = []
 	for (const rec of listAgents(ctx.store)) {
@@ -518,18 +521,36 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
 	return changed
 }
 
-/** Mark agents whose pane is gone or whose last-seen is stale as exited. Reconcile-culls against the
- * current mux's live set first, then falls through to the per-record paneExists + staleness check
- * (covers the other mux and sessions outside any multiplexer pane). */
+/**
+ * Whether a record's pane is positively gone: its existence probe fails AND its mux answers with a
+ * pane list that does not hold it. `paneExists` alone collapses "unreachable" into "gone", so a mux
+ * that answers no list at all (server down, a failed query) leaves the pane undecided — never gone.
+ * The list is read at most once per mux per call.
+ */
+function paneGone(exec: Exec, pane: NonNullable<AgentRecord['pane']>, lists: Map<string, LivePane[]>): boolean {
+	const adapter = PANE_ADAPTERS[pane.mux]
+	if (adapter.paneExists(exec, { id: pane.id })) return false
+	let panes = lists.get(pane.mux)
+	if (!panes) {
+		panes = adapter.listPanes(exec)
+		lists.set(pane.mux, panes)
+	}
+	return panes.length > 0 && !panes.some((p) => p.id === pane.id)
+}
+
+/** Mark agents whose session is gone as exited. Reconcile-culls against the current mux's live set
+ * first, then judges each remaining record (covers the other mux and sessions outside any
+ * multiplexer pane): a pane-bound record by its pane alone — a live or unprobeable pane keeps it
+ * whatever its last-seen — and a pane-less record by the staleness timer, its only signal. */
 export function prune(ctx: IdContext): AgentRecord[] {
 	const exec = ctx.exec ?? realExec
 	const now = ctx.now?.() ?? Date.now()
 	const changed: AgentRecord[] = reconcile(ctx)
+	const lists = new Map<string, LivePane[]>()
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
-		const paneGone = rec.pane ? !PANE_ADAPTERS[rec.pane.mux].paneExists(exec, { id: rec.pane.id }) : false
-		const stale = now - new Date(rec.lastSeen).getTime() > STALE_MS
-		if (paneGone || stale) {
+		const dead = rec.pane ? paneGone(exec, rec.pane, lists) : now - new Date(rec.lastSeen).getTime() > STALE_MS
+		if (dead) {
 			rec.status = 'exited'
 			saveAgent(ctx.store, rec)
 			changed.push(rec)

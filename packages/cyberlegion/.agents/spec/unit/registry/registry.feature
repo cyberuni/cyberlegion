@@ -109,10 +109,23 @@ Feature: unit registry — register, discover, and prune legion units
     Then that agent's status remains unchanged
     And the pruned list is empty
 
-  Scenario: prune marks an agent exited when its last-seen is stale
-    Given a registered agent whose lastSeen is older than the staleness window
+  Scenario: prune marks a pane-less agent exited when its last-seen is stale
+    Given a registered agent with no pane whose lastSeen is older than the staleness window
     When a session runs unit prune
     Then that agent's status becomes exited
+
+  Scenario: prune leaves an agent whose pane is live untouched however stale its last-seen
+    Given a registered agent whose tmux pane is live and whose lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then that agent's status remains unchanged
+    And the pruned list is empty
+
+  Scenario: prune leaves a pane-bound agent untouched when its multiplexer cannot be queried
+    Given a registered agent whose tmux pane cannot be probed because tmux answers no pane list
+    And the agent's lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then that agent's status remains unchanged
+    And the pruned list is empty
 
   Scenario: prune leaves a live, recently-seen agent untouched
     Given a registered agent with a live pane and a fresh lastSeen
@@ -359,6 +372,13 @@ Feature: unit registry — register, discover, and prune legion units
     Given a session in no multiplexer pane
     When reconcile runs
     Then it returns no changes
+
+  Scenario: reconcile culls nothing when the current multiplexer cannot be queried
+    Given a session inside a tmux pane and a registered agent whose tmux pane is bound
+    And tmux answers no pane list
+    When it runs unit who --reconcile
+    Then it returns no changes
+    And that agent's status remains unchanged
 
   Scenario: prune reconcile-culls too
     Given a session inside a tmux pane and a registered agent whose tmux pane is not in the live tmux pane list

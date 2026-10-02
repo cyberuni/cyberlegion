@@ -35,11 +35,23 @@ without being told it, and discovering its live peers:
   how many units are live; exit 0 even when unregistered (`self: -`, with a register next-step) —
   never help-and-error (AXI #8 content-first).
 - **prune marks dead agents exited** — `unit prune` scans every non-exited agent and flips
-  `status` to `exited` when its pane is gone or its `lastSeen` is older than the staleness window
-  (15 minutes); it returns only the agents it changed, as a TOON list plus a `<N> pruned` aggregate.
-  Liveness is checked **against the pane's own multiplexer** — a tmux locator via
-  `tmux has-session`/`list-panes`, a herdr locator via a herdr pane-existence query — so a live herdr
-  pane is never false-reaped by a tmux check (and vice versa).
+  `status` to `exited` when its pane is gone, or — for a record with **no pane** — when its
+  `lastSeen` is older than the staleness window (15 minutes); it returns only the agents it changed,
+  as a TOON list plus a `<N> pruned` aggregate. Liveness is checked **against the pane's own
+  multiplexer** — a tmux locator via `tmux has-session`/`list-panes`, a herdr locator via a herdr
+  pane-existence query — so a live herdr pane is never false-reaped by a tmux check (and vice versa).
+  - **A live pane outranks the timer** — a pane-bound record is judged by its pane alone. A unit
+    working for an hour without calling the CLI, or idle at its prompt, still has a live pane, and
+    flipping it to `exited` would strand its handle; so its `lastSeen` is not consulted. The
+    staleness window applies only to a record with no pane, which has nothing else to be probed by.
+  - **A multiplexer that cannot be queried proves nothing** — a pane reads as gone only on positive
+    evidence: the existence probe fails *and* the pane's multiplexer answers with a non-empty pane
+    list that does not contain it. When the multiplexer answers no pane list at all (server down,
+    unreachable from this caller, a failed query), `prune` cannot rule the unit alive or dead and
+    leaves it untouched — the same fail-closed rule `sessionLive` and `store/lock.ts` take on an
+    ambiguous holder. The cost is that a record whose multiplexer is truly gone stays `active` until
+    that multiplexer answers again (or the unit is closed); the alternative, reaping a possibly live
+    unit and stranding its handle and mail, is the worse failure.
   - **A stopped unit is never pruned** — `unit stop` (`unit/runtime`) leaves a record with status
     `stopped` and no pane, on purpose. Neither a pane check nor the staleness timer can say anything
     about a runtime that was ended deliberately, so `prune` skips it however old its `lastSeen` is.
@@ -58,8 +70,8 @@ without being told it, and discovering its live peers:
   tmux, the pane's own running command (`tmux display-message … #{pane_current_command}`); when none
   of these detect anything, `register` throws asking for `--harness` rather than guessing.
 - **Every call touches last-seen** — `who`, `prune`, and every mail/unit command that resolves the
-  caller's own identity refreshes that agent's `lastSeen` to now as a side effect (`touch`), so a live
-  but otherwise-idle session never goes stale under `prune`. `touch` is best-effort: a no-op, never
+  caller's own identity refreshes that agent's `lastSeen` to now as a side effect (`touch`). `prune`
+  reads `lastSeen` only for a pane-less record; a pane-bound one is judged by its pane. `touch` is best-effort: a no-op, never
   throwing, when the caller isn't registered.
 - **A standing identity is a session-independent, prune-exempt owner inbox** — `unit register
   --standing --handle <name>` mints a durable record for a human/owner principal so a frameless agent
@@ -116,7 +128,9 @@ without being told it, and discovering its live peers:
   `list-panes -a` or herdr `pane list`) and never declares the *other* mux's records dead, since it
   cannot see them. A `kind: standing` record is never touched. A record whose `pane` is `null` cannot
   be pane-culled by enumeration — it is left to the existing staleness timer. Outside any multiplexer
-  pane, reconcile has nothing to enumerate and culls nothing.
+  pane, reconcile has nothing to enumerate and culls nothing. An **empty** live set culls nothing
+  either: the caller is itself inside a pane of that multiplexer, so an empty answer means the query
+  failed, not that every pane died.
 - **reconcile adopts live-but-unregistered panes, harness-gated** — the adopt half of
   reconcile-against-mux: `unit who --reconcile` also scans the same live pane set and, for each pane
   with a **detectable harness** and no matching record (no pane-index pointer resolving to an existing
@@ -158,7 +172,7 @@ Every scenario in [`registry.feature`](./registry.feature) maps to one of these 
 | **whoami** | prints own record; errors when unregistered or record missing |
 | **who lists peers** | single list command (folded `session list`): TOON list with a `pane` field; aggregate "N units"; empty is "0 units"; `--all` includes exited; top-level alias |
 | **bare status (AXI #8)** | no-subcommand prints compact self+harness+unread+live-units; exit 0 unregistered with a register next-step, never help+error |
-| **prune** | marks dead-pane/stale agents exited; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents; never touches a `stopped` unit |
+| **prune** | marks dead-pane agents, and stale pane-less agents, exited; a live pane is never stale-pruned; an unqueryable mux prunes nothing; liveness checked against the pane's own multiplexer (tmux or herdr); returns only changed agents; never touches a `stopped` unit |
 | **self-identity recovery** | pane pointer first, resolving "my pane" mux-agnostically (tmux `$TMUX_PANE` or herdr `$HERDR_PANE_ID`, plus the `$CYBER_MUX_PANE` fast-path, and the legacy `$CYBERLEGION_MUX_PANE` transitionally); `$CYBERLEGION_AGENT_ID` only when in no multiplexer pane; unmapped pane doesn't fall through; no shared `self` file |
 | **harness detection** | `--harness` override + validation; env-var probes; tmux pane-command probe; undetectable requires `--harness` |
 | **last-seen touch** | refreshed on every identity-resolving call; best-effort no-op when unregistered |
