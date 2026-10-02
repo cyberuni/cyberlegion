@@ -107,6 +107,56 @@ Feature: init-cyberlegion — onboard a session into the Legion
     When init-cyberlegion resolves which cyberlegion CLI version to run
     Then it invokes the unpinned cyberlegion CLI and passes no --pin, never inventing a version number
 
+  # ── Allowing the CLI in Claude Code's permissions ──
+
+  @behavior
+  Scenario: the environment summary reports the permission rule's state
+    Given cyberlegion mux doctor reports permissionRule missing
+    When init-cyberlegion narrates what the probe found
+    Then its summary states that the cyberlegion permission rule is missing
+
+  @behavior
+  Scenario: a root session with the rule missing is asked before the rule is added
+    Given a root session with a broader onboarding intent whose probe reports permissionRule missing
+    When init-cyberlegion reaches hook registration
+    Then it asks the user whether to add Bash(cyberlegion *) to Claude Code's permissions.allow before running cyberlegion init
+
+  @behavior
+  Scenario: an explicit yes adds the rule through init --allow-cli
+    Given a root session where the user agrees to add the cyberlegion permission rule
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init with --allow-cli and does not edit Claude Code's settings file by hand
+
+  @behavior
+  Scenario: a declined permission ask leaves the rule out
+    Given a root session where the user declines to add the cyberlegion permission rule
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init without --allow-cli and reports the rule as still missing
+
+  @behavior
+  Scenario: a spawned unit never adds the permission rule
+    Given a spawned unit whose probe reports permissionRule missing
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init without --allow-cli, asks nothing, and reports the rule as missing
+
+  @behavior
+  Scenario: a rule already present or not applicable is not asked about
+    Given a root session whose probe reports permissionRule present or n/a
+    When init-cyberlegion reaches hook registration
+    Then it does not ask about the permission rule and runs cyberlegion init without --allow-cli
+
+  @behavior
+  Scenario: an unreadable settings file is reported, not rewritten
+    Given a root session whose probe reports permissionRule unreadable
+    When init-cyberlegion reaches hook registration
+    Then it tells the user the Claude Code settings file must be fixed by hand and does not pass --allow-cli
+
+  @behavior
+  Scenario: a classifier denial of mail send is diagnosed as the missing rule
+    Given a user reports that a unit's cyberlegion mail send was denied by the auto-mode classifier as External System Writes
+    When init-cyberlegion is asked about it
+    Then it identifies the missing Bash(cyberlegion *) permission rule as the cause and offers to add it from a root session
+
   # ── Detecting root vs spawned ──
 
   @behavior
