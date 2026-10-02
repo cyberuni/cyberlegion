@@ -313,8 +313,12 @@ function withSpawnOptions(cmd: Command): Command {
 		.option('--branch <name>', 'branch for the new worktree (default cyberlegion/unit-<id>)')
 		.option('--worktree-path <path>', 'where to check out the new worktree')
 		.option(
+			'-C, --repo <path>',
+			"create the worktree from the git repository containing <path>, not the current directory's",
+		)
+		.option(
 			'--cwd <path>',
-			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)',
+			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)',
 		)
 		.addOption(
 			// No hard default here — spawn resolves the default by mode (new-worktree → workspace,

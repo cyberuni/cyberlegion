@@ -799,6 +799,72 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 	})
 })
 
+describe('--repo creates the worktree from the named repository, not the caller cwd', () => {
+	/** A git that answers for `otherRoot` only when asked with `-C` inside it, and for the caller's
+	 * own repository (`primaryRoot`) otherwise — so a spawn that ignored --repo lands in the wrong one. */
+	function repoExec(otherRoot: string): Exec {
+		return (cmd, args) => {
+			allCalls.push([cmd, ...args])
+			if (cmd === 'git') {
+				const at = args[0] === '-C' ? args[1] : undefined
+				if (args.includes('--git-common-dir')) {
+					if (at === undefined) return `${primaryRoot}/.git`
+					return at.startsWith(otherRoot) ? `${otherRoot}/.git` : null
+				}
+				if (args.includes('worktree')) {
+					worktreeAddCalls.push(args)
+					return ''
+				}
+				return null
+			}
+			if (tmuxVerb(args) === 'split-window' || tmuxVerb(args) === 'new-window') return '%9\t@1'
+			if (tmuxVerb(args) === 'send-keys') sent.push(args)
+			return null
+		}
+	}
+
+	it("adds the worktree against that repository's primary checkout, beside it by default", () => {
+		const otherRoot = mkdtempSync(join(tmpdir(), 'cl-other-'))
+		const res = spawn(
+			{ store, env: { TMUX: 't' }, exec: repoExec(otherRoot), now: () => 1 },
+			{ harness: 'claude', task: 't', repo: join(otherRoot, 'sub'), at: 'pane:right' },
+		)
+		const expected = resolve(
+			join(dirname(otherRoot), `${basename(otherRoot)}.worktrees`, `legion-${res.agent.id.slice(0, 6)}`),
+		)
+		expect(worktreeAddCalls[0]).toEqual(expect.arrayContaining(['-C', otherRoot, 'worktree', 'add']))
+		expect(res.agent.worktree).toEqual({
+			root: expected,
+			branch: `cyberlegion/unit-${res.agent.id}`,
+			primaryRoot: otherRoot,
+		})
+		expect(res.agent.cwd).toBe(expected)
+	})
+
+	it('throws when the path is not inside a git repository, creating and registering nothing', () => {
+		const notRepo = mkdtempSync(join(tmpdir(), 'cl-not-repo-'))
+		expect(() =>
+			spawn(
+				{ store, env: { TMUX: 't' }, exec: repoExec('/nowhere'), now: () => 1 },
+				{ harness: 'claude', task: 't', repo: notRepo, at: 'pane:right' },
+			),
+		).toThrow(/--repo .* not inside a git repository/)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(sent).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
+	})
+
+	it('is mutually exclusive with --cwd', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, repo: primaryRoot })).toThrow(
+			/cannot combine/,
+		)
+		expect(worktreeAddCalls).toHaveLength(0)
+		expect(sent).toHaveLength(0)
+		expect(store.listAgents()).toEqual([])
+	})
+})
+
 // spec: mux/mux.feature — "a pane placement splits the calling pane, not whichever pane is active".
 // A pane:* open must name the caller's own pane explicitly (`from`) — each backend's own default
 // tracks whichever pane a HUMAN is looking at, which is only coincidentally the caller's and diverges

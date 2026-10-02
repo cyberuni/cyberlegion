@@ -80,7 +80,7 @@ Mark dead units exited and sweep. Output: a `pruned` table (`id`, `handle`).
 ## spawn
 
 ```sh
-npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
+npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [-C, --repo <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
 ```
 
 Launch a new peer session in its own git worktree (tmux or herdr), or into an existing directory
@@ -98,7 +98,8 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | `--handle <name>` | handle for the new peer |
 | `--branch <name>` | branch for the new worktree (default `cyberlegion/unit-<id>`) |
 | `--worktree-path <path>` | where to check out the new worktree |
-| `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`) |
+| `-C, --repo <path>` | create the worktree from the git repository containing `<path>`, not the current directory's — spawn for another repository without `cd`; the default `--worktree-path` sits beside that repository's primary checkout |
+| `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`/`--repo`) |
 | `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`); see [Placement](/cyberlegion/concepts/architecture/#placement-is-a-concept-not-a-backend-command) |
 | `--no-wake` | suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself) |
 

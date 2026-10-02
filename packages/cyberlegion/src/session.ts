@@ -8,6 +8,7 @@ import { ringTurn } from './console/ring.ts'
 import { answerTrustPrompt, type TrustOptions, type TrustOutcome } from './console/trust.ts'
 import {
 	type AgentRecord,
+	type Exec,
 	type Harness,
 	type IdContext,
 	randomId,
@@ -91,8 +92,23 @@ export interface SpawnInput {
 	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
 	cwd?: string
+	/** Create the worktree from the repository containing this path rather than the caller's cwd —
+	 * so a caller spawns for another repository without a `cd` chained in front of the command.
+	 * Mutually exclusive with `cwd` (that one creates no worktree to place). */
+	repo?: string
 	/** Placement relative to the caller; defaults to 'tab'. */
 	at?: MuxPlacement
+}
+
+/** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
+ * rather than from the process cwd. */
+function primaryRootOfRepo(exec: Exec, repo: string): string {
+	const dir = resolve(repo)
+	try {
+		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === 'git' ? ['-C', dir, ...args] : args))
+	} catch {
+		throw new Error(`--repo ${repo} is not inside a git repository`)
+	}
 }
 
 export interface SpawnResult {
@@ -130,12 +146,12 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		throw new Error('spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>')
 	}
 
-	if (input.cwd && (input.branch || input.worktreePath)) {
-		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path')
+	if (input.cwd && (input.branch || input.worktreePath || input.repo)) {
+		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo')
 	}
 
 	const id = randomId()
-	const primaryRoot = resolvePrimaryRoot(exec)
+	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec)
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
 	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
