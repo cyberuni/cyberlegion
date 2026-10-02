@@ -6292,6 +6292,9 @@ const KILL_LINE = "";
 *   throws without sending. A multi-row draft cannot be typed back exactly: a scrape cannot tell a
 *   wrapped row from a newline, and a newline typed back would submit it.
 *
+* Text `ownText` recognizes is the caller's own, not a draft: it is cleared at once, whatever rows it
+* wraps onto, `send` runs, and nothing is typed back.
+*
 * Text the clear leaves in place was never a draft — an idle placeholder this reader does not know —
 * so `send` runs and nothing is typed back.
 */
@@ -6308,10 +6311,11 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 			return { kind: "unknown" };
 		}
 	};
+	const isOwn = (s) => s.kind === "draft" && options.ownText?.(s.text) === true;
 	let state = read();
 	const start = now();
 	let changedAt = start;
-	while (state.kind === "draft" && now() - changedAt < idleMs) {
+	while (state.kind === "draft" && !isOwn(state) && now() - changedAt < idleMs) {
 		if (now() - start + pollMs > maxWaitMs) throw new Error(`pane ${target.id} holds a draft the user is still editing — gave up after ${maxWaitMs / 1e3}s without typing`);
 		await sleep(pollMs);
 		const next = read();
@@ -6319,12 +6323,13 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 		state = next;
 	}
 	if (state.kind !== "draft") return send();
+	if (isOwn(state)) {
+		await clearLine(adapter, exec, target, sleep);
+		return send();
+	}
 	if (state.rows > 1) throw new Error(`pane ${target.id} holds an idle draft spanning ${state.rows} rows, which cannot be typed back exactly — left it untouched`);
 	const draft = state.text;
-	adapter.sendText(exec, target, END_OF_LINE);
-	await sleep(KEY_SETTLE_MS);
-	adapter.sendText(exec, target, KILL_LINE);
-	await sleep(KEY_SETTLE_MS);
+	await clearLine(adapter, exec, target, sleep);
 	const after = read();
 	if (after.kind === "draft" && after.text === draft) return send();
 	try {
@@ -6333,6 +6338,12 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 		await sleep(KEY_SETTLE_MS);
 		adapter.sendText(exec, target, draft);
 	}
+}
+async function clearLine(adapter, exec, target, sleep) {
+	adapter.sendText(exec, target, END_OF_LINE);
+	await sleep(KEY_SETTLE_MS);
+	adapter.sendText(exec, target, KILL_LINE);
+	await sleep(KEY_SETTLE_MS);
 }
 //#endregion
 //#region src/console/ring.ts
@@ -6404,6 +6415,19 @@ const DELIVERY_DOORBELL = "You have unread mail — check your inbox.";
 function spawnDoorbell(briefPath) {
 	return `Read your brief at ${briefPath}, then begin work.`;
 }
+const SPAWN_DOORBELL = /^Readyourbriefat.+,thenbeginwork\.$/;
+/**
+* Whether `text`, read out of a peer's input box, is a ring cyberlegion typed — the delivery doorbell,
+* a spawn doorbell, or `message`, the one about to be rung — rather than a human's draft. A harness
+* can take a ring and put its text back in the box (cursor-agent with a rejected login). Whitespace is
+* ignored, since the box wraps the text onto rows wherever it likes.
+*/
+function isRingText(text, message) {
+	const squeeze = (s) => s.replace(/\s+/g, "");
+	const box = squeeze(text);
+	if (box === "") return false;
+	return box === squeeze("You have unread mail — check your inbox.") || SPAWN_DOORBELL.test(box) || message !== void 0 && box === squeeze(message);
+}
 /**
 * A freshly-launched harness cold-boots slower than an already-running peer, so the spawn first-turn
 * ring gets a wider retry budget than a plain `mail send` doorbell (nudge's own 10 × 400ms): flush the
@@ -6472,7 +6496,8 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		const target = { id: pane };
 		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
 			...guardOpts,
-			harness
+			harness,
+			ownText: (text) => isRingText(text)
 		});
 		return {
 			rung: true,
@@ -6507,7 +6532,8 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 		const adapter = getAdapter();
 		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts), {
 			...guardOpts,
-			harness: input.harness
+			harness: input.harness,
+			ownText: (text) => isRingText(text)
 		});
 		return {
 			rung: true,
@@ -6836,6 +6862,20 @@ function resetCommandFor(harness) {
 	if (FALSE_FRIEND_HARNESSES.has(harness)) throw new Error(`"${harness}" has no honest fresh-context command — its own "/clear" clears only the terminal screen, not the model context, so unit clear refuses to send a false-friend reset that would leave stale context behind`);
 	throw new Error(`"${harness}" is not in the reset map (${Object.keys(RESET_MAP).join(" | ")}) — unit clear refuses to guess a command`);
 }
+/** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
+* rather than from the process cwd. */
+function primaryRootOfRepo(exec, repo) {
+	const dir = resolve(repo);
+	try {
+		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === "git" ? [
+			"-C",
+			dir,
+			...args
+		] : args));
+	} catch {
+		throw new Error(`--repo ${repo} is not inside a git repository`);
+	}
+}
 /**
 * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
 * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
@@ -6859,9 +6899,9 @@ function spawn(ctx, input) {
 	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`spawn needs a --harness in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")})`);
 	const brief = resolveBrief(input);
 	if (brief == null) throw new Error("spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>");
-	if (input.cwd && (input.branch || input.worktreePath)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path");
+	if (input.cwd && (input.branch || input.worktreePath || input.repo)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo");
 	const id = randomId();
-	const primaryRoot = resolvePrimaryRoot(exec);
+	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
 	const launchLine = () => composeLaunchLine(ctx, sessionAdapter.name, id, launch);
 	const from = callerPane(sessionAdapter, normalizedEnv);
@@ -7041,10 +7081,23 @@ function labelFor(at, input, brief, id) {
 * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
 * as a side effect, so call it only past every refusal, right before the session opens. Shared by
 * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+*
+* `bindSelf` has the new pane run `unit rebind <id>` through the shim before the harness starts, so
+* the session binds itself to the unit even when the caller dies before its own bind write. It needs
+* the shim, so a context with no recorded invocation gets no bind step.
 */
-function composeLaunchLine(ctx, muxName, id, launch) {
-	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
-	return `${shimDir ? `PATH=${shellQuote$1(shimDir)}:"$PATH" ` : ""}${muxEnvPrefix(muxName)}${launch}`;
+function composeLaunchLine(ctx, muxName, id, launch, options = {}) {
+	const shim = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : void 0;
+	return `${shim && options.bindSelf ? `${shellQuote$1(shim)} unit rebind ${shellQuote$1(id)} --space ${shellQuote$1(ctx.store.root)} >/dev/null 2>&1; ` : ""}${shim ? shimEnvPrefix(shim) : ""}${muxEnvPrefix(muxName)}${launch}`;
+}
+/**
+* Put the shim's directory first on PATH, so a brief's bare `cyberlegion` runs it, and name the shim
+* itself in `$CYBERLEGION_CLI`. The plugin's hook runs outside that PATH lookup (and a PATH lookup
+* cannot tell this shim from a stale global install), so it reads the variable instead: set only
+* here, it marks a spawned session and names the CLI that spawned it.
+*/
+function shimEnvPrefix(shim) {
+	return `PATH=${shellQuote$1(dirname(shim))}:"$PATH" CYBERLEGION_CLI=${shellQuote$1(shim)} `;
 }
 /**
 * The env prefix typed ahead of the launch command so the spawned peer inherits the caller's
@@ -7073,7 +7126,7 @@ function selfInvocation() {
 }
 /**
 * Write `<dataDir>/bin/cyberlegion`, a POSIX shim that execs `self` with the caller's arguments,
-* and return its directory. A spawned session gets that directory first on its PATH, so the
+* and return its path. A spawned session gets that directory first on its PATH, so the
 * `cyberlegion` a brief tells it to run is the install that spawned it: nothing is resolved from
 * the registry or the session's own PATH at report time.
 */
@@ -7083,7 +7136,7 @@ function writeSelfShim(dataDir, self) {
 	const shim = join(dir, "cyberlegion");
 	writeFileSync(shim, `#!/bin/sh\nexec ${self.map(shellQuote$1).join(" ")} "$@"\n`);
 	chmodSync(shim, 493);
-	return dir;
+	return shim;
 }
 /** Single-quote `s` for a POSIX shell, so any path survives word splitting and expansion. */
 function shellQuote$1(s) {
@@ -7135,7 +7188,8 @@ async function nudgeUnit(ctx, ref, options = {}) {
 	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
 	const result = await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, message, options.nudgeOpts), {
 		...options.guardOpts,
-		harness: agent.harness
+		harness: agent.harness,
+		ownText: (text) => isRingText(text, message)
 	});
 	return {
 		agent,
@@ -7174,7 +7228,8 @@ async function clearUnit(ctx, ref, options = {}) {
 	const adapter = selectSessionAdapter(env, exec);
 	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
 		...options.guardOpts,
-		harness: agent.harness
+		harness: agent.harness,
+		ownText: (text) => isRingText(text)
 	});
 	return {
 		agent,
@@ -7469,6 +7524,7 @@ function spawnCommandInput(opts, listCursorModels) {
 			branch: opts.branch,
 			worktreePath: opts.worktreePath,
 			cwd: opts.cwd,
+			repo: opts.repo,
 			at: opts.at
 		},
 		noWake: opts.wake === false,
@@ -8881,7 +8937,7 @@ async function restartUnit(ctx, ref, options = {}) {
 		}) } : {};
 		target = adapter.open(exec, {
 			cwd: stopped.cwd,
-			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch),
+			launch: composeLaunchLine(ctx, adapter.name, rec.id, launch, { bindSelf: true }),
 			at,
 			from: callerPane(adapter, normalizeMuxEnv(env)),
 			...label
@@ -9301,7 +9357,7 @@ function warnEffortNotApplied(spawnInput) {
 }
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd) {
-	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
+	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("-C, --repo <path>", "create the worktree from the git repository containing <path>, not the current directory's").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
 		"pane:right",
 		"pane:down",
 		"tab",

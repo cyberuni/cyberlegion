@@ -227,6 +227,32 @@ describe('spec:cyberlegion/prompt-guard withDraftGuard', () => {
 		expect(pane.typed).toEqual(['\u0005', '\u0015'])
 	})
 
+	it('clears text the caller owns at once, sends, and types nothing back', async () => {
+		const ring = 'You have unread mail — check your inbox.'
+		const pane = fakePane([[0, cursor(`  → ${ring}`)]], cursor('  → Plan, search, build anything'))
+		const sent: number[] = []
+		await withDraftGuard(pane.adapter, exec, target, async () => sent.push(pane.elapsed()), {
+			harness: 'cursor',
+			ownText: (text) => text === ring,
+			...pane.clock,
+		})
+		expect(sent).toHaveLength(1)
+		expect(sent[0]).toBeLessThan(DRAFT_IDLE_MS)
+		expect(pane.typed).toEqual(['\u0005', '\u0015'])
+	})
+
+	it('clears owned text that wraps onto several rows, rather than refusing it as a multi-row draft', async () => {
+		const pane = fakePane([[0, cursor('  → You have unread mail —', '    check your inbox.')]], cursor('  → '))
+		const sent: string[] = []
+		await withDraftGuard(pane.adapter, exec, target, async () => sent.push('ring'), {
+			harness: 'cursor',
+			ownText: (text) => text.replace(/\s+/g, ' ') === 'You have unread mail — check your inbox.',
+			...pane.clock,
+		})
+		expect(sent).toEqual(['ring'])
+		expect(pane.typed).toEqual(['\u0005', '\u0015'])
+	})
+
 	it('sends when the pane cannot be read, leaving the send to report why', async () => {
 		const adapter = {
 			read: () => {

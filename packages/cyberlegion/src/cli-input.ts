@@ -19,6 +19,7 @@ export interface SpawnCommandOptions {
 	branch?: string
 	worktreePath?: string
 	cwd?: string
+	repo?: string
 	at?: SpawnInput['at']
 	wake?: boolean
 }
@@ -61,6 +62,7 @@ export function spawnCommandInput(
 			branch: opts.branch,
 			worktreePath: opts.worktreePath,
 			cwd: opts.cwd,
+			repo: opts.repo,
 			at: opts.at,
 		},
 		// Commander sets `wake: false` for `--no-wake`; anything else means ring.

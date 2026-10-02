@@ -1,6 +1,8 @@
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { MuxAdapter } from 'cyber-mux'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, saveAgent } from './identity.ts'
@@ -251,6 +253,14 @@ function fakeBackend(
 
 const noSleep = { nudgeOpts: { sleep: async () => {}, attempts: 1 } }
 
+/** This CLI from source, as `selfInvocation` would record it under `pnpm cl dev`. */
+const SELF = [
+	process.execPath,
+	'--import',
+	pathToFileURL(fileURLToPath(new URL('../node_modules/tsx/dist/loader.mjs', import.meta.url))).href,
+	fileURLToPath(new URL('./dev.ts', import.meta.url)),
+]
+
 function rctx(adapter: MuxAdapter, env: NodeJS.ProcessEnv = { TMUX: 't' }): RuntimeContext {
 	return { store, env, exec: () => null, now: () => 1_700_000_000_000, adapter }
 }
@@ -379,6 +389,29 @@ describe('spec:cyberlegion/unit/runtime — unit restart', () => {
 		expect(loadAgent(store, 'u1')?.status).toBe('active')
 		expect(loadAgent(store, 'u1')?.pane).toEqual({ mux: 'tmux', id: '%20' })
 	})
+
+	it('a restart that dies after the open leaves the new session bound to the unit', async () => {
+		unit({ id: 'u1', status: 'stopped', pane: null, launch: 'true' })
+		const be = fakeBackend()
+		// The restarting process dies at its own bind write, after the new pane is already running.
+		const dying = Object.create(store) as FileStore
+		dying.putAgent = (rec) => {
+			if (rec.status === 'active') throw new Error('killed')
+			store.putAgent(rec)
+		}
+		await expect(restartUnit({ ...rctx(be.adapter), store: dying, self: SELF }, 'u1', noSleep)).rejects.toThrow(
+			'killed',
+		)
+		expect(loadAgent(store, 'u1')?.status).toBe('stopped')
+		const typed = be.opened[0]?.launch ?? ''
+		execFileSync('sh', ['-c', typed], {
+			cwd: unitDir,
+			env: { PATH: process.env.PATH, HOME: process.env.HOME, TMUX: '/tmp/tmux-0/default,1,0', TMUX_PANE: '%20' },
+		})
+		expect(loadAgent(store, 'u1')?.status).toBe('active')
+		expect(loadAgent(store, 'u1')?.pane).toMatchObject({ mux: 'tmux', id: '%20' })
+		expect(store.resolvePaneId('%20')).toBe('u1')
+	}, 30_000)
 
 	it("restart opens nothing when the running session's stop does not take effect", async () => {
 		unit({ id: 'u1' })

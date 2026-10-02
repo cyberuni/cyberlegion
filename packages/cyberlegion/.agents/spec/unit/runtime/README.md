@@ -127,6 +127,11 @@ through these verbs. A unit whose worktree or cwd is gone cannot be restarted: i
   - opening the new session fails → error naming the unit as stopped and asking for a rerun; the
     unit keeps its inbox, brief, and worktree. This is how an **interrupted restart is recovered**: a
     second `unit restart` starts from the stopped unit.
+  - the caller dies after the open but before its bind write → the new session binds itself. The
+    launch line runs `unit rebind <id>` in the new pane, through the unit's CLI shim, before the
+    harness starts. So the pane is never left running unbound, and nothing needs rerunning. The bind
+    step needs the shim, so a caller that records no invocation (a library caller, not the CLI) gets
+    none and relies on its own bind write.
   - the ring never completes → a warning on the result; the restart still succeeds (same rule as
     spawn's first-turn ring).
   - the unit was `exited` (pruned after a crash) → restarted like a stopped unit.
@@ -220,6 +225,7 @@ graph TD
   RS6 -- yes --> RS8{"open a session at cwd with the recorded launch — succeeds?"}
   RS8 -- no --> RS8X["throw: unit left stopped, rerun restart"]
   RS8 -- yes --> RS9["bind: new pane, status active, new pane pointer, last-seen now"]
+  RS8 -- "yes, caller dies before RS9" --> RS8B["the new pane runs unit rebind id before the harness: bound to the new pane"]
   RS9 --> RS10{"--no-wake?"}
   RS10 -- yes --> RS10Y["ring nothing"]
   RS10 -- no --> RS11{"the brief ring completes?"}
@@ -228,6 +234,9 @@ graph TD
 ```
 
 The launch is the record's own `launch` when present, else the harness's default command (RS8).
+The typed launch line starts with `unit rebind <id>` through the unit's shim, so the new pane binds
+itself whether or not the caller survives to RS9 (RS8B). When both binds run, they write the same pane:
+`unit rebind` on a unit already bound to the calling pane changes nothing.
 
 ### rebind
 
@@ -311,6 +320,7 @@ convergence claim.
 | `RS11N` | a stopped unit whose ring never completes | `a restart whose ring never completes still succeeds with a warning` |
 | `RS8X` | a stopped unit, the backend's open fails | `a restart whose open fails leaves the unit stopped` |
 | `RS8X` then `RS9` | a unit left stopped by a failed open | `a second restart recovers a unit left stopped by a failed restart` |
+| `RS8B` | a stopped unit, the caller dies after the open | `a restart that dies after the open leaves the new session bound to the unit` |
 | `RS7X` | a live pane the backend keeps listing after teardown | `restart opens nothing when the running session's stop does not take effect` |
 | `RS5X` | a live unit whose cwd was deleted | `restart refuses a unit whose cwd no longer exists and tears nothing down` |
 | `RS4X` | a live unit whose record names an unmapped harness | `restart refuses a harness outside the launch map and tears nothing down` |
