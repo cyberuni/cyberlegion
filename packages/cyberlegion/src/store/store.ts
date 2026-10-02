@@ -57,6 +57,10 @@ export interface AgentRecord {
 	 * mux env prefix not) — what `unit restart` relaunches the unit with. Absent on a record that
 	 * predates it or that `spawn` did not write; restart then falls back to the harness default. */
 	launch?: string
+	/** The harness's own conversation (session) id, as its SessionStart hook last reported it from this
+	 * unit's pane (`mail hook`) — what `unit restart` resumes. Absent until the hook has fired, and on a
+	 * harness whose hook never runs; restart then rebriefs a fresh session. */
+	conversation?: string
 	spawnedBy?: string
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,
 	 * prune-exempt owner inbox minted by `unit register --standing`. 'service' = a project service's

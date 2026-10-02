@@ -7,7 +7,7 @@ import type { Exec } from '../identity.ts'
 import { claimPresence, registerStanding, saveAgent } from '../identity.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
-import { DELIVERY_DOORBELL, isRingText, spawnDoorbell, wakeRecipient, wakeSpawn } from './doorbell.ts'
+import { DELIVERY_DOORBELL, isRingText, resumeDoorbell, spawnDoorbell, wakeRecipient, wakeSpawn } from './doorbell.ts'
 
 // spec: mail/doorbell/doorbell.feature — one test per frozen scenario, unit-level with a fake
 // MuxAdapter (mirrors cyber-mux's own nudge.test.ts fakeAdapter: reads queue + submit spy, text vs
@@ -585,6 +585,10 @@ describe('isRingText', () => {
 	it('recognizes the delivery doorbell and any spawn doorbell', () => {
 		expect(isRingText(DELIVERY_DOORBELL)).toBe(true)
 		expect(isRingText(spawnDoorbell('/hub/briefs/w1.md'))).toBe(true)
+	})
+
+	it('recognizes any resume doorbell', () => {
+		expect(isRingText(resumeDoorbell('/hub/briefs/w1.md'))).toBe(true)
 	})
 
 	it('recognizes the message being rung', () => {
