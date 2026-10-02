@@ -48,6 +48,20 @@ which harness it runs under:
   **validated** as a single npm version-or-dist-tag token before it is embedded — a malformed pin
   (empty, whitespace, a range, or a shell metacharacter) is rejected and no hook is registered. Each
   event is reported as `registered`, `already present`, `provided by plugin`, or `removed project hook`.
+- **init --allow-cli adds the Claude Code permission rule for the CLI** — without a
+  `permissions.allow` rule covering `cyberlegion`, Claude Code's auto-mode classifier can deny a
+  unit's `cyberlegion mail send` as an external write, so a unit that finished its work cannot report
+  back (#120). For claude, `init` reads Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`,
+  else `~/.claude/settings.json`) and reports the rule as `present` or `missing` (or `unreadable`);
+  a covering rule is `Bash(cyberlegion *)`, its `:*` or `*` spelling, `Bash(*)`, or a bare `Bash`.
+  With `--allow-cli` it appends `Bash(cyberlegion *)` to `permissions.allow` after every rule already
+  there, keeping every other setting, and reports `added` — or `present`, writing nothing, when a
+  covering rule exists. It never rewrites a file it cannot read as settings (invalid JSON, not an
+  object, a non-array `permissions.allow`): it fails naming the file before any hook is touched.
+  Without the flag it writes nothing and, when the rule is missing, emits a next-step toward
+  `init --allow-cli`. The flag is claude-only; any other harness rejects it. Writing the user's
+  global settings is a consent decision, so `init` never does it unasked — the `init-cyberlegion`
+  skill asks first.
 - **init auto-detects; installation is otherwise explicit** — `init` adds auto-detection and an
   owner-binding next-step for onboarding, on top of the low-level installer (see the TODO above for
   where that installer's own pending scenarios currently live). `init` never chooses a harness by
@@ -68,7 +82,8 @@ which harness it runs under:
   never touched.
 
 **Non-goals** — the hook injection payload and owner-mail surfacing gate (`mail/surface`);
-multiplexer/harness self-diagnosis via `mux doctor` (`mux/`); minting the standing owner inbox and
+multiplexer/harness self-diagnosis via `mux doctor` (`mux/`, which also reports the permission rule
+read-only); minting the standing owner inbox and
 binding the main pane (`unit/registry` / `attach/`); the user-facing interactive ask (the
 `init-cyberlegion` plugin skill that wraps this verb). This node owns only the auto-detecting
 hook-registration entry point and its owner-binding advice — plus, pending CR-2 resolution #2, the
@@ -81,5 +96,6 @@ Every scenario in [`init.feature`](./init.feature) maps to one of these behavior
 | **resolve + register** | auto-detect harness (or `--agent`); leave the hook to the plugin for claude/codex, register the PATH-first SessionStart hook for cursor |
 | **pin** | `--pin` pins only cursor's npx fallback; a malformed pin is rejected before anything is written |
 | **auto-detect vs explicit** | `--agent` overrides + is validated; undetectable with no `--agent` throws asking for it, never guesses |
+| **permission rule** | report the Claude Code allow rule for the CLI; `--allow-cli` merges it in, never clobbering a file; claude only |
 | **owner-binding next-step** | emits a bind-owner next-step only when no standing owner exists |
 | **idempotent + upgrade** | re-run reports `already present`, rewrites an older cursor generation in place, removes an earlier project hook where the plugin ships it |

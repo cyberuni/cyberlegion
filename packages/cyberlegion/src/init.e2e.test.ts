@@ -10,8 +10,11 @@ import { beforeEach, describe, expect, it } from 'vitest'
 const BIN = fileURLToPath(new URL('../bin/cyberlegion.mjs', import.meta.url))
 
 let space: string
+// Claude Code's user config dir, isolated per test so init never reads or writes the real one.
+let claudeDir: string
 beforeEach(() => {
 	space = join(mkdtempSync(join(tmpdir(), 'cl-e2e-init-')), 'hub')
+	claudeDir = mkdtempSync(join(tmpdir(), 'cl-e2e-claude-'))
 })
 
 // Strip mux + harness-detection env so each test controls detection precisely.
@@ -26,7 +29,7 @@ const MUX_ENV_KEYS = [
 	'CYBERLEGION_MUX_PANE',
 ]
 function baseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-	const merged = { ...process.env, ...env }
+	const merged: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: claudeDir, ...env }
 	for (const k of Object.keys(merged)) {
 		const isHarnessKey =
 			k === 'CLAUDECODE' || k === 'CLAUDE_CODE_ENTRYPOINT' || k.startsWith('CURSOR') || k.startsWith('CODEX')
@@ -179,5 +182,51 @@ describe('init removes a project hook an earlier init wrote where the plugin shi
 		expect(readCfg(dir, '.claude/settings.json').hooks.SessionStart).toEqual([
 			{ hooks: [{ type: 'command', command: 'echo unrelated' }] },
 		])
+	})
+})
+
+describe('init --allow-cli adds the cyberlegion permission rule to Claude Code user settings', () => {
+	const userSettings = () => join(claudeDir, 'settings.json')
+
+	it('merges Bash(cyberlegion *) into the existing allow list and reports it added', () => {
+		writeFileSync(userSettings(), JSON.stringify({ permissions: { allow: ['Bash(git *)'] }, model: 'opus' }))
+		const out = JSON.parse(
+			legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli', '--format', 'json']),
+		)
+		expect(out.permissionRule).toBe('added')
+		expect(JSON.parse(readFileSync(userSettings(), 'utf8'))).toEqual({
+			permissions: { allow: ['Bash(git *)', 'Bash(cyberlegion *)'] },
+			model: 'opus',
+		})
+	})
+
+	it('is idempotent: a second run reports present and adds no duplicate', () => {
+		legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli'])
+		const out = legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli'])
+		expect(out).toContain('permission rule present')
+		expect(JSON.parse(readFileSync(userSettings(), 'utf8')).permissions.allow).toEqual(['Bash(cyberlegion *)'])
+	})
+
+	it('without --allow-cli writes nothing and advises the flag when the rule is missing', () => {
+		const res = legionOut(['init', '--agent', 'claude', '--dir', freshProjectDir()])
+		expect(res.status).toBe(0)
+		expect(res.stdout).toContain('permission rule missing')
+		expect(res.stderr).toMatch(/init --allow-cli/)
+		expect(existsSync(userSettings())).toBe(false)
+	})
+
+	it('refuses to rewrite a malformed settings file and leaves it untouched', () => {
+		writeFileSync(userSettings(), '{ not json')
+		const res = legionOut(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli'])
+		expect(res.status).not.toBe(0)
+		expect(res.stderr).toMatch(/settings/)
+		expect(readFileSync(userSettings(), 'utf8')).toBe('{ not json')
+	})
+
+	it('is rejected for a harness other than claude', () => {
+		const res = legionOut(['init', '--agent', 'cursor', '--dir', freshProjectDir(), '--allow-cli'])
+		expect(res.status).not.toBe(0)
+		expect(res.stderr).toMatch(/--allow-cli/)
+		expect(existsSync(userSettings())).toBe(false)
 	})
 })

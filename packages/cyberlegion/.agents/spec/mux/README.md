@@ -44,7 +44,7 @@ Each entry point below enters the control-flow graph in the next section.
 | Use case | Trigger | Inputs | Outcome |
 |---|---|---|---|
 | `unit spawn` (backend select + placement) | a caller spawns a unit | `--at`, the ambient environment | a pane opened on the selected backend, or a refusal before anything opens |
-| `mux doctor` | a caller runs `cyberlegion mux doctor` | the ambient environment | harness, mux, pane, hub root, self-id, and a pin hint to fix the fast-path |
+| `mux doctor` | a caller runs `cyberlegion mux doctor` | the ambient environment | harness, mux, pane, hub root, self-id, the Claude Code permission rule's state, and a pin hint to fix the fast-path |
 | `mux mode` | a caller runs `cyberlegion mux mode` | the ambient environment | the selected backend's name, or `none` at exit 0 |
 | the focus probe | the doorbell asks before spending a turn | a pane locator | `focused`, `not-focused`, or `unknown` |
 
@@ -86,6 +86,11 @@ session opens through, independent of any unit's identity or lifecycle:
   `mux doctor` runs discovery and prints an `export CYBER_MUX=<m> CYBER_MUX_PANE=<p>`
   hint so a caller can pin the fast-path; `unit spawn` injects the same vars into the spawned
   child's launch command so it inherits the fast-path instead of re-discovering.
+  `mux doctor` also reports `permissionRule` — whether Claude Code's user settings carry a
+  `permissions.allow` rule covering `cyberlegion` (`present` / `missing` / `unreadable`; `n/a` for
+  any other harness) — read-only, and on `missing` emits a next-step toward `init --allow-cli`,
+  which owns the write (`init/`). Without that rule the auto-mode classifier can deny a unit's
+  `mail send`, so a finished unit cannot report back (#120).
   **Transitionally**, the legacy `$CYBERLEGION_MUX` / `$CYBERLEGION_MUX_PANE` pair is still read when
   the current pair is absent, so a pane spawned before the namespace migration keeps its identity
   instead of falling back to an ancestry walk that answers for the wrong pane; the current pair wins
@@ -207,6 +212,7 @@ coverage, not duplication.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | report the probe + a pin hint | running behind a detected multiplexer | `mux doctor reports the detected mux and prints a pin hint` |
+| report the permission rule | a claude session | `mux doctor reports whether Claude Code allows the cyberlegion CLI` |
 | carry the fast-path into the child | spawning behind a detected multiplexer | `unit spawn propagates the fast-path to the spawned child` |
 | report the selected backend | running inside a detected multiplexer | `mux mode reports the detected session backend` |
 | report the selected backend | no detectable multiplexer | `mux mode reports none when no backend is selectable` |

@@ -7,8 +7,8 @@ concept: [onboarding, identity]
 
 The onboarding front door to the Legion: the user-invocable `init-cyberlegion` skill walks a session
 through getting `cyberlegion` working in this repo — probe the environment, register the surfacing
-hook, and (only in a root session, only on an explicit yes) bind this pane as the durable `legate`
-owner inbox. It is a **thin wrapper**: every mechanic is a `cyberlegion` CLI call. The skill holds
+hook, and (only in a root session, only on an explicit yes) allow the `cyberlegion` CLI in Claude
+Code's permissions and bind this pane as the durable `legate` owner inbox. It is a **thin wrapper**: every mechanic is a `cyberlegion` CLI call. The skill holds
 the *conversation and the judgment* (is this a root session? should we ask to bind? what does the
 environment look like?); the CLI holds all the *mechanism* (registering hooks, minting identities,
 binding panes, reading hub state).
@@ -58,6 +58,7 @@ or hub state directly and never invents a config format — every mechanic is a 
 | **register the surfacing hook only** | "register the cyberlegion surfacing hook" | any session | probe → `cyberlegion init [--agent]`; idempotent (`registered \| already present`) |
 | **onboard a spawned / non-root unit** | a setup intent reached inside a spawned unit (`spawnedBy` set) | a non-root session | probe → register hook → **stop**; no bind ask (a non-root unit is never the owner inbox) |
 | **bind this pane as the legate owner** | "make this pane my main legion inbox" | a root session with no `legate` bound yet | confirm → mint `legate` owner + bind-main (the consented tail of the full flow) |
+| **allow the CLI in Claude Code** | the probe reports `permissionRule: missing` | a root session with a broader onboarding intent | **ask** to add `Bash(cyberlegion *)` → on yes, `init --allow-cli` merges it into the user `permissions.allow`; on no, plain `init` and the rule stays missing |
 | **onboard where there is no multiplexer** | any setup intent in a no-pane environment | no `mux`/`pane` from the probe | hook registered, `legate` owner still minted on yes, `bind-main` is a no-op; the skill does not error, and the root session surfaces owner mail via the `!spawnedBy` fallback |
 
 Each use case is covered by one-or-more `.feature` scenarios (happy path, its branch, and the
@@ -91,5 +92,15 @@ is covered by the `@trigger` outline and the routing-defer scenarios.
   self-id) is ever offered the bind. A spawned unit stops after the hook.
 - **Never bind silently.** The skill mints the `legate` owner and binds the pane **only** after an
   explicit user yes. No yes → the hook stays, nothing is minted.
+- **The permission rule is consent-gated and CLI-written.** The probe's `permissionRule` (`present`,
+  `missing`, `unreadable`, `n/a`) is narrated in the environment summary. Only a root session with a
+  broader onboarding intent and the rule `missing` is asked whether to add `Bash(cyberlegion *)`;
+  on an explicit yes the skill passes `--allow-cli` to `init`, which merges the rule into the
+  existing array (never replacing it). The skill never edits Claude Code's settings by hand, never
+  adds the rule without a yes, and never adds it from a spawned unit — a spawned unit reports the
+  rule missing instead. An `unreadable` settings file is reported as needing a hand fix, not
+  retried with `--allow-cli`. Without the rule, Claude Code's auto-mode classifier can deny a
+  unit's `cyberlegion mail send` as *External System Writes*, so a finished unit cannot report back
+  (#120); the skill documents that symptom as this rule missing.
 - **Non-mux parity, not failure.** With no pane, `bind-main` is a no-op and the skill still mints the
   owner and completes cleanly; it never errors out of a no-pane environment.

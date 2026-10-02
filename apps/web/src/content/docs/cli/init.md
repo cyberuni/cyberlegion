@@ -4,7 +4,7 @@ description: 'CLI reference for cyberlegion init: detect the harness, set up the
 ---
 
 ```sh
-npx cyberlegion init [--agent <h>] [--dir <path>] [--pin <version>]
+npx cyberlegion init [--agent <h>] [--dir <path>] [--pin <version>] [--allow-cli]
 ```
 
 `init` is the onboarding front door's mechanical half: resolve this session's harness, set up the
@@ -30,6 +30,23 @@ registry when the hook fires. How `init` gets there depends on the harness:
 On Cursor, a `cyberlegion` on `PATH` (a spawned unit's shim, or one you installed) runs first. The
 pinned `npx` runs only when there is none.
 
+## The permission rule (Claude Code)
+
+Claude Code's auto-mode classifier can deny a `cyberlegion` call as an external write. When it
+denies a unit's `cyberlegion mail send`, the unit finishes its work but cannot report back. A
+`permissions.allow` rule covering `cyberlegion` in Claude Code's user settings
+(`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`) prevents that.
+
+On Claude Code, `init` reports the rule's state: `present`, `missing`, or `unreadable`. With
+`--allow-cli` it appends `"Bash(cyberlegion *)"` to `permissions.allow`, after the rules already
+there and keeping every other setting. If a covering rule already exists (`Bash(cyberlegion *)`,
+`Bash(cyberlegion:*)`, `Bash(*)`, or a bare `Bash`), it writes nothing. It refuses to rewrite a
+settings file that isn't valid JSON or has a malformed `permissions.allow`, and fails before
+touching any hook. Without `--allow-cli`, `init` never writes the user settings. It suggests the
+flag when the rule is missing.
+
+If a unit's `cyberlegion mail send` is denied with *External System Writes*, this rule is missing.
+
 ## Options
 
 | Option | Meaning |
@@ -37,10 +54,13 @@ pinned `npx` runs only when there is none.
 | `--agent <h>` | `claude` \| `cursor` \| `codex` (else auto-detected) |
 | `--dir <path>` | project dir to write config into (default: current working directory) |
 | `--pin <version>` | version the Cursor hook's `npx` fallback fetches (e.g. the bundled plugin version) |
+| `--allow-cli` | add `Bash(cyberlegion *)` to Claude Code's user `permissions.allow` (Claude Code only) |
 
 ## Output
 
-A `hooks` table (`event`, `status`, `file`) with an aggregate `harness <name>, <N> hooks`. Each
+A `hooks` table (`event`, `status`, `file`) with an aggregate `harness <name>, <N> hooks`. On
+Claude Code the aggregate ends with `permission rule <state>`, where the state is `added`, `present`,
+`missing`, or `unreadable` (`permissionRule` in `--format json`). Each hook
 status is one of:
 
 - `registered`: a new Cursor hook was written.

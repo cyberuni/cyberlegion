@@ -35,6 +35,13 @@ import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
 import { resolveRoot } from './paths.ts'
+import {
+	addPermissionRule,
+	CLI_RULE,
+	claudeUserSettingsFile,
+	type PermissionRuleState,
+	permissionRuleState,
+} from './permission.ts'
 import { listProjects, type ProjectRecord, registerProject, resolveProject } from './project.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
 import {
@@ -1107,6 +1114,9 @@ withGlobals(agent.command('path'))
 // -------------------------------------------------------------------------------------------
 // mux — the unit-agnostic pane layer: multiplexer detection and diagnostics (ADR-0024)
 // -------------------------------------------------------------------------------------------
+// Without the rule, Claude Code's auto-mode classifier can deny a unit's `mail send` (#120).
+const ALLOW_CLI_HINT = `cyberlegion init --allow-cli to add ${CLI_RULE} to Claude Code's permissions.allow, so units can mail their results back`
+
 const mux = program.command('mux').description('the unit-agnostic pane layer — multiplexer detection and diagnostics')
 
 withGlobals(mux.command('doctor'))
@@ -1116,10 +1126,15 @@ withGlobals(mux.command('doctor'))
 		const harness = detectHarness(undefined, ctx) ?? 'unknown'
 		const probe = probeMultiplexer(ctx.exec ?? realExec, normalizeMuxEnv(ctx.env ?? process.env))
 		const selfId = resolveSelfId(ctx) ?? '-'
+		// Only Claude Code's auto-mode classifier gates the CLI on a permission rule.
+		const permissionRule =
+			harness === 'claude' ? permissionRuleState(claudeUserSettingsFile(ctx.env ?? process.env)) : 'n/a'
+		const report = { harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId }
 		emit(formatOf(opts), {
-			toon: toonObject({ harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId }),
-			json: { harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId },
+			toon: toonObject({ ...report, permissionRule }),
+			json: { ...report, permissionRule },
 		})
+		if (permissionRule === 'missing') nextStep(ALLOW_CLI_HINT)
 		if (probe.mux !== 'none') {
 			nextStep(
 				`export CYBER_MUX=${probe.mux}${probe.pane ? ` CYBER_MUX_PANE=${probe.pane}` : ''}` +
@@ -1195,6 +1210,7 @@ withGlobals(program.command('init'))
 	.option('--agent <h>', 'claude | cursor | codex (else auto-detected)')
 	.option('--dir <path>', 'project dir to write config into', process.cwd())
 	.option('--pin <version>', 'version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)')
+	.option('--allow-cli', `add ${CLI_RULE} to Claude Code's user permissions.allow (claude only)`)
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		let harness: Harness
@@ -1204,6 +1220,17 @@ withGlobals(program.command('init'))
 			harness = detected
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
+		}
+		if (opts.allowCli && harness !== 'claude') fail(`--allow-cli applies to claude only, not ${harness}`)
+		// The permission rule goes first: a settings file it refuses to rewrite fails init before any hook is touched.
+		let permissionRule: PermissionRuleState | 'added' | undefined
+		if (harness === 'claude') {
+			const settingsFile = claudeUserSettingsFile(ctx.env ?? process.env)
+			try {
+				permissionRule = opts.allowCli ? addPermissionRule(settingsFile) : permissionRuleState(settingsFile)
+			} catch (err) {
+				fail(err instanceof Error ? err.message : String(err))
+			}
 		}
 		let results: ReturnType<typeof install>
 		try {
@@ -1220,10 +1247,11 @@ withGlobals(program.command('init'))
 					{ key: 'status', get: (r) => r.status },
 					{ key: 'file', get: (r) => r.file },
 				],
-				`harness ${harness}, ${results.length} hooks`,
+				`harness ${harness}, ${results.length} hooks${permissionRule ? `, permission rule ${permissionRule}` : ''}`,
 			),
-			json: { harness, hooks: results },
+			json: { harness, hooks: results, ...(permissionRule && { permissionRule }) },
 		})
+		if (permissionRule === 'missing') nextStep(ALLOW_CLI_HINT)
 		const hasStandingOwner = listAgents(ctx.store).some((a) => a.kind === 'standing')
 		if (!hasStandingOwner) {
 			nextStep('cyberlegion unit register --standing --handle <name> to mint the durable owner inbox')
