@@ -6292,6 +6292,9 @@ const KILL_LINE = "";
 *   throws without sending. A multi-row draft cannot be typed back exactly: a scrape cannot tell a
 *   wrapped row from a newline, and a newline typed back would submit it.
 *
+* Text `ownText` recognizes is the caller's own, not a draft: it is cleared at once, whatever rows it
+* wraps onto, `send` runs, and nothing is typed back.
+*
 * Text the clear leaves in place was never a draft — an idle placeholder this reader does not know —
 * so `send` runs and nothing is typed back.
 */
@@ -6308,10 +6311,11 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 			return { kind: "unknown" };
 		}
 	};
+	const isOwn = (s) => s.kind === "draft" && options.ownText?.(s.text) === true;
 	let state = read();
 	const start = now();
 	let changedAt = start;
-	while (state.kind === "draft" && now() - changedAt < idleMs) {
+	while (state.kind === "draft" && !isOwn(state) && now() - changedAt < idleMs) {
 		if (now() - start + pollMs > maxWaitMs) throw new Error(`pane ${target.id} holds a draft the user is still editing — gave up after ${maxWaitMs / 1e3}s without typing`);
 		await sleep(pollMs);
 		const next = read();
@@ -6319,12 +6323,13 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 		state = next;
 	}
 	if (state.kind !== "draft") return send();
+	if (isOwn(state)) {
+		await clearLine(adapter, exec, target, sleep);
+		return send();
+	}
 	if (state.rows > 1) throw new Error(`pane ${target.id} holds an idle draft spanning ${state.rows} rows, which cannot be typed back exactly — left it untouched`);
 	const draft = state.text;
-	adapter.sendText(exec, target, END_OF_LINE);
-	await sleep(KEY_SETTLE_MS);
-	adapter.sendText(exec, target, KILL_LINE);
-	await sleep(KEY_SETTLE_MS);
+	await clearLine(adapter, exec, target, sleep);
 	const after = read();
 	if (after.kind === "draft" && after.text === draft) return send();
 	try {
@@ -6333,6 +6338,12 @@ async function withDraftGuard(adapter, exec, target, send, options = {}) {
 		await sleep(KEY_SETTLE_MS);
 		adapter.sendText(exec, target, draft);
 	}
+}
+async function clearLine(adapter, exec, target, sleep) {
+	adapter.sendText(exec, target, END_OF_LINE);
+	await sleep(KEY_SETTLE_MS);
+	adapter.sendText(exec, target, KILL_LINE);
+	await sleep(KEY_SETTLE_MS);
 }
 //#endregion
 //#region src/console/ring.ts
@@ -6404,6 +6415,19 @@ const DELIVERY_DOORBELL = "You have unread mail — check your inbox.";
 function spawnDoorbell(briefPath) {
 	return `Read your brief at ${briefPath}, then begin work.`;
 }
+const SPAWN_DOORBELL = /^Readyourbriefat.+,thenbeginwork\.$/;
+/**
+* Whether `text`, read out of a peer's input box, is a ring cyberlegion typed — the delivery doorbell,
+* a spawn doorbell, or `message`, the one about to be rung — rather than a human's draft. A harness
+* can take a ring and put its text back in the box (cursor-agent with a rejected login). Whitespace is
+* ignored, since the box wraps the text onto rows wherever it likes.
+*/
+function isRingText(text, message) {
+	const squeeze = (s) => s.replace(/\s+/g, "");
+	const box = squeeze(text);
+	if (box === "") return false;
+	return box === squeeze("You have unread mail — check your inbox.") || SPAWN_DOORBELL.test(box) || message !== void 0 && box === squeeze(message);
+}
 /**
 * A freshly-launched harness cold-boots slower than an already-running peer, so the spawn first-turn
 * ring gets a wider retry budget than a plain `mail send` doorbell (nudge's own 10 × 400ms): flush the
@@ -6472,7 +6496,8 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		const target = { id: pane };
 		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
 			...guardOpts,
-			harness
+			harness,
+			ownText: (text) => isRingText(text)
 		});
 		return {
 			rung: true,
@@ -6507,7 +6532,8 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 		const adapter = getAdapter();
 		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, spawnDoorbell(input.briefPath), nudgeOpts), {
 			...guardOpts,
-			harness: input.harness
+			harness: input.harness,
+			ownText: (text) => isRingText(text)
 		});
 		return {
 			rung: true,
@@ -7135,7 +7161,8 @@ async function nudgeUnit(ctx, ref, options = {}) {
 	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
 	const result = await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, message, options.nudgeOpts), {
 		...options.guardOpts,
-		harness: agent.harness
+		harness: agent.harness,
+		ownText: (text) => isRingText(text, message)
 	});
 	return {
 		agent,
@@ -7174,7 +7201,8 @@ async function clearUnit(ctx, ref, options = {}) {
 	const adapter = selectSessionAdapter(env, exec);
 	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
 		...options.guardOpts,
-		harness: agent.harness
+		harness: agent.harness,
+		ownText: (text) => isRingText(text)
 	});
 	return {
 		agent,

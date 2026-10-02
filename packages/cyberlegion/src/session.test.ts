@@ -1218,6 +1218,26 @@ describe('clear does not type over a human draft in the peer pane', () => {
 	})
 })
 
+describe('clear does not wait on a doorbell the harness put back in the peer pane', () => {
+	it('clears the doorbell at once, then sends the reset', async () => {
+		registerUnit({ id: 'w2' })
+		const rule = '─'.repeat(40)
+		const literals: string[] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd !== 'tmux') return null
+			if (tmuxVerb(args) === 'send-keys' && args.includes('-l')) literals.push(args.at(-1) ?? '')
+			if (tmuxVerb(args) === 'capture-pane') return [rule, `❯\u00a0${DELIVERY_DOORBELL}`, rule].join('\n')
+			return ''
+		}
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await clearUnit({ ...ctx(), exec }, 'w2', { guardOpts: clock })
+		expect(t).toBeLessThan(20_000)
+		expect(literals.slice(0, 2)).toEqual(['\u0005', '\u0015'])
+		expect(literals).toContain('/clear')
+	})
+})
+
 describe('clear resolves each harness own fresh-context command from the per-harness map', () => {
 	it.each([
 		['claude', '/clear'],
@@ -1485,6 +1505,20 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 			/draft/,
 		)
 		expect(tmuxArgs(calls, 'send-keys')).toEqual([])
+	})
+
+	it('nudge clears a doorbell the harness put back in the input box and rings at once', async () => {
+		const rule = '─'.repeat(40)
+		const putBack = [rule, `❯\u00a0${DELIVERY_DOORBELL}`, rule, '  footer'].join('\n')
+		const { calls, ctx } = peerCtx({ captures: [putBack, 'peer output', 'scrolled away\n> '] })
+		let t = 0
+		const clock = { now: () => t, sleep: async (ms: number) => void (t += ms) }
+		await nudgeUnit(ctx, 'peer', { nudgeOpts: { sleep: async () => {} }, guardOpts: clock })
+		expect(t).toBeLessThan(20_000)
+		const literals = tmuxArgs(calls, 'send-keys')
+			.filter((c) => c.includes('-l'))
+			.map((c) => c.at(-1))
+		expect(literals).toEqual(['\u0005', '\u0015', DELIVERY_DOORBELL])
 	})
 
 	it('nudge on a pane the backend no longer knows fails naming the gone pane', async () => {

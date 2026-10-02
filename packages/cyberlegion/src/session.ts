@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFile
 import { join, resolve } from 'node:path'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
-import { DELIVERY_DOORBELL, wakeSpawn } from './console/doorbell.ts'
+import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import { ringTurn } from './console/ring.ts'
 import { answerTrustPrompt, type TrustOptions, type TrustOutcome } from './console/trust.ts'
@@ -439,6 +439,7 @@ export async function nudgeUnit(
 		{
 			...options.guardOpts,
 			harness: agent.harness,
+			ownText: (text) => isRingText(text, message),
 		},
 	)
 	return { agent, pane: target.id, message, resubmits: result.resubmits }
@@ -487,6 +488,7 @@ export async function clearUnit(
 	await withDraftGuard(adapter, exec, target, async () => adapter.submit(exec, target, command), {
 		...options.guardOpts,
 		harness: agent.harness,
+		ownText: (text) => isRingText(text),
 	})
 	return { agent, pane, command }
 }

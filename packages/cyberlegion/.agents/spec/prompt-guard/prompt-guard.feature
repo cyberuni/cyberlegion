@@ -69,3 +69,12 @@ Feature: prompt-guard — never type over a human's unsent draft
     When the CLI rings that pane
     Then the ring is typed
     And nothing is typed back after it
+
+  # ── Text the CLI itself typed ──
+
+  Scenario: a doorbell the harness put back in the input box is cleared at once and not typed back
+    Given a peer pane whose input box holds a doorbell the CLI rang earlier, which the harness took and put back
+    When the CLI rings that pane
+    Then the box is cleared without waiting for the draft to go idle
+    And the ring is typed and taken
+    And nothing is typed back after it
