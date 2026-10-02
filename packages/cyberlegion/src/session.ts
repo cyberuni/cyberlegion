@@ -332,10 +332,24 @@ export function labelFor(
  * supplied `ctx.self`), the multiplexer env prefix, then the harness launch command. Writes the shim
  * as a side effect, so call it only past every refusal, right before the session opens. Shared by
  * `spawn` and `unit restart` so a restarted unit boots exactly as a spawned one does.
+ *
+ * `bindSelf` has the new pane run `unit rebind <id>` through the shim before the harness starts, so
+ * the session binds itself to the unit even when the caller dies before its own bind write. It needs
+ * the shim, so a context with no recorded invocation gets no bind step.
  */
-export function composeLaunchLine(ctx: IdContext, muxName: string, id: string, launch: string): string {
+export function composeLaunchLine(
+	ctx: IdContext,
+	muxName: string,
+	id: string,
+	launch: string,
+	options: { bindSelf?: boolean } = {},
+): string {
 	const shimDir = ctx.self ? writeSelfShim(paths.dataDir(ctx.store.root, id), ctx.self) : undefined
-	return `${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
+	const bind =
+		shimDir && options.bindSelf
+			? `${shellQuote(join(shimDir, 'cyberlegion'))} unit rebind ${shellQuote(id)} --space ${shellQuote(ctx.store.root)} >/dev/null 2>&1; `
+			: ''
+	return `${bind}${shimDir ? `PATH=${shellQuote(shimDir)}:"$PATH" ` : ''}${muxEnvPrefix(muxName)}${launch}`
 }
 
 /**
