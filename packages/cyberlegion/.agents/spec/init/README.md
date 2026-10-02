@@ -27,7 +27,8 @@ which harness it runs under:
   hook fires with **the CLI the session was installed with**, never one npx resolves from the registry
   at run time (#65, #69). What that takes depends on the harness:
   - **claude, codex — the plugin ships the hook.** The plugin's own `hooks/hooks.json` runs `node
-    "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart`.
+    "${CLAUDE_PLUGIN_ROOT}/bin/cyberlegion.mjs" mail hook --event SessionStart` (in a spawned unit,
+    the spawner's CLI named in `$CYBERLEGION_CLI` instead — the plugin's `mail-hook` node).
     `${CLAUDE_PLUGIN_ROOT}` is the installed plugin copy (Codex sets it too, for
     compatibility), and `dist/cli.mjs` is committed, so the hook runs offline at exactly the enabled
     version. `init` therefore writes **no** project hook for these harnesses and reports each event as
