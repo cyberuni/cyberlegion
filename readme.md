@@ -5,6 +5,8 @@
 
 Harness-agnostic, MCP-free agent session spawning and messaging over the filesystem — Claude Code, Cursor, and Codex, all on one **Legion**. No daemon, no port, no server to keep alive: state lives under a shared hub root (`$CYBERLEGION_ROOT`, else the global hub), and coordination rides each harness's own session-start hook.
 
+Part of [cyber-arcology](https://cyber-arcology.github.io), a self-contained system for running AI coding agents. This package is its runtime layer: spawning, supervising, and waking agent sessions.
+
 ## Why
 
 The usual way to wire agents together is MCP — a server to start, a port to hold open, config to add to every harness. cyberlegion needs none of it. The CLI is pure mechanism: it spawns and messages agent sessions, but it never decides *how* to reach a peer (a warm interactive session vs. a cold subagent vs. running inline) — that judgment belongs to a routing layer built on top (the **Legate**, shipped as this repo's plugin).
