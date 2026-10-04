@@ -56,6 +56,15 @@ challenged on specifics, and that is the process working.
 Rejected proposals are recorded with their reasons in `docs/backlog.md` under
 *Settled — do not re-derive*. Read it before re-proposing anything in that list.
 
+## System context
+
+This repo is one package of [cyber-civitas](https://cyber-civitas.github.io), the system its sibling packages compose into. The [layer architecture](https://cyber-civitas.github.io/architecture/layers/) and the [cross-package decisions](https://cyber-civitas.github.io/decisions/) are recorded there; a decision inside this repo cites them rather than restating them.
+
+- The runtime may depend on cynapse; cynapse never depends on the runtime. Waking a session (spawn, nudge, doorbell) is this package's job, and the doorbell is an optional integration so runtime-only users never install cynapse ([0001](https://cyber-civitas.github.io/decisions/0001-runtime-depends-on-communication/)).
+- Ownership leases and presence live here; advisory coordination claims live in cynapse ([0002](https://cyber-civitas.github.io/decisions/0002-claims-and-leases/)).
+- Only the workspace adapter imports cyber-mux's worktree API; everything above it goes through the adapter ([0003](https://cyber-civitas.github.io/decisions/0003-worktrees-through-the-runtime/)).
+- A service lease takes an opaque key from its caller and does not know what a project is ([0004](https://cyber-civitas.github.io/decisions/0004-opaque-service-keys/)).
+
 ## What This Repo Is
 
 `cyberlegion` — harness-agnostic, MCP-free agent session spawning and messaging over the
