@@ -6376,6 +6376,13 @@ function copiesOn(screen, message) {
 * the text, the one in the input box. Two or more new copies mean the harness also posted it above
 * the box, so the turn was taken and nothing is flushed. Text still at the bottom with only one new
 * copy is the swallowed Enter, and is flushed as before.
+*
+* With `requirePosted`, text gone from the box is not enough on its own: text typed before the harness
+* drew its input box, or wiped by a redraw, is gone too, and no turn was taken. The turn then counts
+* as taken only when a new copy of the text is on screen — the harness posted it to its transcript or
+* queue. Text that is neither staged nor posted is lost: after one more settle for a slow redraw, it
+* is typed again. It is opt-in because it needs the posted copy to stay on screen: a busy peer's
+* output can scroll earlier copies away, so a ring to it could read as lost and be typed twice.
 */
 async function ringTurn(adapter, exec, target, message, opts = {}) {
 	const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
@@ -6383,25 +6390,36 @@ async function ringTurn(adapter, exec, target, message, opts = {}) {
 	const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 	if (!adapter.paneExists(exec, target)) throw new Error(`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy.`);
 	const before = copiesOn(adapter.read(exec, target).text, message);
-	const taken = () => {
+	const check = () => {
 		const screen = adapter.read(exec, target).text;
-		return !isStaged(screen, message) || copiesOn(screen, message) >= before + 2;
+		const copies = copiesOn(screen, message);
+		if (isStaged(screen, message)) return copies >= before + 2 ? "taken" : "staged";
+		return copies > before || !opts.requirePosted ? "taken" : "lost";
 	};
 	adapter.submit(exec, target, message);
 	await sleep(settleMs);
-	if (taken()) return {
+	let state = check();
+	if (state === "taken") return {
 		taken: true,
 		resubmits: 0
 	};
+	let lostReads = state === "lost" ? 1 : 0;
 	for (let attempt = 1; attempt <= attempts; attempt++) {
-		adapter.submit(exec, target);
+		if (state === "staged") adapter.submit(exec, target);
+		else if (lostReads >= 2) {
+			adapter.submit(exec, target, message);
+			lostReads = 0;
+		}
 		await sleep(settleMs);
-		if (taken()) return {
+		state = check();
+		if (state === "taken") return {
 			taken: true,
 			resubmits: attempt
 		};
+		lostReads = state === "lost" ? lostReads + 1 : 0;
 	}
-	throw new Error(`nudge failed: peer at pane ${target.id} never took the turn — input still staged after ${attempts} re-submit attempts`);
+	const why = state === "lost" ? "the text vanished without the harness posting it" : `input still staged after ${attempts} re-submit attempts`;
+	throw new Error(`nudge failed: peer at pane ${target.id} never took the turn — ${why}`);
 }
 //#endregion
 //#region src/console/doorbell.ts
@@ -6536,6 +6554,11 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 * ring that never completes within the retry budget is swallowed into a warning. This never throws —
 * it can never fail the spawn.
 *
+* The ring counts only once the harness posts the doorbell (`requirePosted`), not merely once it
+* leaves the input box: a doorbell typed before a booting harness drew its box vanishes the same way,
+* and nothing else will tell the peer its brief exists. A fresh session has no earlier copy to
+* scroll away, so the posted copy is a reliable sign here.
+*
 * The adapter is resolved lazily via `getAdapter` inside the same swallowing try, so even a session
 * whose backend has since gone away (where `selectSessionAdapter` would throw) degrades to a warned
 * no-op rather than a failed spawn.
@@ -6545,7 +6568,10 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 	try {
 		const adapter = getAdapter();
 		const doorbell = (input.resumed ? resumeDoorbell : spawnDoorbell)(input.briefPath);
-		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, doorbell, nudgeOpts), {
+		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, doorbell, {
+			...nudgeOpts,
+			requirePosted: true
+		}), {
 			...guardOpts,
 			harness: input.harness,
 			ownText: (text) => isRingText(text)

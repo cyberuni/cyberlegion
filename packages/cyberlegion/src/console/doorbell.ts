@@ -192,6 +192,11 @@ export interface WakeSpawnInput {
  * ring that never completes within the retry budget is swallowed into a warning. This never throws —
  * it can never fail the spawn.
  *
+ * The ring counts only once the harness posts the doorbell (`requirePosted`), not merely once it
+ * leaves the input box: a doorbell typed before a booting harness drew its box vanishes the same way,
+ * and nothing else will tell the peer its brief exists. A fresh session has no earlier copy to
+ * scroll away, so the posted copy is a reliable sign here.
+ *
  * The adapter is resolved lazily via `getAdapter` inside the same swallowing try, so even a session
  * whose backend has since gone away (where `selectSessionAdapter` would throw) degrades to a warned
  * no-op rather than a failed spawn.
@@ -211,7 +216,7 @@ export async function wakeSpawn(
 			adapter,
 			exec,
 			input.target,
-			() => ringTurn(adapter, exec, input.target, doorbell, nudgeOpts),
+			() => ringTurn(adapter, exec, input.target, doorbell, { ...nudgeOpts, requirePosted: true }),
 			{ ...guardOpts, harness: input.harness, ownText: (text) => isRingText(text) },
 		)
 		return { rung: true, pane: input.target.id }
