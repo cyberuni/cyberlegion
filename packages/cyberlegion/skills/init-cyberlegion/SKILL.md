@@ -8,7 +8,8 @@ description: "Use this skill to set up or onboard cyberlegion in this session or
 The onboarding front door to the Legion — a thin, user-invocable wrapper that walks a session through
 getting `cyberlegion` working in this repo: probe the environment, register the surfacing hook, and
 (only in a root session, only on an explicit yes) allow the `cyberlegion` CLI in Claude Code's
-permissions and bind this pane as the durable `legate` owner inbox.
+permissions and bind this pane as the durable `legate` owner inbox, offering that owner a **home** to
+wake in when nobody is standing in for it.
 It is a **thin wrapper**: every mechanic is a `cyberlegion` CLI call. The skill holds the *conversation
 and the judgment* — is this a root session? should we ask to bind? what does the environment look
 like? — the CLI holds all the *mechanism*.
@@ -108,7 +109,18 @@ has it set. Derive this from the probe — never ask the user to declare it.
 - **A hook-only request in a root session** ("just register the surfacing hook") — also stop here.
   Registering the hook satisfies the ask; do not proceed to the bind offer unasked.
 - **Root session, broader onboarding intent, no `legate` owner bound yet** — continue to step 4.
-- **Root session where a `legate` owner is already bound** — stop; do not re-ask, do not re-mint.
+- **Root session where a `legate` owner is already bound** — do not re-ask the bind and do not mint a
+  second owner; go to step 6 to offer a home. A bind request ("make this pane my main legion inbox")
+  made when the owner already exists lands here too.
+
+To tell whether the owner exists, list the standing owners:
+
+```bash
+node scripts/cyberlegion.mjs unit register --standing --format json
+```
+
+A record with `"handle": "legate"` is the owner. Its `home` field says where its presence is
+spawned (`dir` plus `harness` or `agent`); no `home` field means it has none.
 
 ### 4. Ask before binding — never silent
 
@@ -121,20 +133,89 @@ Only a root session with no `legate` owner bound is offered the bind. Ask plainl
 - **User agrees explicitly** — proceed to step 5.
 - **Already bound** — never reach this ask (see step 3).
 
-### 5. On an explicit yes — mint and bind
+### 5. On an explicit yes — offer a home, then mint and bind
+
+**No multiplexer or pane in the probe** → skip the home: mint bare and continue (see *Non-mux parity*
+below). `unit claim` refuses a caller with no multiplexer, and a home is spawned the same way
+`unit spawn` opens a session.
+
+Otherwise, before minting, explain the presence and ask for a home. Mail to the `legate` owner
+reaches whoever stands in for it, in this order:
+
+1. **A live presence** — a session that ran `unit claim legate`. The claim holds until another
+   session claims the owner, until `unit claim legate --clear` unbinds it, or until that session
+   exits.
+2. **The home** — when nobody holds the presence, a session is started in the home folder, bound as
+   the presence, and woken to read the owner's inbox. A home **outranks this pane**: with a home set,
+   a delivery with no live presence starts a session there instead of ringing the pane `attach` binds.
+   Say this in the question: setting a home means unclaimed mail no longer rings this pane.
+3. **This pane** (`attach`) — rung only when focused, when there is neither a presence nor a home.
+
+Ask plainly, e.g.:
+
+> "Should the legate owner have a home — a folder where a session is started to act for it when
+> mail arrives and nobody is live? While you're here, `cyberlegion unit claim legate` makes this
+> session the one that gets the mail, until another session claims it, you run
+> `unit claim legate --clear`, or this one exits; the home is only used when nobody holds it — and
+> once it is set, mail nobody holds starts a session there instead of ringing this pane.
+> A session started there has the folder's trust prompt accepted for it, since you named the
+> folder. Name a folder, or say none."
+
+**A folder** → mint with the home and **exactly one** launch:
+
+```bash
+node scripts/cyberlegion.mjs unit register --standing --handle legate --home <dir> --harness <harness>
+node scripts/cyberlegion.mjs attach
+```
+
+`<harness>` is the `harness` the probe reported, or the one the user names instead — one of
+`claude`, `cursor`, or `codex`. When the user
+names an agent definition to launch there, pass `--agent <definition>` and **no** `--harness`. This
+`--agent` is `unit register`'s — an agent definition resolved from the home — not `init --agent`.
+If the probe reported `harness: unknown` and the user named no agent definition, ask for one — never
+run `--home` without a launch, and never pass `--harness unknown`. Pass `<dir>` as an absolute path.
+
+**None** → mint bare, as before:
 
 ```bash
 node scripts/cyberlegion.mjs unit register --standing --handle legate
 node scripts/cyberlegion.mjs attach
 ```
 
-Run these **in this order** and only after the explicit yes: mint the durable, session-independent
-`legate` owner inbox first, then bind the current pane as that owner's live presence.
+Run the mint and `attach` **in this order** and only after the explicit yes: mint the durable,
+session-independent `legate` owner inbox first, then bind the current pane as the owner's main pane.
+
+**The CLI refuses a home** (the folder does not exist, it is a repository's primary checkout, the
+agent definition does not resolve from it) — it writes nothing. Tell the user its reason and ask for
+another folder or none; do not pick a folder yourself and do not fall back to a bare mint unasked.
+If it rejects `--home` as an unknown option, the CLI is older than homes: say so, and mint bare only
+if the user agrees. On a decline, mint nothing and skip `attach`; the hook stays.
 
 **Non-mux parity.** If the probe reported no multiplexer or pane, `attach` is a no-op —
 that is expected, not a failure. Still run `unit register --standing --handle legate` on yes, and complete
 **without erroring**. The root session surfaces owner mail via the `!spawnedBy` fallback instead of a
 bound pane.
+
+### 6. An owner already minted — add or drop a home
+
+Reached only from step 3, in a root session with a broader onboarding intent, when `legate` is
+already minted. Never re-ask the bind and never run `attach` here. Re-registering a standing owner
+refreshes the same record — the same id, its bound presence kept — so it is not a second mint.
+
+With no multiplexer or pane in the probe, offer nothing here — neither adding nor dropping a home.
+
+- **No home** — explain the presence and the trust-prompt acceptance as in step 5 and offer to give the owner one. On a folder, run
+  `unit register --standing --handle legate --home <dir>` with exactly one of `--harness` /
+  `--agent`, exactly as in step 5; a refusal is handled the same way.
+  If the CLI rejects `--home` (or `--clear-home`) as an unknown option, say it predates homes and
+  change nothing.
+- **A home** — name its folder and offer to drop it. On a yes:
+
+  ```bash
+  node scripts/cyberlegion.mjs unit register --standing --handle legate --clear-home
+  ```
+
+- **A decline** — run nothing.
 
 ## Troubleshooting
 
@@ -149,7 +230,8 @@ the permission ask, or run `cyberlegion init --allow-cli` there.
   config format, and never edits Claude Code's settings by hand (the permission rule goes in only
   through `init --allow-cli`, only on an explicit yes in a root session). Its only filesystem read is the plugin's own bundled `${CLAUDE_PLUGIN_ROOT}/.plugin/pins.json`
   version map, to resolve the CLI pin.
-- It never mints or binds an owner identity without an explicit user yes.
+- It never mints or binds an owner identity without an explicit user yes, and never sets or drops
+  an owner's home except on a folder or a drop the user named.
 - It is distinct from `legate` — sending/spawning/dispatching to a peer is `legate`'s job, not this
   skill's.
 - It is distinct from `manage-inbox` — reading or acking owner mail once bound is `manage-inbox`'s

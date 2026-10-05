@@ -8,11 +8,11 @@ todos:
   - content: "spec gate: cold ACED spec-judge, structural diff (expect addOnly on the frozen suite), ledger gate line"
     status: completed
   - content: "deliver: SKILL.md + README.md for the home offer; pins.json check, changeset coverage for #155"
-    status: in_progress
+    status: completed
   - content: "impl gate: cold ACED impl-judge over the frozen scenarios; pnpm verify green"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (never merged), report to op-cyberlegion"
-    status: pending
+    status: completed
 ---
 
 # init-owner-home — init-cyberlegion offers the standing owner a home
@@ -36,4 +36,6 @@ stops outright when an owner already exists.
 
 ## NEXT
 
-Deliver: land the SKILL.md + README.md home offer against the frozen init suite, then the impl gate.
+Landed on the CR branch and opened as a PR for the owner to ratify and merge. Spec gate and impl
+gate self-asserted (ledger shard). Nothing left to resume; three backlog follow-ups are recorded in
+the ledger.
