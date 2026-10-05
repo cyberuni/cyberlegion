@@ -45,6 +45,13 @@ Feature: service endpoint — the durable address of a project service
     When a peer runs mail send --to controller@alpha
     Then the message is in the endpoint's inbox as unread
 
+  Scenario: mail send --to fails loud on a handle that two endpoints share
+    Given two repositories both named "alpha", each with a service "controller"
+    When a peer runs mail send --to controller@alpha
+    Then the command exits non-zero with an error naming both endpoint ids
+    And neither endpoint's inbox holds the message
+    And mail send --to either endpoint's id reaches that endpoint
+
   Scenario: mail sent to an endpoint rings no pane, even while the service has an owner
     Given a service whose owner unit has a session pane
     When a peer sends mail to the service's endpoint
