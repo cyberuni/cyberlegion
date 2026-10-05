@@ -199,6 +199,138 @@ Feature: init-cyberlegion — onboard a session into the Legion
     When init-cyberlegion performs the bind
     Then it runs cyberlegion unit register --standing --handle legate and then cyberlegion attach
 
+  # ── Giving the new owner a home ──
+
+  @behavior
+  Scenario: a yes to the bind is followed by a home question before the owner is minted
+    Given a root session in a multiplexer pane with no legate bound where the user agrees to bind this pane
+    When init-cyberlegion performs the bind
+    Then it asks the user for a home folder for the legate owner before it runs cyberlegion unit register --standing
+
+  @behavior
+  Scenario: the home question explains the presence it falls back from
+    Given a root session where init-cyberlegion asks the user for a home folder for the legate owner
+    When the user reads the question
+    Then the question names cyberlegion unit claim legate, says the claim holds until another claim, a claim --clear, or that session exits, and says the home is used only when no live session holds the owner
+    And the question says that with a home set, mail no live session holds starts a session in the home rather than ringing this pane
+
+  @behavior
+  Scenario: the home question discloses that the folder's trust prompt is accepted
+    Given a root session where init-cyberlegion asks the user for a home folder for the legate owner
+    When the user reads the question
+    Then the question says a session started in that folder has its trust prompt accepted because the user named the folder
+
+  @behavior
+  Scenario: a named home folder is passed with the probe's harness
+    Given a root session where the user agreed to bind and named an existing folder as the owner's home
+    And cyberlegion mux doctor reported the harness the session runs in
+    And the user named neither an agent definition nor a harness
+    When init-cyberlegion mints the owner
+    Then it runs cyberlegion unit register --standing --handle legate --home with that folder and --harness with the reported harness, and then cyberlegion attach
+
+  @behavior
+  Scenario: a named agent definition is passed instead of a harness
+    Given a root session where the user agreed to bind, named an existing folder as the owner's home, and named an agent definition to launch there
+    When init-cyberlegion mints the owner
+    Then it runs cyberlegion unit register --standing --handle legate --home with that folder and --agent with that definition, and passes no --harness
+
+  @behavior
+  Scenario: a harness the user names is passed over the probe's
+    Given a root session where the user agreed to bind and named an existing folder as the owner's home
+    And cyberlegion mux doctor reported one harness and the user named a different harness to launch there
+    When init-cyberlegion mints the owner
+    Then it runs cyberlegion unit register --standing --handle legate --home with that folder and --harness with the harness the user named
+
+  @behavior
+  Scenario: a home folder with no known launch asks for one
+    Given a root session where the user agreed to bind and named an existing folder as the owner's home
+    And cyberlegion mux doctor reported no harness and the user named no agent definition
+    When init-cyberlegion mints the owner
+    Then it asks the user for a harness or an agent definition and does not run cyberlegion unit register --standing --home without one of --harness or --agent
+
+  @behavior
+  Scenario: no home folder mints the owner bare
+    Given a root session where the user agreed to bind and answered that the owner needs no home
+    When init-cyberlegion mints the owner
+    Then it runs cyberlegion unit register --standing --handle legate with no --home, --harness, or --agent flag, and then cyberlegion attach
+
+  @behavior
+  Scenario: a home folder the CLI refuses is relayed and asked again
+    Given a root session where the user named a home folder and cyberlegion unit register --standing refused it with an error
+    When init-cyberlegion handles the refusal
+    Then it tells the user the CLI's reason and asks for another folder or no home, and does not run cyberlegion unit register --standing again until the user answers
+
+  @behavior
+  Scenario: a CLI that does not know --home is reported before any bare mint
+    Given a root session where the user named a home folder and cyberlegion unit register --standing rejected --home as an unknown option
+    When init-cyberlegion handles the rejection
+    Then it tells the user the CLI predates homes and runs cyberlegion unit register --standing --handle legate without --home only after the user agrees
+
+  @behavior
+  Scenario: a declined bare mint on a CLI that does not know --home mints nothing
+    Given a root session where cyberlegion unit register --standing rejected --home as an unknown option and the user declines a bare mint
+    When init-cyberlegion continues
+    Then it runs no cyberlegion unit register --standing --handle legate and no cyberlegion attach, and leaves the registered hook in place
+
+  # ── An owner already minted ──
+
+  @behavior
+  Scenario: an existing owner without a home is offered one
+    Given a root session in a multiplexer pane with a broader onboarding intent where cyberlegion unit register --standing --format json lists a legate owner with no home
+    When init-cyberlegion reaches the bind step
+    Then it offers to give the legate owner a home and does not ask to bind this pane again
+
+  @behavior
+  Scenario: a home added to an existing owner refreshes the same record
+    Given a root session where the existing legate owner has no home and the user names an existing folder as its home
+    When init-cyberlegion adds the home
+    Then it runs cyberlegion unit register --standing --handle legate --home with that folder and exactly one of --harness or --agent, and does not run cyberlegion attach
+
+  @behavior
+  Scenario: an existing owner with a home is offered to drop it
+    Given a root session in a multiplexer pane with a broader onboarding intent where cyberlegion unit register --standing --format json lists a legate owner with a home
+    When init-cyberlegion reaches the bind step
+    Then it names the owner's home folder and offers to drop it, without asking to bind this pane again
+
+  @behavior
+  Scenario: dropping the home runs clear-home
+    Given a root session where the existing legate owner has a home and the user agrees to drop it
+    When init-cyberlegion drops the home
+    Then it runs cyberlegion unit register --standing --handle legate --clear-home and passes no --home
+
+  @behavior
+  Scenario: a declined home offer on an existing owner runs nothing
+    Given a root session where init-cyberlegion offered to add or drop the existing legate owner's home and the user declines
+    When init-cyberlegion continues
+    Then it runs no cyberlegion unit register --standing --handle legate, with or without --home or --clear-home, and no cyberlegion attach
+
+  @behavior
+  Scenario: an existing owner in a no-pane environment is offered no home change
+    Given a root session with a broader onboarding intent whose probe reports no multiplexer or pane
+    And cyberlegion unit register --standing --format json lists a legate owner
+    When init-cyberlegion reaches the bind step
+    Then it offers neither to add nor to drop a home and runs no cyberlegion unit register --standing --handle legate
+
+  @behavior
+  Scenario: a spawned unit is not offered a home for an existing owner
+    Given a spawned unit whose probe reports a selfId whose spawnedBy is set
+    And cyberlegion unit register --standing lists a legate owner with no home
+    When init-cyberlegion finishes registering the surfacing hook
+    Then it offers no home and runs no cyberlegion unit register --standing --handle legate
+
+  @behavior
+  Scenario: a hook-only request is not offered a home for an existing owner
+    Given a root session where the user asked only to register the surfacing hook
+    And cyberlegion unit register --standing lists a legate owner with no home
+    When init-cyberlegion finishes registering the surfacing hook
+    Then it offers no home and runs no cyberlegion unit register --standing --handle legate
+
+  @behavior
+  Scenario: a no-pane environment is not offered a home and mints the owner bare
+    Given a root session whose probe reports no multiplexer or pane and the user agrees to bind
+    When init-cyberlegion performs the bind
+    Then it asks for no home folder, does not explain cyberlegion unit claim, and runs cyberlegion unit register --standing --handle legate with no --home flag
+
   # ── Non-mux parity ──
 
   @behavior
