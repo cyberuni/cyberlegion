@@ -78,7 +78,7 @@ function codeOf(fn: () => unknown): string | undefined {
 	return undefined
 }
 
-describe('spec:cyberlegion/service — resolve-or-start', () => {
+describe('spec:cyberlegion/service/lease — resolve-or-start', () => {
 	it('the first caller reserves a vacant service; a concurrent caller sees it starting, not a second reservation', () => {
 		const first = acquireService(ctx(), projectId, 'controller')
 		const second = acquireService(ctx(), projectId, 'controller')
@@ -137,7 +137,7 @@ describe('spec:cyberlegion/service — resolve-or-start', () => {
 	})
 })
 
-describe('spec:cyberlegion/service — a healthy owner is never silently stolen', () => {
+describe('spec:cyberlegion/service/lease — a healthy owner is never silently stolen', () => {
 	it('acquire resolves to a healthy owner instead of reserving over it', () => {
 		unit('u1')
 		const gen = start('u1')
@@ -194,7 +194,7 @@ describe('spec:cyberlegion/service — a healthy owner is never silently stolen'
 	})
 })
 
-describe('spec:cyberlegion/service — handoff and fencing', () => {
+describe('spec:cyberlegion/service/lease — handoff and fencing', () => {
 	it('the holder hands off to another unit; the old holder is rejected afterwards', () => {
 		unit('u1')
 		unit('u2')
@@ -233,7 +233,7 @@ describe('spec:cyberlegion/service — handoff and fencing', () => {
 	})
 })
 
-describe('spec:cyberlegion/service — control is reported, never implied', () => {
+describe('spec:cyberlegion/service/lease — control is reported, never implied', () => {
 	it('an owner with no session pane resolves but reports that control is not recoverable', () => {
 		unit('sub', { pane: false })
 		start('sub')
@@ -250,7 +250,7 @@ describe('spec:cyberlegion/service — control is reported, never implied', () =
 	})
 })
 
-describe('spec:cyberlegion/service — startService composes acquire, launch, and bind', () => {
+describe('spec:cyberlegion/service/lease — startService composes acquire, launch, and bind', () => {
 	it('a vacant service is launched once and bound to the launched unit', async () => {
 		const launched: number[] = []
 		const res = await startService(ctx(), projectId, 'controller', {

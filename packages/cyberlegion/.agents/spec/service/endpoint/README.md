@@ -15,7 +15,7 @@ time (ADR-0033). The service has two parts that live apart:
   (`services/<project>/<name>.json`).
 
 This node specifies the endpoint. The lease (reserve, bind, release, handoff, and the generation
-check) is a separate concern this node does not cover.
+check) is specified in [`service/lease`](../lease/README.md).
 
 **Why the endpoint is a registry record.** Peers address a service the way they address any unit:
 by id or handle, through `mail send`. Owners come and go: a crash, a recovery under a new
