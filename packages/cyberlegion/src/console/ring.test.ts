@@ -6,6 +6,7 @@ import { ringTurn } from './ring.ts'
 const exec: Exec = () => null
 const MESSAGE = 'You have unread mail — check your inbox.'
 const noSleep = async () => {}
+const posted = { sleep: noSleep, requirePosted: true }
 
 /** A fake pane: `read` returns the queued screens in turn (the last one repeats), `submit` records
  * whether it typed the message or sent a bare Enter. */
@@ -68,6 +69,35 @@ describe('ringTurn', () => {
 		const { adapter, submits } = fakePane([before, staged, TAKEN])
 		await ringTurn(adapter, exec, { id: '%1' }, MESSAGE, { sleep: noSleep })
 		expect(submits).toEqual([MESSAGE, undefined])
+	})
+
+	it('counts a vanished text as taken by default', async () => {
+		const { adapter, submits } = fakePane([AUTH_IDLE, AUTH_IDLE])
+		const result = await ringTurn(adapter, exec, { id: '%1' }, MESSAGE, { sleep: noSleep })
+		expect(submits).toEqual([MESSAGE])
+		expect(result).toEqual({ taken: true, resubmits: 0 })
+	})
+
+	it('with requirePosted, re-types the text when it vanished without the harness posting it', async () => {
+		// typed before the harness drew its input box: nothing staged, no copy posted — the text is lost
+		const { adapter, submits } = fakePane([AUTH_IDLE, AUTH_IDLE, AUTH_IDLE, TAKEN])
+		const result = await ringTurn(adapter, exec, { id: '%1' }, MESSAGE, posted)
+		expect(submits).toEqual([MESSAGE, MESSAGE])
+		expect(result).toEqual({ taken: true, resubmits: 2 })
+	})
+
+	it('with requirePosted, gives a lost text one more settle to show up before re-typing it', async () => {
+		const { adapter, submits } = fakePane([AUTH_IDLE, AUTH_IDLE, TAKEN])
+		const result = await ringTurn(adapter, exec, { id: '%1' }, MESSAGE, posted)
+		expect(submits).toEqual([MESSAGE])
+		expect(result).toEqual({ taken: true, resubmits: 1 })
+	})
+
+	it('with requirePosted, throws rather than report the turn taken when the text keeps vanishing', async () => {
+		const { adapter } = fakePane([AUTH_IDLE])
+		await expect(ringTurn(adapter, exec, { id: '%1' }, MESSAGE, { ...posted, attempts: 4 })).rejects.toThrow(
+			'never took the turn — the text vanished without the harness posting it',
+		)
 	})
 
 	it('throws once the text stays staged past the attempt cap', async () => {

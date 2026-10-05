@@ -469,6 +469,18 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And the spawn succeeds
     And the un-taken first turn is reported as a best-effort warning, not a spawn error
 
+  Scenario: a first-turn doorbell that vanishes without the harness posting it is not reported rung
+    Given a caller running unit spawn whose freshly-launched harness drops the typed doorbell without staging it or posting it to its transcript
+    When unit spawn runs
+    Then the spawn succeeds
+    And the first turn is reported as not rung, with a warning that the doorbell vanished
+
+  Scenario: a first-turn doorbell lost to a booting harness is typed again and rung once posted
+    Given a caller running unit spawn whose freshly-launched harness drops the first typed doorbell and posts a later one to its transcript
+    When unit spawn runs
+    Then the first-turn ring types the doorbell again after the lost one
+    And the first turn is reported as rung only once the harness has posted the doorbell
+
   Scenario: a first-turn ring against a pane the backend reports as gone never fails the spawn
     Given a caller running unit spawn whose freshly-opened pane the session backend reports as no longer existing
     When unit spawn runs

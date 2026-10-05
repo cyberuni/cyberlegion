@@ -243,7 +243,10 @@ function fakeBackend(
 		submit(_exec: unknown, t: { id: string }, text?: string) {
 			if (text) {
 				submitted.push({ pane: t.id, text })
-				staged = opts.takesTurns === false ? text : '> working on it'
+				staged =
+					opts.takesTurns === false
+						? text
+						: [text, ...Array.from({ length: 5 }, (_, i) => `output ${i}`), '> working on it'].join('\n')
 			}
 		},
 		read: () => ({ text: staged }),

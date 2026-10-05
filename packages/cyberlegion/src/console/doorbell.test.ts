@@ -380,7 +380,7 @@ const SPAWN_SCROLLED_OUT = [SPAWN_DOORBELL, 'boot line 1', 'boot line 2', 'boot 
 
 describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 	it('spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief', async () => {
-		const { adapter, sendCalls } = fakeAdapter([SPAWN_SCROLLED_OUT])
+		const { adapter, sendCalls } = fakeAdapter([BEFORE_RING, BEFORE_RING, SPAWN_SCROLLED_OUT])
 		const result = await wakeSpawn(
 			() => adapter,
 			exec,
@@ -465,6 +465,31 @@ describe('spec:cyberlegion/unit/lifecycle spawn first-turn', () => {
 		expect(result.rung).toBe(false)
 		expect(result.pane).toBe('%1')
 		expect(result.warning).toBeTruthy() // best-effort warning, never a thrown spawn error
+	})
+
+	it('a first-turn doorbell that vanishes without the harness posting it is not reported rung', async () => {
+		// typed before the TUI drew its input box: nothing staged, and no copy ever reaches the transcript
+		const { adapter } = fakeAdapter([BEFORE_RING])
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH },
+			{ attempts: 4, sleep: async () => {} },
+		)
+		expect(result.rung).toBe(false)
+		expect(result.warning).toMatch(/vanished/)
+	})
+
+	it('a first-turn doorbell lost to a booting harness is typed again and rung once posted', async () => {
+		const { adapter, sendCalls } = fakeAdapter([BEFORE_RING, BEFORE_RING, BEFORE_RING, BEFORE_RING, SPAWN_SCROLLED_OUT])
+		const result = await wakeSpawn(
+			() => adapter,
+			exec,
+			{ target: { id: '%1' }, briefPath: BRIEF_PATH },
+			{ sleep: async () => {} },
+		)
+		expect(result.rung).toBe(true)
+		expect(sendCalls).toEqual([SPAWN_DOORBELL, SPAWN_DOORBELL])
 	})
 
 	it('a first-turn ring degrades to a warned no-op when the backend adapter has gone away', async () => {

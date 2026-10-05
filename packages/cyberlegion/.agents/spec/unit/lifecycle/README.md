@@ -119,7 +119,12 @@ cleanly — the deterministic inverse pair:
     submit-verify path `nudge` uses (submit once, then flush the staged buffer up to a bounded cap).
     That ring **carries the instruction**: it tells the peer to read the brief **at its file path** and
     begin, naming the path rather than carrying the brief's body — so the peer acts on its brief with
-    no human nudge and the brief is still never re-typed. This is **mechanism, not routing** —
+    no human nudge and the brief is still never re-typed. The ring counts as rung only once the
+    harness **posts** the doorbell to its transcript or queue, not merely once the text leaves the
+    input box: a doorbell typed before a booting harness drew its box vanishes the same way, and
+    counting that as rung reported a peer briefed that never was. A doorbell that is neither staged
+    nor posted is given one more settle, then typed again — the lost copy never reached the harness,
+    so this is not a duplicate. This is **mechanism, not routing** —
     it completes the spawn, it does not select a backend — so it stays within the CLI's dumb-hands
     charter and fixes every caller at once (Operator, Pod, and the Legate's `channel` dispatch
     strategy). The ring is best-effort exactly like `mail/doorbell`'s delivery ring — and the
@@ -498,7 +503,10 @@ graph TD
   WK3 -- no --> WK3X["throws"]
   WK3 -- yes --> WK4["submit the doorbell, then settle and read the pane back"]
   WK4 --> WK5{"still staged unsent?"}
-  WK5 -- no --> WKOK["taken — rung, zero re-submits"]
+  WK5 -- no --> WK5P{"posted — a new copy on screen?"}
+  WK5P -- yes --> WKOK["taken — rung"]
+  WK5P -- "no, lost" --> WK7["one more settle, then type the doorbell again — up to the cap"]
+  WK7 --> WK6Q
   WK5 -- yes --> WK6["flush the staged buffer, bare submit, never re-typing — up to the cap"]
   WK6 --> WK6Q{"taken within the cap?"}
   WK6Q -- yes --> WKOK
@@ -754,6 +762,8 @@ column records. They are not gaps.
 | `WK2` ring the instruction | a paned spawn that opened cleanly | `spawn delivers a first turn to the freshly-opened pane so the peer acts on its brief` |
 | `WK5 -- yes` → `WK6` | a freshly-launched harness still booting | `the first turn is delivered as a taken turn, robust to the harness boot race` |
 | `WK6X` → `WKC` | a pane that never takes the turn within the cap | `a first-turn ring that never completes never fails the spawn` |
+| `WK5P -- no, lost` → `WK6X` → `WKC` | a harness that drops every typed doorbell unposted | `a first-turn doorbell that vanishes without the harness posting it is not reported rung` |
+| `WK5P -- no, lost` → `WK7` | a harness that drops the first doorbell, then posts a re-typed one | `a first-turn doorbell lost to a booting harness is typed again and rung once posted` |
 | `WK3 -- no` → `WKC` | a pane the backend reports as already gone | `a first-turn ring against a pane the backend reports as gone never fails the spawn` |
 | `WK1` no backend → `WKC` | an environment naming no session backend at ring time | `a first-turn ring with no session backend left to resolve never fails the spawn` |
 | `WK0 -- yes` | a spawn passing --no-wake | `--no-wake spawns without delivering the first turn` |
