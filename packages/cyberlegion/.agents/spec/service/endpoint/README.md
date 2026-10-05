@@ -56,8 +56,10 @@ letter or digit, at most 63 characters.
 - **Ownership.** Whether the service has a healthy owner is the lease's state, not the endpoint's
   `status`.
 - **Unambiguous handles across same-named projects.** Two repositories with the same directory name
-  give their endpoints the same handle. `mail inbox --owner` fails loud on that handle; other
-  handle lookups take the first match. Address such an endpoint by id.
+  give their endpoints the same handle. Every handle lookup fails loud on that handle, naming the
+  endpoint ids; address such an endpoint by id. The handle stays `<name>@<project display name>`:
+  the service lease takes an opaque key and does not know what a project is (cyber-civitas decision
+  0004), so the handle gains no project-id suffix here.
 
 ## Use Cases
 
@@ -97,6 +99,7 @@ letter or digit, at most 63 characters.
 - **Entry point:** `mail send --to <endpoint id or handle>`. The message lands in the endpoint's
   inbox, keyed by the endpoint's id.
 - **Extensions:**
+  - two endpoints share the handle → error naming both ids; nothing is written. Address one by id.
   - the service has an owner with a pane → still no ring. The endpoint has no pane and no pane
     pointer, so the doorbell finds nothing to ring.
 
@@ -152,8 +155,9 @@ graph TD
 
 ```mermaid
 graph TD
-  M0["mail send --to ref"] --> M1["resolve ref by id, then by live handle"]
-  M1 --> M2["append to the endpoint's inbox"]
+  M0["mail send --to ref"] --> M1{"ref is a record's id, or exactly one live record's handle?"}
+  M1 -- "two or more carry the handle" --> M1X["throw, naming each id; nothing written"]
+  M1 -- yes --> M2["append to the endpoint's inbox"]
   M2 --> M3{"the endpoint has a pane or a pane pointer?"}
   M3 -- "never" --> M3X["ring nothing"]
   O0["mail inbox --owner ref"] --> O1{"ref is a standing or service record's id?"}
@@ -194,6 +198,7 @@ are specified in `unit/runtime` (`stop refuses a service endpoint` and its three
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `M2` | a service, sent to by handle | `mail sent to the endpoint's handle lands in the endpoint's inbox` |
+| `M1X` | two same-named repositories, one service each | `mail send --to fails loud on a handle that two endpoints share` |
 | `M3X` | a service whose owner has a pane | `mail sent to an endpoint rings no pane, even while the service has an owner` |
 | owner-mail surfacing | a root session, a standing owner and an endpoint each with unread mail | `an endpoint's unread mail is not surfaced as owner mail` |
 | `O2 -- one` | one endpoint with the handle | `mail inbox --owner resolves the endpoint's handle to the endpoint's inbox` |

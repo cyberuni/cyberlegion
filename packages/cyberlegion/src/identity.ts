@@ -196,10 +196,17 @@ function gitWorktree(exec: Exec): { root: string; branch?: string } | null {
 	return { root, branch: exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']) ?? undefined }
 }
 
-/** Prefer a standing record over a plain session record when both match a handle — an owner
- * report must land in the durable standing inbox, not a dying session's. */
-function preferStanding(matches: AgentRecord[]): AgentRecord | undefined {
-	return matches.find((a) => a.kind === 'standing') ?? matches[0]
+/** Pick the one live record a handle names. A standing record wins over the rest — an owner report
+ * must land in the durable standing inbox, not a dying session's. Otherwise two or more matches are
+ * ambiguous (two same-named repos give their service endpoints the same handle), and silently taking
+ * the first could deliver to the wrong one, so fail loud naming the ids, as `resolveOwnerMailbox` does. */
+function pickLive(ref: string, live: AgentRecord[]): AgentRecord | undefined {
+	const standing = live.find((a) => a.kind === 'standing')
+	if (standing) return standing
+	if (live.length > 1) {
+		throw new Error(`"${ref}" names ${live.length} units — pass an id (${live.map((a) => a.id).join(', ')})`)
+	}
+	return live[0]
 }
 
 /** Split a handle's matches into live and exited. An exited unit's pane is gone and its inbox has
@@ -360,7 +367,7 @@ export function resolvePresence(store: Store, handle: string): AgentRecord | und
 export function resolveRecipient(store: Store, to: string): string {
 	if (loadAgent(store, to)) return to
 	const { live, exited } = matchHandle(listAgents(store), to)
-	const match = preferStanding(live)
+	const match = pickLive(to, live)
 	if (!match) throw unaddressable(to, exited, 'id and handle')
 	return match.id
 }
@@ -375,7 +382,7 @@ export function resolveAgent(store: Store, ref: string): AgentRecord {
 	if (byId) return byId
 	const agents = listAgents(store)
 	const { live, exited } = matchHandle(agents, ref)
-	const byHandle = preferStanding(live)
+	const byHandle = pickLive(ref, live)
 	if (byHandle) return byHandle
 	const byBranchAll = agents.filter((a) => a.worktree?.branch === ref)
 	const byBranch = byBranchAll.find((a) => a.status !== 'exited')
