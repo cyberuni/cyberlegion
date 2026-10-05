@@ -1,5 +1,17 @@
 # cyberlegion
 
+## 1.4.0
+
+### Minor Changes
+
+- 09f5cf6: `init-cyberlegion` now offers the `legate` owner a home when it mints it. It first explains the presence: `unit claim legate` makes a live session the one that gets the owner's mail, until another session claims it, `--clear` unbinds it, or that session exits. A home is the fallback when nobody holds the presence, and once set it is used instead of ringing the attached pane. Naming a folder registers it with `--home` and one launch (`--harness` or `--agent`); naming none mints the owner bare, as before. An owner that already exists is offered to add a home or drop it with `--clear-home`, without the bind being asked again. With no multiplexer, no home is offered.
+- f426a19: A standing owner can now have a home: `unit register --standing --handle <name> --home <dir> (--agent <def> | --harness <h>)`. When mail reaches a standing owner with no live presence, `mail send` spawns a session in the home in its own workspace and binds it as the presence. It accepts the folder's trust prompt and wakes the session to read the owner's inbox. A home outranks the bound main pane. `--clear-home` drops it. A home is validated when it is registered: it must exist, name exactly one launch, and not be a primary checkout. A spawn that cannot happen at delivery is a warning that falls back to the main pane. That includes a sender outside any multiplexer pane, and the warning names `CYBER_MUX` as the way to reach a running one. A re-register of a standing owner now keeps its bound presence instead of dropping it.
+
+### Patch Changes
+
+- d97003f: `mail send --to <handle>` and the verbs that take a unit ref now fail loud, naming the ids, when a handle names two or more live records — such as the service endpoints of two same-named repositories. They used to take the first match silently, so mail could land in the wrong endpoint. A standing record still wins a handle it shares; address any other ambiguous unit by id.
+- da3bea1: `unit spawn` and `unit restart` now report `rung: true` only once the new session's harness has posted the first-turn doorbell, not merely once the text left the input box. A doorbell typed before a booting harness drew its input box used to vanish and still count as rung, so the session sat idle with its brief unread. The doorbell is now typed again when that happens, and reported as `rung: false` with a warning if it never lands.
+
 ## 1.3.0
 
 ### Minor Changes
