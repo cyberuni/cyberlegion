@@ -8,11 +8,11 @@ todos:
   - content: "spec gate: cold spec-judge, structural diff (expect addOnly on both frozen suites), ledger gate line"
     status: completed
   - content: "deliver: home field on AgentRecord, register --home/--agent/--harness/--no-home, doorbell spawn under presence lock"
-    status: in_progress
+    status: completed
   - content: "impl gate: cold impl-judge over the frozen scenarios; pnpm verify green; dist rebuilt"
-    status: pending
+    status: completed
   - content: "handoff: PR against main (never merged), changeset, report to op-cyberlegion"
-    status: pending
+    status: completed
 ---
 
 # standing-home-spawn — a standing owner with a home, spawned on demand
@@ -37,11 +37,7 @@ ones that most need the owner woken.
 
 ## NEXT
 
-Deliver against the frozen suites: `standing-home.ts` (register-time validation),
-`presence-spawn.ts` (spawn + bind + trust under the presence lock), and the home step in
-`console/doorbell.ts`. One test per frozen scenario; then the cold impl-judge, `pnpm verify`, and a
-rebuilt `dist/cli.mjs`.
-
-Follow-up to record at handoff: a home whose trust prompt never clears spawns one stuck unit per
-delivery (unbound each time, so never rung, but they accumulate); and `mail send` now blocks for a
-spawn's trust and first-turn budget.
+Landed on the CR branch and opened as a PR for the owner to ratify and merge. Spec gate and impl
+gate are both self-asserted in the ledger shard. Four backlog follow-ups are recorded there (stuck
+trust pile-up, sender latency, tmux detached open, presence-lock contention on re-register). They
+are not filed as issues; the owner decides whether to file them. No resume action remains.
