@@ -546,9 +546,11 @@ withGlobals(unit.command('focus'))
 // actual input (an empty ring is a no-op). Default points the peer at its inbox; the mail it
 // already has is the real payload.
 withGlobals(unit.command('nudge'))
-	.description("ring a peer's session (a doorbell that tells them to check their mail)")
+	.description(
+		"deliver text as a turn in a peer's session — by default a doorbell telling them to check their mail; --message relays any text (e.g. a decision) instead",
+	)
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
-	.option('--message <text>', 'the doorbell text delivered to the peer session', DELIVERY_DOORBELL)
+	.option('--message <text>', 'text delivered as a turn in the peer session', DELIVERY_DOORBELL)
 	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
