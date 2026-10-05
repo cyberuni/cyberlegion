@@ -72,8 +72,8 @@ function start(args: string[]): Promise<{ stdout: string; stderr: string; status
 	})
 }
 
-describe('spec:cyberlegion/service — CLI', () => {
-	it('concurrent `service acquire` from real processes: exactly one reservation, everyone else sees starting', async () => {
+describe('spec:cyberlegion/service/lease — CLI', () => {
+	it('concurrent service acquire from real processes: exactly one reservation, everyone else sees starting', async () => {
 		const N = 8
 		const results = await Promise.all(
 			Array.from({ length: N }, () => start(['service', 'acquire', project, 'controller', '--format', 'json'])),
@@ -125,24 +125,6 @@ describe('spec:cyberlegion/service — CLI', () => {
 		expect(shown).toContain('not recoverable')
 	})
 
-	it("mail sent to the service endpoint stays pending across an owner's replacement", () => {
-		const u1 = asUnit('first')
-		asUnit('sender')
-		const reserved = legionJson(['service', 'acquire', project, 'controller'])
-		legion(['service', 'bind', project, 'controller', '--generation', '1', '--token', reserved.token], u1)
-		const endpoint = legionJson(['service', 'resolve', project, 'controller']).endpoint
-
-		legion(['mail', 'send', '--from', 'sender', '--to', endpoint, '--body', 'pending work', '--no-nudge'])
-		legion(['service', 'release', project, 'controller', '--generation', '1'], u1)
-		const u2 = asUnit('second')
-		const again = legionJson(['service', 'acquire', project, 'controller'])
-		legion(['service', 'bind', project, 'controller', '--generation', '2', '--token', again.token], u2)
-
-		expect(legionJson(['service', 'resolve', project, 'controller']).endpoint).toBe(endpoint)
-		const pending = legionJson(['mail', 'inbox', '--owner', endpoint, '--unread'])
-		expect(pending.map((m: { body: string }) => m.body)).toEqual(['pending work'])
-	})
-
 	it('a stale bind fails loud and leaves the current reservation in place', () => {
 		const u1 = asUnit('late')
 		legionJson(['service', 'acquire', project, 'controller'])
@@ -170,5 +152,25 @@ describe('spec:cyberlegion/service — CLI', () => {
 		expect(JSON.parse(legion(['service', 'resolve', 'controller', '--format', 'json'], {}, dir)).health).toBe(
 			'starting',
 		)
+	})
+})
+
+describe('spec:cyberlegion/service/endpoint — CLI', () => {
+	it("mail sent to the service endpoint stays pending across an owner's replacement", () => {
+		const u1 = asUnit('first')
+		asUnit('sender')
+		const reserved = legionJson(['service', 'acquire', project, 'controller'])
+		legion(['service', 'bind', project, 'controller', '--generation', '1', '--token', reserved.token], u1)
+		const endpoint = legionJson(['service', 'resolve', project, 'controller']).endpoint
+
+		legion(['mail', 'send', '--from', 'sender', '--to', endpoint, '--body', 'pending work', '--no-nudge'])
+		legion(['service', 'release', project, 'controller', '--generation', '1'], u1)
+		const u2 = asUnit('second')
+		const again = legionJson(['service', 'acquire', project, 'controller'])
+		legion(['service', 'bind', project, 'controller', '--generation', '2', '--token', again.token], u2)
+
+		expect(legionJson(['service', 'resolve', project, 'controller']).endpoint).toBe(endpoint)
+		const pending = legionJson(['mail', 'inbox', '--owner', endpoint, '--unread'])
+		expect(pending.map((m: { body: string }) => m.body)).toEqual(['pending work'])
 	})
 })

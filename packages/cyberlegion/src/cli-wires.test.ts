@@ -353,7 +353,7 @@ describe('spec:cyberlegion/unit/lifecycle', () => {
 
 // `service start` composes resolve-or-start around the same spawn wire: it spawns only when this
 // caller wins the reservation, binds what it spawned, and hands a failed spawn's reservation back.
-describe('spec:cyberlegion/service `service start` spawns at most once and binds the peer', () => {
+describe('spec:cyberlegion/service/lease — `service start` spawns at most once and binds the peer', () => {
 	function project(): string {
 		const dir = mkdtempSync(join(tmpdir(), 'cl-svc-wires-'))
 		execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir })

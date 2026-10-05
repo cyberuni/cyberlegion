@@ -796,7 +796,7 @@ describe('spec:cyberlegion/identity', () => {
 	})
 })
 
-describe('spec:cyberlegion/service — owner liveness fails closed', () => {
+describe('spec:cyberlegion/service/lease — owner liveness fails closed', () => {
 	const owner = (): AgentRecord => ({
 		id: 'owner',
 		handle: 'owner',
