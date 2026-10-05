@@ -732,6 +732,14 @@ describe('spec:cyberlegion/identity', () => {
 			expect(loadAgent(store, standingId('homa'))?.presence).toBeUndefined()
 		})
 
+		it('unit claim throws when the caller has no self id', () => {
+			registerStanding(ctx({}), { handle: 'homa' })
+			const alice = register(ctx(muxEnv('tmux', '%1')), { handle: 'alice', harness: 'claude' })
+			claimPresence(ctx(muxEnv('tmux', '%1')), 'homa')
+			expect(() => claimPresence(ctx(muxEnv('tmux', '%2')), 'homa')).toThrow(/no identity in this session/)
+			expect(loadAgent(store, standingId('homa'))?.presence).toBe(alice.id)
+		})
+
 		/**
 		 * How the caller was REALIZED, as signals a would-be introspective gate could actually branch on
 		 * — the harness-detection env markers identity.ts itself already probes, plus the `spawnedBy`

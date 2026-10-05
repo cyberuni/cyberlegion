@@ -48,6 +48,11 @@ Feature: unit registry — register, discover, and prune legion units
     When it runs unit whoami
     Then the command errors asking the caller to run unit register first
 
+  Scenario: whoami errors when the session's self id has no agent record
+    Given a session whose self id resolves but has no agent record in the registry
+    When it runs unit whoami
+    Then the command errors that the registered self id has no agent record
+
   # ── who lists the addressable peers ──
   # `unit who` (alias: top-level `who`) is the single list command — the old `session list` folded
   # in here (CR-2 resolution #1): fields id·handle·harness·status·pane, aggregate "N units", default
@@ -327,6 +332,13 @@ Feature: unit registry — register, discover, and prune legion units
     When the caller runs unit claim homa
     Then it throws that claiming a presence needs a multiplexer to open panes
     And homa's presence is left unchanged
+
+  Scenario: unit claim throws when the caller has no self id
+    Given a standing identity homa whose presence is bound to alice
+    And a caller inside a multiplexer pane that has no registered self id
+    When the caller runs unit claim homa
+    Then it throws that the caller must run unit register first
+    And homa's presence is still bound to alice
 
   Scenario Outline: the claim tracks the multiplexer probe, never how the caller was realized
     Given a standing identity homa and a caller realized as <realization> whose multiplexer probe reports <probe>
