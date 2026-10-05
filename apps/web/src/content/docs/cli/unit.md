@@ -311,10 +311,11 @@ Move input focus to a peer's session.
 npx cyberlegion unit nudge <ref> [--message <text>]
 ```
 
-Ring a peer's session: a doorbell that tells them to check their mail. `<ref>` is a unit id,
-handle, or worktree branch/CR ref. `--message` defaults to the standard delivery doorbell text. A
-nudge carries no payload of its own. The message the peer is being told to read always lives in
-the mailbox. See [Mail Model](/cyberlegion/concepts/mail-model/).
+Deliver text as a turn in a peer's session. `<ref>` is a unit id, handle, or worktree branch/CR
+ref. `--message <text>` is the text the peer receives as its next turn, so it is how you relay a
+decision straight into a peer's session. Without it, the nudge sends the standard delivery
+doorbell, which tells the peer to check its mail; the message it points at lives in the mailbox.
+See [Mail Model](/cyberlegion/concepts/mail-model/).
 
 ## read
 
