@@ -571,9 +571,6 @@ Grouped by use case, 1:1 with [`registry.feature`](./registry.feature). `any` in
 convergence claim. A row whose path names a multiplexer is permutation coverage across the per-mux
 adapters.
 
-**Known gaps**, recorded rather than papered over: `WA2X` (a self id with no record) and `CL6X` (a
-claim from a caller with no self id) have no scenario.
-
 ### unit register
 
 | Edge | Path (Given) | Scenario |
@@ -631,6 +628,7 @@ claim from a caller with no self id) have no scenario.
 |---|---|---|
 | `WA3` | a session registered in the current pane | `whoami prints this session's own identity` |
 | `WA1X` | no resolvable self id | `whoami errors when the session has no identity yet` |
+| `WA2X` | a self id that resolves to no record | `whoami errors when the session's self id has no agent record` |
 
 ### unit who
 
@@ -695,6 +693,7 @@ claim from a caller with no self id) have no scenario.
 | `CL1X` claim | no standing record, a live caller in a pane | `claiming a handle with no standing record throws instead of minting one` |
 | `CL3N` | a presence bound to a unit that has exited | `a presence whose unit has exited reads as no presence bound` |
 | `CL5X` | a caller whose probe reports no multiplexer | `unit claim throws when the caller reports no multiplexer` |
+| `CL6X` | a presence bound, a caller in a pane with no self id | `unit claim throws when the caller has no self id` |
 | `CL5 -- yes` → `CL7` / `CL5X` | realization × probe, per Examples row; realization does not change the outcome | `the claim tracks the multiplexer probe, never how the caller was realized` |
 | `CL7` no main pane | no main pane bound | `binding a presence neither creates nor requires a bound main pane` |
 
