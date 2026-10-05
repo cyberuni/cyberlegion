@@ -152,3 +152,19 @@ export function withLock<T>(root: string, name: string, fn: () => T, opts?: Lock
 		handle.release()
 	}
 }
+
+/** `withLock` for an async read-decide-write: the lock is held until `fn`'s promise settles, not
+ * merely until it returns one. The wait to acquire is the same bounded, synchronous one. */
+export async function withLockAsync<T>(
+	root: string,
+	name: string,
+	fn: () => Promise<T>,
+	opts?: LockOptions,
+): Promise<T> {
+	const handle = acquireLock(root, name, opts)
+	try {
+		return await fn()
+	} finally {
+		handle.release()
+	}
+}

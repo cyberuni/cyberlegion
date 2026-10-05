@@ -33,7 +33,15 @@ send`.
 
 Delivery is durable first; waking the recipient's pane is a best-effort act on top and never fails
 the send. A failed wake prints a warning instead. Output: `sent` (message id), `to`, `subject`,
-`rung` (whether the doorbell fired).
+`rung` (whether the doorbell fired), and `spawned` (the unit's id) when the send spawned a presence.
+
+A standing owner is woken in this order: its live presence (`unit claim`); else, when it has a
+home (`unit register --standing --home`), a presence spawned in that home; else the hub's bound
+main pane, if it is focused. A spawn that cannot happen is a warning, and the wake falls back to the
+main pane. A sender outside any multiplexer pane (a cron job, say) cannot open a pane, so it warns
+instead. It can reach a running multiplexer by setting `CYBER_MUX=herdr` or `CYBER_MUX=tmux` in its
+environment. tmux also needs a server already running, and opens the window in tmux's current
+session. `--no-nudge` spawns nothing.
 
 ## inbox
 

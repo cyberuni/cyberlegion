@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { dirname, join } from 'node:path'
 import { ensureMarker, InvalidIdError, paths } from '../paths.ts'
 import { CorruptRecordError } from './errors.ts'
-import { withLock } from './lock.ts'
+import { withLock, withLockAsync } from './lock.ts'
 import type { AgentRecord, InboxSnapshot, Message, ProjectRecord, ServiceLease, Store } from './store.ts'
 
 /** Parse a record file's content, wrapping a `JSON.parse` failure in a typed, file-named
@@ -242,5 +242,9 @@ export class FileStore implements Store {
 
 	withLock<T>(name: string, fn: () => T): T {
 		return withLock(this.root, name, fn)
+	}
+
+	withLockAsync<T>(name: string, fn: () => Promise<T>): Promise<T> {
+		return withLockAsync(this.root, name, fn)
 	}
 }

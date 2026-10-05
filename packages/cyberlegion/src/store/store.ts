@@ -75,7 +75,15 @@ export interface AgentRecord {
 	 * no presence bound, same as if none were ever claimed — nothing self-heals a stale pointer, it
 	 * stays inert until re-claimed. Independent of the hub's `mainPane` (the human's read-pane). */
 	presence?: string
+	/** Only meaningful on a `kind: 'standing'` record — where a presence is spawned when mail arrives
+	 * and none is live (`mail/doorbell`), set by `unit register --standing --home`. Its own field,
+	 * never `cwd`: `cwd` is wherever the registering process ran and is rewritten on every refresh. */
+	home?: StandingHome
 }
+
+/** A standing owner's home: an absolute folder, plus exactly one way to launch a session in it — an
+ * agent definition resolved from that folder, or a bare harness. */
+export type StandingHome = { dir: string } & ({ agent: string; harness?: never } | { harness: Harness; agent?: never })
 
 /** A registered project: one git repository, shared by its default checkout and every linked
  * worktree of it. Keyed by its git common dir, never by a pane or a display name. */
@@ -190,4 +198,6 @@ export interface Store extends MailboxStore {
 	 * store (e.g. a standing record's presence rebind) should hold the SAME named lock around that
 	 * whole sequence, not just around the final write. */
 	withLock<T>(name: string, fn: () => T): T
+	/** `withLock` held across an async `fn` until its promise settles (`store/lock.ts`). */
+	withLockAsync<T>(name: string, fn: () => Promise<T>): Promise<T>
 }
