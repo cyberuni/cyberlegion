@@ -42,7 +42,10 @@ explicit `--agent-file <path>`, never resolved by convention. Authored in `legio
 surface that inspects a def before that:
 
 - **Resolve by name under the project convention** — `agent resolve <name>` (and the internal
-  `resolveAgentDef`) searches `.agents/agents/<name>.md` under the project root, parses the leading
+  `resolveAgentDef`) searches `.agents/agents/<name>.md` under the project root — the nearest folder
+  holding `.git` above the folder resolution starts from, else that folder itself. Resolution starts
+  from the caller's working directory unless the caller names another: a standing owner's home is
+  resolved from the home (`unit/registry`, `mail/doorbell`). It parses the leading
   `---`-delimited frontmatter block, and treats everything after it as the def's `instructions`
   body verbatim.
 - **Resolve an exact file, bypassing name search entirely** — `agent resolve --file <path>` (and

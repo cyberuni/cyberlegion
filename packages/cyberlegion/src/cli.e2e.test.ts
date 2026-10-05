@@ -174,6 +174,30 @@ describe('spec:cyberlegion/unit', () => {
 			expect(handles).toContain('ops')
 			expect(handles).not.toContain('alice')
 		})
+
+		it("unit register --standing --home --harness records the owner's home and its harness", () => {
+			const desk = mkdtempSync(join(tmpdir(), 'cl-desk-'))
+			const out = legion(['unit', 'register', '--standing', '--handle', 'keeper', '--home', desk, '--harness', 'codex'])
+			expect(out).toContain(`home: ${desk}`)
+			expect(out).toContain('launch: harness codex')
+			const rec = new FileStore(space).getAgent('standing-keeper')
+			expect(rec?.home).toEqual({ dir: desk, harness: 'codex' })
+		})
+
+		it('a home with no launch is refused', () => {
+			const desk = mkdtempSync(join(tmpdir(), 'cl-desk-'))
+			const { status, stderr } = legionOut(['unit', 'register', '--standing', '--handle', 'keeper', '--home', desk])
+			expect(status).not.toBe(0)
+			expect(stderr).toContain('exactly one of --agent or --harness')
+			expect(new FileStore(space).getAgent('standing-keeper')).toBeUndefined()
+		})
+
+		it('a home flag on a session registration is refused', () => {
+			const desk = mkdtempSync(join(tmpdir(), 'cl-desk-'))
+			const { status, stderr } = legionOut(['unit', 'register', '--harness', 'claude', '--home', desk])
+			expect(status).not.toBe(0)
+			expect(stderr).toContain('a home belongs only to a named standing owner')
+		})
 	})
 
 	describe('standing owner presence — unit claim', () => {

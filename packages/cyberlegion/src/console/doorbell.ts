@@ -1,5 +1,6 @@
 import type { MuxAdapter, MuxTarget, NudgeOptions } from 'cyber-mux'
-import { type Exec, loadAgent, presenceOf } from '../identity.ts'
+import { type AgentRecord, type Exec, loadAgent, presenceOf } from '../identity.ts'
+import type { PresenceSpawn } from '../presence-spawn.ts'
 import type { Store } from '../store/store.ts'
 import { type DraftGuardOptions, withDraftGuard } from './prompt-guard.ts'
 import { ringTurn } from './ring.ts'
@@ -68,11 +69,27 @@ export interface WakeInput {
 	fromId: string
 	/** Suppress the doorbell entirely (`mail send --no-nudge`). */
 	noNudge?: boolean
+	/** Spawn and bind a presence in a standing owner's home (`spawnPresence`). Injected, so the
+	 * doorbell stays free of spawn machinery; absent, an owner's home is ignored. */
+	spawnHome?: (owner: AgentRecord) => Promise<PresenceSpawn>
+}
+
+/** What a sender reads when a standing owner's home could not give it a presence. */
+function homeSpawnWarning(handle: string, err: unknown): string {
+	const reason = err instanceof Error ? err.message : String(err)
+	// The probe found no multiplexer: the sender runs outside any pane, so there is nowhere to open
+	// one — the cron case this exists for. Say how to reach a running multiplexer from there.
+	const hint = /session backend/.test(reason)
+		? ' — a sender outside any multiplexer pane can reach a running one by setting CYBER_MUX=herdr or CYBER_MUX=tmux'
+		: ''
+	return `standing owner "${handle}" has a home, but no presence could be spawned: ${reason}${hint}`
 }
 
 export interface WakeResult {
 	/** Whether a doorbell was delivered as a taken turn. */
 	rung: boolean
+	/** The unit spawned into a standing owner's home to stand in for it, when one was. */
+	spawned?: string
 	/** The pane that was (or would have been) rung, when one was resolved. */
 	pane?: string
 	/** Set when a live pane was found but the ring never completed — a best-effort failure, not a send error. */
@@ -120,11 +137,34 @@ export async function wakeRecipient(
 	// is a human's session with no record to name its harness; the guard tries every known shape there.
 	let harness: string | undefined
 	let focusGated = false
+	// A failed spawn into the owner's home, carried onto whatever the fallback ring reports.
+	let spawnWarning: string | undefined
 	if (recipient.kind === 'standing') {
 		// Off the record already in hand, never re-resolved by handle: `resolvePresence` throws when the
 		// standing record races away (a concurrent close/decommission), and this wake must never fail a
 		// send that already landed durably.
-		const presenceUnit = presenceOf(store, recipient)
+		let presenceUnit = presenceOf(store, recipient)
+		// No live presence, but a home: spawn one there. It outranks the main pane — an owner that names
+		// where it lives wants a unit acting for it, not a human notified. Under the presence lock a
+		// near-simultaneous delivery's presence can turn up instead (`existing`), rung like any other.
+		if (!presenceUnit && recipient.home && input.spawnHome) {
+			try {
+				const outcome = await input.spawnHome(recipient)
+				if (outcome.kind === 'existing') {
+					presenceUnit = outcome.presence
+				} else {
+					const warning = outcome.trustBlocked ?? outcome.warning
+					return {
+						rung: outcome.rung,
+						pane: outcome.pane,
+						spawned: outcome.presence.id,
+						...(warning ? { warning } : {}),
+					}
+				}
+			} catch (err) {
+				spawnWarning = homeSpawnWarning(recipient.handle, err)
+			}
+		}
 		if (presenceUnit) {
 			pane = paneOf(store, presenceUnit.id)
 			harness = presenceUnit.harness
@@ -136,34 +176,40 @@ export async function wakeRecipient(
 		pane = paneOf(store, recipient.id)
 		harness = recipient.harness
 	}
-	if (!pane) return { rung: false }
-	// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).
-	if (pane === paneOf(store, input.fromId)) return { rung: false }
-	// The focus gate applies only to a standing owner's bound-main-pane fallback (human-presence
-	// signal) — a peer's live pane, and a standing owner's bound presence, are always rung regardless
-	// of focus. Skip the ring only when POSITIVELY not focused; `true` or `undefined` (probe error, no
-	// backend, unresolvable pane) fail open and still ring, so the doorbell never silently drops on an
-	// ambiguous probe.
-	if (focusGated) {
-		let focused: boolean | undefined
-		try {
-			focused = getAdapter().isPaneFocused(exec, { id: pane })
-		} catch {
-			focused = undefined
+	const result = await ringResolved()
+	if (!spawnWarning) return result
+	return { ...result, warning: result.warning ? `${spawnWarning}; ${result.warning}` : spawnWarning }
+
+	async function ringResolved(): Promise<WakeResult> {
+		if (!pane) return { rung: false }
+		// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).
+		if (pane === paneOf(store, input.fromId)) return { rung: false }
+		// The focus gate applies only to a standing owner's bound-main-pane fallback (human-presence
+		// signal) — a peer's live pane, and a standing owner's bound presence, are always rung regardless
+		// of focus. Skip the ring only when POSITIVELY not focused; `true` or `undefined` (probe error, no
+		// backend, unresolvable pane) fail open and still ring, so the doorbell never silently drops on an
+		// ambiguous probe.
+		if (focusGated) {
+			let focused: boolean | undefined
+			try {
+				focused = getAdapter().isPaneFocused(exec, { id: pane })
+			} catch {
+				focused = undefined
+			}
+			if (focused === false) return { rung: false, pane }
 		}
-		if (focused === false) return { rung: false, pane }
-	}
-	try {
-		const adapter = getAdapter()
-		const target = { id: pane }
-		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
-			...guardOpts,
-			harness,
-			ownText: (text) => isRingText(text),
-		})
-		return { rung: true, pane }
-	} catch (err) {
-		return { rung: false, pane, warning: err instanceof Error ? err.message : String(err) }
+		try {
+			const adapter = getAdapter()
+			const target = { id: pane }
+			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+				...guardOpts,
+				harness,
+				ownText: (text) => isRingText(text),
+			})
+			return { rung: true, pane }
+		} catch (err) {
+			return { rung: false, pane, warning: err instanceof Error ? err.message : String(err) }
+		}
 	}
 }
 

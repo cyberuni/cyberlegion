@@ -98,6 +98,11 @@ export interface SpawnInput {
 	repo?: string
 	/** Placement relative to the caller; defaults to 'tab'. */
 	at?: MuxPlacement
+	/** With `cwd`: keep the unit out of the primary checkout of the repository **containing `cwd`**,
+	 * not the caller's, and allow a `cwd` in no repository at all. For a spawn whose caller may run
+	 * anywhere — the delivery doorbell's spawn into a standing owner's home, sent from a cron job in
+	 * no repository. */
+	cwdOwnRepo?: boolean
 }
 
 /** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
@@ -108,6 +113,17 @@ function primaryRootOfRepo(exec: Exec, repo: string): string {
 		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === 'git' ? ['-C', dir, ...args] : args))
 	} catch {
 		throw new Error(`--repo ${repo} is not inside a git repository`)
+	}
+}
+
+/** The primary checkout of the repository containing `dir`, or `undefined` when `dir` is in no git
+ * repository — for a folder that may sit outside any repository, where there is no primary checkout
+ * to keep a unit out of. */
+export function primaryRootOf(exec: Exec, dir: string): string | undefined {
+	try {
+		return primaryRootOfRepo(exec, dir)
+	} catch {
+		return undefined
 	}
 }
 
@@ -151,7 +167,14 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	}
 
 	const id = randomId()
-	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec)
+	// Only a `cwdOwnRepo` spawn can find no primary checkout (its folder is in no repository); every
+	// other spawn has one or throws here, before anything opens.
+	const ownRepo = input.cwd !== undefined && input.cwdOwnRepo === true
+	const primaryRoot = ownRepo
+		? primaryRootOf(exec, input.cwd as string)
+		: input.repo
+			? primaryRootOfRepo(exec, input.repo)
+			: resolvePrimaryRoot(exec)
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
 	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
@@ -170,13 +193,14 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			throw new Error(`--cwd directory must already exist: ${input.cwd}`)
 		}
 		cwd = resolve(input.cwd)
-		assertDistinctFromPrimary(cwd, primaryRoot)
+		if (primaryRoot !== undefined) assertDistinctFromPrimary(cwd, primaryRoot)
 		worktree = null
 		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
 		// the caller opted into an existing dir, not into carving out an isolated space.
 		const at = input.at ?? 'tab'
 		target = sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
 	} else {
+		if (primaryRoot === undefined) throw new Error('a worktree spawn needs a primary checkout')
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
 		// A spawn that CREATES A NEW WORKTREE gets its own isolated, VISIBLE space by default — the
 		// fleet-layer caller expresses that intent as `workspace`, never a mux-specific placement.
@@ -269,14 +293,57 @@ export async function spawnAndWake(
 	ctx: IdContext,
 	input: SpawnInput,
 	options: { noWake?: boolean; nudgeOpts?: NudgeOptions; trustOpts?: TrustOptions } = {},
-): Promise<SpawnResult & { rung: boolean; warning?: string; trust: TrustOutcome['state']; trustBlocked?: string }> {
+): Promise<SpawnResult & FirstTurn> {
 	const res = spawn(ctx, input)
+	const trust = await settleSpawnTrust(ctx, res, options)
+	if (trust.trustBlocked) return { ...res, ...trust }
+	return { ...res, ...(await ringSpawnFirstTurn(ctx, res, trust, options)) }
+}
+
+/** What happened after a spawn landed: whether its first turn was rung, and how its trust prompt went. */
+export interface FirstTurn {
+	rung: boolean
+	warning?: string
+	trust: TrustOutcome['state']
+	trustBlocked?: string
+}
+
+/** How a just-spawned unit's folder-trust prompt was settled; `trustBlocked` when it is still showing
+ * (a person must answer it), in which case nothing is rung. */
+export interface SpawnTrust {
+	rung: false
+	trust: TrustOutcome['state']
+	trustBlocked?: string
+}
+
+/**
+ * Settle a just-spawned unit's folder-trust prompt — the first half of `spawnAndWake` after the spawn
+ * itself. Split from the ring so `spawnPresence` (`presence-spawn.ts`) can hold the presence lock
+ * across this step and release it before the ring. `trustFolder` says a person already vouched for
+ * this folder (a standing owner's registered home), so its prompt is accepted as a worktree spawn's is.
+ */
+export async function settleSpawnTrust(
+	ctx: IdContext,
+	res: SpawnResult,
+	options: { trustOpts?: TrustOptions; trustFolder?: boolean },
+): Promise<SpawnTrust> {
+	const trust = await settleTrust(ctx, res, options.trustOpts, options.trustFolder)
+	if (trust.state === 'needs-human' || trust.state === 'stuck') {
+		return { rung: false, trust: trust.state, trustBlocked: trust.message }
+	}
+	return { rung: false, trust: trust.state }
+}
+
+/** Ring a just-spawned unit's first turn once its trust prompt has settled — the second half of
+ * `spawnAndWake`. */
+export async function ringSpawnFirstTurn(
+	ctx: IdContext,
+	res: SpawnResult,
+	trust: SpawnTrust,
+	options: { noWake?: boolean; nudgeOpts?: NudgeOptions },
+): Promise<FirstTurn> {
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
-	const trust = await settleTrust(ctx, res, options.trustOpts)
-	if (trust.state === 'needs-human' || trust.state === 'stuck') {
-		return { ...res, rung: false, trust: trust.state, trustBlocked: trust.message }
-	}
 	// `spawn` always records where it wrote the brief. The guard is not defensive padding: a doorbell
 	// with no path to name is not an instruction, so ring nothing rather than type the degenerate
 	// "Read your brief at , then begin work." — a silent half-wake is worse than an unrung peer.
@@ -292,7 +359,7 @@ export async function spawnAndWake(
 		},
 		options.nudgeOpts,
 	)
-	return { ...res, rung: wake.rung, trust: trust.state, ...(wake.warning ? { warning: wake.warning } : {}) }
+	return { rung: wake.rung, trust: trust.trust, ...(wake.warning ? { warning: wake.warning } : {}) }
 }
 
 /**
@@ -300,7 +367,12 @@ export async function spawnAndWake(
  * resolved leaves nothing to read, which is no evidence of a prompt: the ring's own containment
  * reports that backend.
  */
-async function settleTrust(ctx: IdContext, res: SpawnResult, opts?: TrustOptions): Promise<TrustOutcome> {
+async function settleTrust(
+	ctx: IdContext,
+	res: SpawnResult,
+	opts?: TrustOptions,
+	trustFolder = false,
+): Promise<TrustOutcome> {
 	const exec = ctx.exec ?? realExec
 	let adapter: ReturnType<typeof selectSessionAdapter>
 	try {
@@ -316,7 +388,7 @@ async function settleTrust(ctx: IdContext, res: SpawnResult, opts?: TrustOptions
 			harness: res.agent.harness as Harness,
 			folder: res.agent.cwd,
 			pane: res.pane,
-			policy: res.agent.worktree ? 'accept' : 'ask',
+			policy: res.agent.worktree || trustFolder ? 'accept' : 'ask',
 		},
 		opts,
 	)

@@ -42,6 +42,7 @@ import {
 	type PermissionRuleState,
 	permissionRuleState,
 } from './permission.ts'
+import { spawnPresence } from './presence-spawn.ts'
 import { listProjects, type ProjectRecord, registerProject, resolveProject } from './project.ts'
 import { injectInbox } from './runtime/inject-inbox.ts'
 import {
@@ -55,7 +56,9 @@ import {
 	verifyOwnership,
 } from './service.ts'
 import { clearUnit, focusUnit, nudgeUnit, readUnit, selfInvocation, spawnAndWake } from './session.ts'
+import { resolveHomeFlags } from './standing-home.ts'
 import { FileStore } from './store/file-store.ts'
+import type { StandingHome } from './store/store.ts'
 import { rebindUnit, recordConversation, restartUnit, showUnit, stopUnit } from './unit-runtime.ts'
 import { awaitReply } from './wake/await.ts'
 import { watchMail } from './wake/watch.ts'
@@ -115,7 +118,11 @@ program
 const unit = program.command('unit').description('legion units — register, discover, spawn, and reap')
 
 /** The standing-owner branch of `unit register --standing` (folds the old `identity owner`). */
-function runStanding(ctx: IdContext, opts: GlobalOpts & { handle?: string }): void {
+function runStanding(
+	ctx: IdContext,
+	opts: GlobalOpts & { handle?: string },
+	home: StandingHome | null | undefined,
+): void {
 	if (!opts.handle) {
 		const standing = listAgents(ctx.store).filter((a) => a.kind === 'standing')
 		emit(formatOf(opts), {
@@ -137,12 +144,19 @@ function runStanding(ctx: IdContext, opts: GlobalOpts & { handle?: string }): vo
 	const liveClaim = listAgents(ctx.store).find(
 		(a) => a.handle === opts.handle && a.kind !== 'standing' && a.status !== 'exited',
 	)
-	const rec = registerStanding(ctx, { handle: opts.handle })
+	const rec = registerStanding(ctx, { handle: opts.handle, home })
 	if (liveClaim) {
 		console.error(`a live session already claims handle "${opts.handle}"`)
 	}
 	emit(formatOf(opts), {
-		toon: toonObject({ id: rec.id, handle: rec.handle, kind: rec.kind, status: rec.status }),
+		toon: toonObject({
+			id: rec.id,
+			handle: rec.handle,
+			kind: rec.kind,
+			status: rec.status,
+			home: rec.home?.dir ?? 'none',
+			...(rec.home ? { launch: rec.home.agent ? `agent ${rec.home.agent}` : `harness ${rec.home.harness}` } : {}),
+		}),
 		json: rec,
 	})
 }
@@ -152,10 +166,22 @@ withGlobals(unit.command('register'))
 	.option('--handle <name>', 'human handle for this agent')
 	.option('--harness <h>', 'claude | cursor | codex (else auto-detected)')
 	.option('--standing', 'mint a standing, session-independent owner inbox (bare, with no --handle: list them)')
+	.option(
+		'--home <dir>',
+		'with --standing: the existing folder a presence is spawned in when mail arrives and none is live',
+	)
+	.option('--agent <name>', 'with --home: launch that agent definition, resolved from the home')
+	.option('--clear-home', "with --standing: drop the owner's home")
 	.action((opts) => {
 		const ctx = ctxOf(opts)
+		let home: StandingHome | null | undefined
+		try {
+			home = resolveHomeFlags(ctx.exec ?? realExec, opts)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
 		if (opts.standing) {
-			runStanding(ctx, opts)
+			runStanding(ctx, opts, home)
 			return
 		}
 		const rec = register(ctx, { handle: opts.handle, harness: opts.harness })
@@ -854,11 +880,20 @@ function defineSend(cmd: Command): Command {
 				toId: msg.to,
 				fromId,
 				noNudge: opts.nudge === false,
+				// A standing owner with a home and no live presence gets one spawned there. Any failure
+				// comes back as a warning: the message has already landed.
+				spawnHome: (owner) => spawnPresence(ctx, owner),
 			})
 			if (wake.warning) console.error(`delivery doorbell not confirmed (message still delivered): ${wake.warning}`)
 			emit(formatOf(opts), {
-				toon: toonObject({ sent: msg.id, to: opts.to, subject: msg.subject, rung: wake.rung }),
-				json: { ...msg, rung: wake.rung },
+				toon: toonObject({
+					sent: msg.id,
+					to: opts.to,
+					subject: msg.subject,
+					rung: wake.rung,
+					...(wake.spawned ? { spawned: wake.spawned } : {}),
+				}),
+				json: { ...msg, rung: wake.rung, ...(wake.spawned ? { spawned: wake.spawned } : {}) },
 			})
 		})
 }

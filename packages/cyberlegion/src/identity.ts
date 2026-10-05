@@ -11,7 +11,7 @@ import {
 } from 'cyber-mux'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { sanitizePane } from './paths.ts'
-import type { AgentRecord, Harness, Store } from './store/store.ts'
+import type { AgentRecord, Harness, StandingHome, Store } from './store/store.ts'
 
 // The cyber-mux package now owns the synchronous command-runner seam; re-exported under the same
 // names (`Exec`/`realExec`) so this public façade is unchanged for every existing consumer.
@@ -163,6 +163,9 @@ export function standingId(handle: string): string {
 
 export interface RegisterStandingInput {
 	handle: string
+	/** `undefined` keeps the record's home, `null` drops it, a value replaces it — already validated
+	 * (`standing-home.ts`), since nothing here may throw after deciding to write. */
+	home?: StandingHome | null
 }
 
 /**
@@ -173,6 +176,13 @@ export interface RegisterStandingInput {
 export function registerStanding(ctx: IdContext, input: RegisterStandingInput): AgentRecord {
 	ctx.store.ensureMarker()
 	const id = standingId(input.handle)
+	// Under the presence lock: the refresh carries the bound presence over, so it is a load-mutate-save
+	// of the same field `claimPresence` and the delivery doorbell's spawn rebind write. Unlocked, a
+	// refresh racing a claim would write back the stale pointer it read.
+	return ctx.store.withLock(`presence:${id}`, () => writeStanding(ctx, id, input))
+}
+
+function writeStanding(ctx: IdContext, id: string, input: RegisterStandingInput): AgentRecord {
 	const existing = loadAgent(ctx.store, id)
 	const ts = nowIso(ctx)
 	const rec: AgentRecord = {
@@ -186,6 +196,11 @@ export function registerStanding(ctx: IdContext, input: RegisterStandingInput): 
 		createdAt: existing?.createdAt ?? ts,
 		lastSeen: ts,
 	}
+	// A refresh is not a reconfiguration: the bound presence, and the home unless this registration
+	// names one, carry over.
+	if (existing?.presence !== undefined) rec.presence = existing.presence
+	const home = input.home === undefined ? existing?.home : (input.home ?? undefined)
+	if (home) rec.home = home
 	saveAgent(ctx.store, rec)
 	return rec
 }

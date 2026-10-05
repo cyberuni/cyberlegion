@@ -16,6 +16,8 @@ decides whether a peer *should* exist for a given task; that judgment is the cal
 
 ```sh
 npx cyberlegion unit register [--handle <name>] [--harness <h>] [--standing]
+npx cyberlegion unit register --standing --handle <name> --home <dir> (--agent <def> | --harness <h>)
+npx cyberlegion unit register --standing --handle <name> --clear-home
 ```
 
 Register or refresh this session's identity. Bare (with `--standing` and no `--handle`) lists
@@ -24,12 +26,23 @@ existing standing agents instead of registering.
 | Option | Meaning |
 |---|---|
 | `--handle <name>` | human handle for this agent |
-| `--harness <h>` | `claude` \| `cursor` \| `codex` (else auto-detected) |
+| `--harness <h>` | `claude` \| `cursor` \| `codex` (else auto-detected); with `--home`, the harness to launch there |
 | `--standing` | mint a standing, session-independent owner inbox (bare, with no `--handle`: list them) |
+| `--home <dir>` | with `--standing --handle`: the existing folder a presence is spawned in when mail arrives and none is live |
+| `--agent <def>` | with `--home`: launch this agent definition, resolved from the home |
+| `--clear-home` | with `--standing --handle`: drop the owner's home |
 
 Output: `id`, `handle`, `harness`, `status` (or, for `--standing`, `id`, `handle`, `kind`,
-`status`). Warns to stderr if a live session already claims the requested handle, but still
-registers.
+`status`, `home`, and `launch` when a home is set). Warns to stderr if a live session already claims
+the requested handle, but still registers.
+
+A **home** lets mail reach a standing owner when nobody is standing in for it. When mail is
+delivered and the owner has no live presence, `mail send` spawns a session in the home in its own
+workspace, binds it as the presence, accepts the folder's trust prompt, and wakes it to read the
+owner's inbox. A home needs exactly one of `--agent` or `--harness`, must already exist, and may not
+be the primary checkout of its repository; each of these is checked when you register, and nothing
+is written on a refusal. Re-registering without `--home` or `--clear-home` keeps the home and the
+bound presence.
 
 ## claim
 

@@ -5861,6 +5861,9 @@ function standingId(handle) {
 function registerStanding(ctx, input) {
 	ctx.store.ensureMarker();
 	const id = standingId(input.handle);
+	return ctx.store.withLock(`presence:${id}`, () => writeStanding(ctx, id, input));
+}
+function writeStanding(ctx, id, input) {
 	const existing = loadAgent(ctx.store, id);
 	const ts = nowIso(ctx);
 	const rec = {
@@ -5874,6 +5877,9 @@ function registerStanding(ctx, input) {
 		createdAt: existing?.createdAt ?? ts,
 		lastSeen: ts
 	};
+	if (existing?.presence !== void 0) rec.presence = existing.presence;
+	const home = input.home === void 0 ? existing?.home : input.home ?? void 0;
+	if (home) rec.home = home;
 	saveAgent(ctx.store, rec);
 	return rec;
 }
@@ -6471,6 +6477,11 @@ const SPAWN_NUDGE_OPTS = {
 	attempts: 20,
 	settleMs: 400
 };
+/** What a sender reads when a standing owner's home could not give it a presence. */
+function homeSpawnWarning(handle, err) {
+	const reason = err instanceof Error ? err.message : String(err);
+	return `standing owner "${handle}" has a home, but no presence could be spawned: ${reason}${/session backend/.test(reason) ? " — a sender outside any multiplexer pane can reach a running one by setting CYBER_MUX=herdr or CYBER_MUX=tmux" : ""}`;
+}
 /** Resolve an agent's live session pane: its recorded pane, else a pane pointer keyed by its id. */
 function paneOf(store, id) {
 	return loadAgent(store, id)?.pane?.id ?? store.findPaneByAgentId(id);
@@ -6496,8 +6507,24 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 	let pane;
 	let harness;
 	let focusGated = false;
+	let spawnWarning;
 	if (recipient.kind === "standing") {
-		const presenceUnit = presenceOf(store, recipient);
+		let presenceUnit = presenceOf(store, recipient);
+		if (!presenceUnit && recipient.home && input.spawnHome) try {
+			const outcome = await input.spawnHome(recipient);
+			if (outcome.kind === "existing") presenceUnit = outcome.presence;
+			else {
+				const warning = outcome.trustBlocked ?? outcome.warning;
+				return {
+					rung: outcome.rung,
+					pane: outcome.pane,
+					spawned: outcome.presence.id,
+					...warning ? { warning } : {}
+				};
+			}
+		} catch (err) {
+			spawnWarning = homeSpawnWarning(recipient.handle, err);
+		}
 		if (presenceUnit) {
 			pane = paneOf(store, presenceUnit.id);
 			harness = presenceUnit.harness;
@@ -6509,38 +6536,46 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		pane = paneOf(store, recipient.id);
 		harness = recipient.harness;
 	}
-	if (!pane) return { rung: false };
-	if (pane === paneOf(store, input.fromId)) return { rung: false };
-	if (focusGated) {
-		let focused;
-		try {
-			focused = getAdapter().isPaneFocused(exec, { id: pane });
-		} catch {
-			focused = void 0;
+	const result = await ringResolved();
+	if (!spawnWarning) return result;
+	return {
+		...result,
+		warning: result.warning ? `${spawnWarning}; ${result.warning}` : spawnWarning
+	};
+	async function ringResolved() {
+		if (!pane) return { rung: false };
+		if (pane === paneOf(store, input.fromId)) return { rung: false };
+		if (focusGated) {
+			let focused;
+			try {
+				focused = getAdapter().isPaneFocused(exec, { id: pane });
+			} catch {
+				focused = void 0;
+			}
+			if (focused === false) return {
+				rung: false,
+				pane
+			};
 		}
-		if (focused === false) return {
-			rung: false,
-			pane
-		};
-	}
-	try {
-		const adapter = getAdapter();
-		const target = { id: pane };
-		await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
-			...guardOpts,
-			harness,
-			ownText: (text) => isRingText(text)
-		});
-		return {
-			rung: true,
-			pane
-		};
-	} catch (err) {
-		return {
-			rung: false,
-			pane,
-			warning: err instanceof Error ? err.message : String(err)
-		};
+		try {
+			const adapter = getAdapter();
+			const target = { id: pane };
+			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+				...guardOpts,
+				harness,
+				ownText: (text) => isRingText(text)
+			});
+			return {
+				rung: true,
+				pane
+			};
+		} catch (err) {
+			return {
+				rung: false,
+				pane,
+				warning: err instanceof Error ? err.message : String(err)
+			};
+		}
 	}
 }
 /**
@@ -6917,6 +6952,16 @@ function primaryRootOfRepo(exec, repo) {
 		throw new Error(`--repo ${repo} is not inside a git repository`);
 	}
 }
+/** The primary checkout of the repository containing `dir`, or `undefined` when `dir` is in no git
+* repository — for a folder that may sit outside any repository, where there is no primary checkout
+* to keep a unit out of. */
+function primaryRootOf$1(exec, dir) {
+	try {
+		return primaryRootOfRepo(exec, dir);
+	} catch {
+		return;
+	}
+}
 /**
 * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
 * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
@@ -6942,7 +6987,7 @@ function spawn(ctx, input) {
 	if (brief == null) throw new Error("spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>");
 	if (input.cwd && (input.branch || input.worktreePath || input.repo)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo");
 	const id = randomId();
-	const primaryRoot = input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec);
+	const primaryRoot = input.cwd !== void 0 && input.cwdOwnRepo === true ? primaryRootOf$1(exec, input.cwd) : input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
 	const launchLine = () => composeLaunchLine(ctx, sessionAdapter.name, id, launch);
 	const from = callerPane(sessionAdapter, normalizedEnv);
@@ -6952,7 +6997,7 @@ function spawn(ctx, input) {
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) throw new Error(`--cwd directory must already exist: ${input.cwd}`);
 		cwd = resolve(input.cwd);
-		assertDistinctFromPrimary(cwd, primaryRoot);
+		if (primaryRoot !== void 0) assertDistinctFromPrimary(cwd, primaryRoot);
 		worktree = null;
 		const at = input.at ?? "tab";
 		target = sessionAdapter.open(exec, {
@@ -6963,6 +7008,7 @@ function spawn(ctx, input) {
 			...labelFor(at, input, brief, id)
 		});
 	} else {
+		if (primaryRoot === void 0) throw new Error("a worktree spawn needs a primary checkout");
 		const branch = input.branch ?? `cyberlegion/unit-${id}`;
 		const at = input.at ?? "workspace";
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6));
@@ -7055,15 +7101,39 @@ function spawn(ctx, input) {
 */
 async function spawnAndWake(ctx, input, options = {}) {
 	const res = spawn(ctx, input);
-	const env = ctx.env ?? process.env;
-	const exec = ctx.exec ?? realExec;
-	const trust = await settleTrust(ctx, res, options.trustOpts);
-	if (trust.state === "needs-human" || trust.state === "stuck") return {
+	const trust = await settleSpawnTrust(ctx, res, options);
+	if (trust.trustBlocked) return {
 		...res,
+		...trust
+	};
+	return {
+		...res,
+		...await ringSpawnFirstTurn(ctx, res, trust, options)
+	};
+}
+/**
+* Settle a just-spawned unit's folder-trust prompt — the first half of `spawnAndWake` after the spawn
+* itself. Split from the ring so `spawnPresence` (`presence-spawn.ts`) can hold the presence lock
+* across this step and release it before the ring. `trustFolder` says a person already vouched for
+* this folder (a standing owner's registered home), so its prompt is accepted as a worktree spawn's is.
+*/
+async function settleSpawnTrust(ctx, res, options) {
+	const trust = await settleTrust(ctx, res, options.trustOpts, options.trustFolder);
+	if (trust.state === "needs-human" || trust.state === "stuck") return {
 		rung: false,
 		trust: trust.state,
 		trustBlocked: trust.message
 	};
+	return {
+		rung: false,
+		trust: trust.state
+	};
+}
+/** Ring a just-spawned unit's first turn once its trust prompt has settled — the second half of
+* `spawnAndWake`. */
+async function ringSpawnFirstTurn(ctx, res, trust, options) {
+	const env = ctx.env ?? process.env;
+	const exec = ctx.exec ?? realExec;
 	const briefPath = res.agent.brief;
 	const wake = await wakeSpawn(() => selectSessionAdapter(env, exec), exec, {
 		target: { id: res.pane },
@@ -7072,9 +7142,8 @@ async function spawnAndWake(ctx, input, options = {}) {
 		harness: res.agent.harness
 	}, options.nudgeOpts);
 	return {
-		...res,
 		rung: wake.rung,
-		trust: trust.state,
+		trust: trust.trust,
 		...wake.warning ? { warning: wake.warning } : {}
 	};
 }
@@ -7083,7 +7152,7 @@ async function spawnAndWake(ctx, input, options = {}) {
 * resolved leaves nothing to read, which is no evidence of a prompt: the ring's own containment
 * reports that backend.
 */
-async function settleTrust(ctx, res, opts) {
+async function settleTrust(ctx, res, opts, trustFolder = false) {
 	const exec = ctx.exec ?? realExec;
 	let adapter;
 	try {
@@ -7095,7 +7164,7 @@ async function settleTrust(ctx, res, opts) {
 		harness: res.agent.harness,
 		folder: res.agent.cwd,
 		pane: res.pane,
-		policy: res.agent.worktree ? "accept" : "ask"
+		policy: res.agent.worktree || trustFolder ? "accept" : "ask"
 	}, opts);
 }
 /**
@@ -8029,6 +8098,102 @@ function addPermissionRule(file) {
 	return "added";
 }
 //#endregion
+//#region src/presence-spawn.ts
+/** The brief a presence spawned into a standing owner's home starts from: whom it stands in for, and
+* where that owner's mail is. What to *do* with the mail is the home's agent definition's business. */
+function presenceBrief(handle) {
+	return [
+		`You stand in for the standing owner "${handle}": you are its presence, spawned because mail was delivered to it and no unit was standing in.`,
+		"",
+		`Read its mail: cyberlegion mail inbox --owner ${handle}, then cyberlegion mail read --owner ${handle} <id>.`,
+		`Ack what you have handled: cyberlegion mail ack --owner ${handle} <id>.`
+	].join("\n");
+}
+/**
+* Give a standing owner with a home a presence: spawn a unit in the home and bind it, unless a live
+* presence already exists — the delivery doorbell's step when mail arrives and nobody is standing in.
+*
+* Under the presence lock (the one `unit claim` takes) it re-reads the owner and decides there, so
+* two near-simultaneous deliveries spawn one unit: the second finds the first's presence live and
+* gets it back as `existing`, to ring like any presence. The lock covers the re-read, the spawn (open
+* the pane, write the record and brief), the bind, and the trust step, so no other delivery can ring
+* the new presence while its trust prompt may be showing. Only the first-turn ring runs after it is
+* released. A delivery that waits past the lock's bound takes the doorbell's lock-timeout warning;
+* its message is already in the inbox the new presence is about to read.
+*
+* The spawn opens its own workspace — never a tab or split of the sender's space, since the sender is
+* not its parent and may be in no pane — launched from the home's agent definition (resolved from the
+* home) or its harness. The home's trust prompt is accepted: a person named the folder at
+* `unit register --standing --home`. A prompt left showing anyway means the unit cannot read its
+* brief, so it is unbound again (if still the presence, before the lock is released) rather than left
+* for later deliveries to ring — a ring typed into a trust prompt answers it wrongly.
+*
+* Throws when the spawn cannot happen (no multiplexer, a missing home, an unresolvable definition, a
+* lock timeout). The doorbell turns that into a warning.
+*/
+async function spawnPresence(ctx, owner, options = {}) {
+	const home = owner.home;
+	if (!home) throw new Error(`standing owner "${owner.handle}" has no home`);
+	const outcome = await ctx.store.withLockAsync(`presence:${owner.id}`, async () => {
+		const current = loadAgent(ctx.store, owner.id);
+		if (!current) throw new Error(`standing owner "${owner.handle}" is gone`);
+		const live = presenceOf(ctx.store, current);
+		if (live) return { existing: live };
+		const launched = resolveSpawnLaunch({
+			agent: home.agent,
+			harness: home.harness,
+			cwd: home.dir
+		});
+		const res = spawn(ctx, {
+			harness: launched.harness,
+			command: launched.command,
+			briefInstructions: launched.briefInstructions,
+			task: presenceBrief(owner.handle),
+			cwd: home.dir,
+			cwdOwnRepo: true,
+			at: "workspace"
+		});
+		current.presence = res.agent.id;
+		saveAgent(ctx.store, current);
+		const unbind = () => {
+			const latest = loadAgent(ctx.store, owner.id);
+			if (latest?.presence !== res.agent.id) return false;
+			latest.presence = void 0;
+			saveAgent(ctx.store, latest);
+			return true;
+		};
+		let trust;
+		try {
+			trust = await settleSpawnTrust(ctx, res, {
+				...options,
+				trustFolder: true
+			});
+		} catch (err) {
+			unbind();
+			throw err;
+		}
+		const unbound = trust.trustBlocked ? unbind() : false;
+		return {
+			spawned: res,
+			trust,
+			unbound
+		};
+	});
+	if (outcome.existing) return {
+		kind: "existing",
+		presence: outcome.existing
+	};
+	const { spawned: res, trust, unbound } = outcome;
+	const turn = trust.trustBlocked ? trust : await ringSpawnFirstTurn(ctx, res, trust, options);
+	return {
+		kind: "spawned",
+		presence: res.agent,
+		pane: res.pane,
+		unbound,
+		...turn
+	};
+}
+//#endregion
 //#region src/project.ts
 /**
 * The canonical git common dir for `dir`, or undefined outside a repository. The common dir is the
@@ -8511,6 +8676,54 @@ async function startService(ctx, projectRef, name, input) {
 	}
 }
 //#endregion
+//#region src/standing-home.ts
+/**
+* Decide what a registration does to a standing owner's home: `undefined` keeps whatever the record
+* already has, `null` drops it, and a `StandingHome` replaces it. Every way a home can be wrong is
+* refused here, before anything is written — a failure found at delivery time could only be a warning
+* on someone else's send.
+*
+* The checks run in a fixed order so that a combination matching two refusals gets the first:
+* a home flag outside a named standing registration, then `--home` with `--clear-home`, then a launch
+* with no `--home`, then the folder, the launch, and the primary checkout.
+*
+* `--harness` is a home flag only on a standing registration; a plain `unit register` takes it for
+* the session itself.
+*/
+function resolveHomeFlags(exec, flags) {
+	if ((flags.home !== void 0 || flags.clearHome === true || flags.agent !== void 0) && !(flags.standing && flags.handle)) throw new Error("a home belongs only to a named standing owner — pass --standing --handle <name>");
+	if (!flags.standing) return void 0;
+	if (flags.home !== void 0 && flags.clearHome) throw new Error("--home and --clear-home contradict — pass one");
+	if (flags.home === void 0 && (flags.agent !== void 0 || flags.harness !== void 0)) throw new Error("a launch needs --home: --agent and --harness name how to start a session in it");
+	if (flags.clearHome) return null;
+	if (flags.home === void 0) return void 0;
+	const dir = resolve(flags.home);
+	if (!existsSync(dir) || !statSync(dir).isDirectory()) throw new Error(`the home must already exist: ${flags.home}`);
+	if (flags.agent === void 0 === (flags.harness === void 0)) throw new Error("a home needs exactly one of --agent or --harness");
+	let launch;
+	if (flags.harness !== void 0) {
+		if (!(flags.harness in LAUNCH_MAP)) throw new Error(`unrecognized --harness "${flags.harness}" (${Object.keys(LAUNCH_MAP).join(" | ")})`);
+		launch = { harness: flags.harness };
+	} else {
+		const agent = flags.agent;
+		try {
+			resolveAgentDef({
+				name: agent,
+				cwd: dir
+			});
+		} catch {
+			throw new Error(`the agent definition "${agent}" does not resolve from the home ${dir}`);
+		}
+		launch = { agent };
+	}
+	const primary = primaryRootOf$1(exec, dir);
+	if (primary !== void 0 && realpathSync(primary) === realpathSync(dir)) throw new Error(`the home refuses the primary checkout ${dir} — a spawned unit never works there`);
+	return {
+		dir,
+		...launch
+	};
+}
+//#endregion
 //#region src/store/errors.ts
 /** A record file exists but its content didn't parse as JSON — a torn write (crash mid-`writeFileSync`,
 * pre-atomic-write code path) or on-disk tampering. Carries the file path and the original parse
@@ -8669,6 +8882,16 @@ function withLock(root, name, fn, opts) {
 	const handle = acquireLock(root, name, opts);
 	try {
 		return fn();
+	} finally {
+		handle.release();
+	}
+}
+/** `withLock` for an async read-decide-write: the lock is held until `fn`'s promise settles, not
+* merely until it returns one. The wait to acquire is the same bounded, synchronous one. */
+async function withLockAsync(root, name, fn, opts) {
+	const handle = acquireLock(root, name, opts);
+	try {
+		return await fn();
 	} finally {
 		handle.release();
 	}
@@ -8875,6 +9098,9 @@ var FileStore = class {
 	}
 	withLock(name, fn) {
 		return withLock(this.root, name, fn);
+	}
+	withLockAsync(name, fn) {
+		return withLockAsync(this.root, name, fn);
 	}
 };
 //#endregion
@@ -9263,7 +9489,7 @@ const program = new Command();
 program.name("cyberlegion").description("Harness-agnostic agent session spawning and messaging over the filesystem").version(VERSION).enablePositionalOptions();
 const unit = program.command("unit").description("legion units — register, discover, spawn, and reap");
 /** The standing-owner branch of `unit register --standing` (folds the old `identity owner`). */
-function runStanding(ctx, opts) {
+function runStanding(ctx, opts, home) {
 	if (!opts.handle) {
 		const standing = listAgents(ctx.store).filter((a) => a.kind === "standing");
 		emit(formatOf(opts), {
@@ -9290,22 +9516,33 @@ function runStanding(ctx, opts) {
 		return;
 	}
 	const liveClaim = listAgents(ctx.store).find((a) => a.handle === opts.handle && a.kind !== "standing" && a.status !== "exited");
-	const rec = registerStanding(ctx, { handle: opts.handle });
+	const rec = registerStanding(ctx, {
+		handle: opts.handle,
+		home
+	});
 	if (liveClaim) console.error(`a live session already claims handle "${opts.handle}"`);
 	emit(formatOf(opts), {
 		toon: toonObject({
 			id: rec.id,
 			handle: rec.handle,
 			kind: rec.kind,
-			status: rec.status
+			status: rec.status,
+			home: rec.home?.dir ?? "none",
+			...rec.home ? { launch: rec.home.agent ? `agent ${rec.home.agent}` : `harness ${rec.home.harness}` } : {}
 		}),
 		json: rec
 	});
 }
-withGlobals(unit.command("register")).description("register or refresh this session identity (or --standing: a session-independent owner inbox)").option("--handle <name>", "human handle for this agent").option("--harness <h>", "claude | cursor | codex (else auto-detected)").option("--standing", "mint a standing, session-independent owner inbox (bare, with no --handle: list them)").action((opts) => {
+withGlobals(unit.command("register")).description("register or refresh this session identity (or --standing: a session-independent owner inbox)").option("--handle <name>", "human handle for this agent").option("--harness <h>", "claude | cursor | codex (else auto-detected)").option("--standing", "mint a standing, session-independent owner inbox (bare, with no --handle: list them)").option("--home <dir>", "with --standing: the existing folder a presence is spawned in when mail arrives and none is live").option("--agent <name>", "with --home: launch that agent definition, resolved from the home").option("--clear-home", "with --standing: drop the owner's home").action((opts) => {
 	const ctx = ctxOf(opts);
+	let home;
+	try {
+		home = resolveHomeFlags(ctx.exec ?? realExec, opts);
+	} catch (err) {
+		fail(err instanceof Error ? err.message : String(err));
+	}
 	if (opts.standing) {
-		runStanding(ctx, opts);
+		runStanding(ctx, opts, home);
 		return;
 	}
 	const rec = register(ctx, {
@@ -9882,7 +10119,8 @@ function defineSend(cmd) {
 		const wake = await wakeRecipient(ctx.store, () => selectSessionAdapter(ctx.env ?? process.env), realExec, {
 			toId: msg.to,
 			fromId,
-			noNudge: opts.nudge === false
+			noNudge: opts.nudge === false,
+			spawnHome: (owner) => spawnPresence(ctx, owner)
 		});
 		if (wake.warning) console.error(`delivery doorbell not confirmed (message still delivered): ${wake.warning}`);
 		emit(formatOf(opts), {
@@ -9890,11 +10128,13 @@ function defineSend(cmd) {
 				sent: msg.id,
 				to: opts.to,
 				subject: msg.subject,
-				rung: wake.rung
+				rung: wake.rung,
+				...wake.spawned ? { spawned: wake.spawned } : {}
 			}),
 			json: {
 				...msg,
-				rung: wake.rung
+				rung: wake.rung,
+				...wake.spawned ? { spawned: wake.spawned } : {}
 			}
 		});
 	});
