@@ -130,6 +130,13 @@ describe('spec:cyberlegion/unit', () => {
 			const { stderr } = legionOut(['unit', 'whoami'])
 			expect(stderr).toMatch(/register/i)
 		})
+
+		it("whoami errors when the session's self id has no agent record", () => {
+			const env = { CYBERLEGION_AGENT_ID: 'ghost1' }
+			expect(() => legion(['unit', 'whoami'], env)).toThrow()
+			const { stderr } = legionOut(['unit', 'whoami'], env)
+			expect(stderr).toMatch(/registered self id \\"ghost1\\" has no agent record/)
+		})
 	})
 
 	describe('standing identity — unit register --standing', () => {
@@ -242,6 +249,17 @@ describe('spec:cyberlegion/unit', () => {
 			const { stderr } = legionOut(['unit', 'claim', 'homa'], noMux)
 			expect(stderr).toMatch(/needs a multiplexer to open panes/)
 			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain('presence: none')
+		})
+
+		it('unit claim throws when the caller has no self id', () => {
+			legion(['unit', 'register', '--standing', '--handle', 'homa'])
+			const alice = caller('alice', '%1')
+			legion(['unit', 'claim', 'homa'], alice.env)
+			const unregistered = claimEnv('%2')
+			expect(() => legion(['unit', 'claim', 'homa'], unregistered)).toThrow()
+			const { stderr } = legionOut(['unit', 'claim', 'homa'], unregistered)
+			expect(stderr).toMatch(/no identity in this session/)
+			expect(legion(['unit', 'claim', 'homa', '--show'])).toContain(`presence: ${alice.id}`)
 		})
 
 		it('unit claim --format json emits parseable JSON for bind, show, and clear', () => {
