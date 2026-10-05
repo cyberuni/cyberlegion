@@ -1,5 +1,11 @@
 # cyberlegion
 
+## 1.4.1
+
+### Patch Changes
+
+- b95ccc7: `unit nudge --help` now says `--message` text is delivered as a turn in the peer's session, with the mail doorbell as the default.
+
 ## 1.4.0
 
 ### Minor Changes
