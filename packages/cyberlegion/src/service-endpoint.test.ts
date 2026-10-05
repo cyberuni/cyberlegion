@@ -12,6 +12,7 @@ import {
 	register,
 	registerStanding,
 	resolveOwnerMailbox,
+	resolveRecipient,
 	saveAgent,
 } from './identity.ts'
 import { inbox, send } from './message.ts'
@@ -183,6 +184,20 @@ describe('spec:cyberlegion/service/endpoint — mail', () => {
 
 		expect(() => resolveOwnerMailbox(store, 'controller@alpha')).toThrow(/names 2 service endpoints/)
 		expect(resolveOwnerMailbox(store, `svc-${twin.id}-controller`)).toBe(`svc-${twin.id}-controller`)
+	})
+
+	it('mail send --to fails loud on a handle that two endpoints share', () => {
+		const twin = repo('b', 'alpha')
+		acquireService(ctx(), project.id, 'controller')
+		acquireService(ctx(), twin.id, 'controller')
+		unit('sender')
+
+		expect(() => send({ store }, { fromId: 'sender', to: 'controller@alpha', body: 'work' })).toThrow(
+			/"controller@alpha" names 2 units — pass an id/,
+		)
+		expect(inbox({ store }, { meId: endpointId() })).toHaveLength(0)
+		expect(inbox({ store }, { meId: `svc-${twin.id}-controller` })).toHaveLength(0)
+		expect(resolveRecipient(store, `svc-${twin.id}-controller`)).toBe(`svc-${twin.id}-controller`)
 	})
 })
 

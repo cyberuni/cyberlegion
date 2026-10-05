@@ -526,6 +526,26 @@ describe('spec:cyberlegion/identity', () => {
 			expect(resolveAgent(store, 'dead01').id).toBe('dead01')
 		})
 
+		it('a handle two live records share fails loud rather than taking the first', () => {
+			seed('live01', 'operator', 'active', '%4')
+			seed('live02', 'operator', 'active', '%9')
+			// Silently taking the first match could deliver to the wrong unit — make the caller pick.
+			expect(() => resolveRecipient(store, 'operator')).toThrow(
+				/"operator" names 2 units — pass an id \(live01, live02\)/,
+			)
+			expect(() => resolveAgent(store, 'operator')).toThrow(/"operator" names 2 units — pass an id \(live01, live02\)/)
+			expect(resolveRecipient(store, 'live02')).toBe('live02')
+			expect(resolveAgent(store, 'live02').id).toBe('live02')
+		})
+
+		it('a standing record still wins a handle that two live sessions also carry', () => {
+			seed('live01', 'homa', 'active', '%4')
+			seed('live02', 'homa', 'active', '%9')
+			const standing = registerStanding(ctx({}), { handle: 'homa' })
+			expect(resolveRecipient(store, 'homa')).toBe(standing.id)
+			expect(resolveAgent(store, 'homa').id).toBe(standing.id)
+		})
+
 		it('a branch ref resolves to the live unit, never an exited one on the same branch', () => {
 			const branch = 'cyberlegion/unit-abc'
 			saveAgent(store, {
