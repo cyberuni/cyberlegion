@@ -151,6 +151,11 @@ cleanly — the deterministic inverse pair:
     trust against the main repository's root, so a repository's worktrees prompt at most once. A
     **--cwd spawn** names a folder spawn did not make, such as a new repository, so spawn sends no
     trust key: it rings nothing and reports that a person must answer the prompt in the unit's pane.
+    The one exception is a spawn whose folder a person already vouched for, which this node does not
+    decide: the delivery doorbell's spawn into a standing owner's **home** opens a folder that a person
+    named at `unit register --standing --home`, and that recorded consent is why it accepts the prompt
+    (the trust step takes *accept or leave for a person* as a parameter; `mail/doorbell` owns the
+    decision to pass *accept*, and the `unit spawn --cwd` verb itself never does).
     A prompt that is still showing after the accept keys is reported the same way. Both reports name
     the folder, the harness, and the pane. The spawn itself still lands (record, worktree, session),
     so a person can answer the prompt and then `unit nudge` the unit. The trust step runs with

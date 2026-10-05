@@ -79,6 +79,134 @@ Feature: mail doorbell — wake the recipient on delivery
     Then no pane is rung
     And the message still lands durably in the owner inbox
 
+  # ── A standing owner with a home and no live presence gets one spawned there ──
+
+  Scenario: sending to a standing owner with a home and no presence spawns a unit there and binds it as the presence
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    And a focused session bound as the hub's main pane
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then a new codex unit is registered whose cwd is /work/keeper-desk and which has no worktree
+    And the new unit was opened in its own workspace rather than a tab or split of the sender's space
+    And keeper's presence is bound to the new unit
+    And the bound main pane is not rung
+
+  Scenario: a standing owner whose presence has exited gets a new presence spawned in its home
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper's bound presence unit has exited
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then a new unit is registered whose cwd is /work/keeper-desk
+    And keeper's presence is bound to the new unit, not the exited one
+    And the exited unit's pane is not rung
+
+  Scenario: the unit spawned in the home is told to read the owner's mail
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the spawned unit's brief names the command mail inbox --owner keeper
+    And the spawned unit's pane is rung with a first-turn doorbell naming that brief's path
+
+  Scenario: the home's folder-trust prompt is accepted
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness claude
+    And keeper has no presence bound
+    And a claude session opened in /work/keeper-desk shows its folder-trust prompt
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the spawned unit's folder-trust prompt is answered with the option that trusts the folder
+    And the spawned unit's pane is rung with the first-turn doorbell
+
+  Scenario: a spawned unit stuck at its trust prompt is unbound and the send warns
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness claude
+    And keeper has no presence bound
+    And a claude session opened in /work/keeper-desk still shows its folder-trust prompt after the accept keys
+    And a focused session bound as the hub's main pane
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the message lands durably in keeper's inbox and the send succeeds
+    And the send reports a warning naming the folder and the pane
+    And keeper has no presence bound
+    And no first-turn doorbell is typed into the spawned unit's pane
+    And the bound main pane is not rung
+
+  Scenario: a spawned presence whose first turn never posts stays bound and the send still succeeds
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    And a codex session opened in /work/keeper-desk never posts the first-turn doorbell within the spawn retry budget
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the message lands durably in keeper's inbox and the send succeeds
+    And the send reports a best-effort warning
+    And keeper's presence is bound to the spawned unit
+
+  Scenario: a standing owner with a home and a live presence is rung there and nothing is spawned
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper's presence is bound to a live unit
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the presence unit's pane is rung with the delivery doorbell
+    And no new unit is registered
+
+  Scenario: two near-simultaneous deliveries spawn one presence, not two
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    When two sessions inside multiplexer panes each run mail send --to keeper at the same moment
+    Then exactly one new unit is registered whose cwd is /work/keeper-desk
+    And keeper's presence is bound to that unit
+    And both messages land durably in keeper's inbox
+
+  Scenario: a sender outside any multiplexer spawns nothing and warns instead of staying silent
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    And a sender whose multiplexer probe reports none
+    When the sender runs mail send --to keeper
+    Then the message lands durably in keeper's inbox and the send succeeds
+    And no new unit is registered
+    And the send reports a warning naming keeper and that no presence could be spawned
+    And the warning names CYBER_MUX as the way to reach a running multiplexer
+
+  Scenario: a sender outside any pane that names a running multiplexer spawns the presence
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    And a sender in no multiplexer pane whose environment sets CYBER_MUX=herdr while a herdr server is running
+    When the sender runs mail send --to keeper
+    Then a new unit is registered whose cwd is /work/keeper-desk
+    And keeper's presence is bound to the new unit
+
+  Scenario: a home whose agent definition no longer resolves warns and spawns nothing
+    Given a standing owner keeper whose home is /work/keeper-desk with the agent definition triage
+    And keeper has no presence bound
+    And /work/keeper-desk no longer resolves an agent definition named triage
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the message lands durably in keeper's inbox and the send succeeds
+    And no new unit is registered
+    And the send reports a warning naming keeper and that no presence could be spawned
+
+  Scenario: a presence lock held past its timeout warns and falls back to the bound main pane
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    And keeper's presence lock is held by a live process for longer than the lock timeout
+    And a focused session bound as the hub's main pane
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the message lands durably in keeper's inbox and the send succeeds
+    And no new unit is registered
+    And the send reports a warning naming keeper and that no presence could be spawned
+    And the bound main pane is rung with an owner-mail doorbell
+
+  Scenario: a home that cannot be spawned warns and falls back to the bound main pane
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    And the folder /work/keeper-desk has since been removed
+    And a focused session bound as the hub's main pane
+    When a session inside a multiplexer pane runs mail send --to keeper
+    Then the message lands durably in keeper's inbox and the send succeeds
+    And no new unit is registered
+    And the send reports a warning naming keeper and that no presence could be spawned
+    And the bound main pane is rung with an owner-mail doorbell
+
+  Scenario: --no-nudge spawns nothing into a standing owner's home
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness codex
+    And keeper has no presence bound
+    When a session inside a multiplexer pane runs mail send --to keeper --no-nudge
+    Then the message lands durably in keeper's inbox
+    And no new unit is registered
+    And keeper has no presence bound
+
   # ── A standing owner recipient is notified at the bound main pane ──
 
   Scenario: sending to a standing owner rings the bound main pane so the human is notified on arrival

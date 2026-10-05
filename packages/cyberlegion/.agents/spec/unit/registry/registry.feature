@@ -283,6 +283,106 @@ Feature: unit registry — register, discover, and prune legion units
     Then both homa and ops are listed
     And no session agents are listed
 
+  # ── A standing owner's home (where its presence is spawned on demand) ──
+
+  Scenario: unit register --standing --home --agent records the owner's home and its agent definition
+    Given an existing folder /work/keeper-desk that resolves the agent definition triage
+    When a session in the folder /tmp/elsewhere runs unit register --standing --handle keeper --home /work/keeper-desk --agent triage
+    Then keeper's standing record carries the home /work/keeper-desk with the agent definition triage
+    And the record's cwd is /tmp/elsewhere, not the home
+
+  Scenario: unit register --standing --home --harness records the owner's home and its harness
+    Given an existing folder /work/keeper-desk
+    When a session runs unit register --standing --handle keeper --home /work/keeper-desk --harness codex
+    Then keeper's standing record carries the home /work/keeper-desk with the harness codex
+
+  Scenario: re-registering a standing owner from another folder keeps its home and its presence
+    Given a standing identity keeper whose home is /work/keeper-desk with the harness codex
+    And keeper's presence is bound to a live unit
+    When a session in the folder /tmp/elsewhere runs unit register --standing --handle keeper
+    Then keeper's home is still /work/keeper-desk with the harness codex
+    And keeper's presence is still bound to that unit
+
+  Scenario: unit register --standing --clear-home drops the owner's home
+    Given a standing identity keeper whose home is /work/keeper-desk with the harness codex
+    When a session runs unit register --standing --handle keeper --clear-home
+    Then keeper's standing record carries no home
+
+  Scenario: --clear-home on a standing owner with no home is a no-op
+    Given a standing identity keeper with no home
+    When a session runs unit register --standing --handle keeper --clear-home
+    Then it does not throw
+    And keeper's standing record carries no home
+
+  Scenario: a home folder that does not exist is refused and nothing is written
+    Given an empty registry
+    And no folder exists at /work/missing
+    When a session runs unit register --standing --handle keeper --home /work/missing --harness codex
+    Then it throws that the home must already exist
+    And no standing record exists for keeper
+
+  Scenario: a home with no launch is refused
+    Given a standing identity keeper whose home is /work/keeper-desk with the harness codex
+    And an existing folder /work/other-desk
+    When a session runs unit register --standing --handle keeper --home /work/other-desk
+    Then it throws that a home needs exactly one of --agent or --harness
+    And keeper's home is still /work/keeper-desk with the harness codex
+
+  Scenario: a home naming both an agent definition and a harness is refused
+    Given a standing identity keeper whose home is /work/keeper-desk with the harness codex
+    And an existing folder /work/other-desk that resolves the agent definition triage
+    When a session runs unit register --standing --handle keeper --home /work/other-desk --agent triage --harness claude
+    Then it throws that a home needs exactly one of --agent or --harness
+    And keeper's home is still /work/keeper-desk with the harness codex
+
+  Scenario: a home with an unrecognized harness is refused
+    Given an empty registry
+    And an existing folder /work/keeper-desk
+    When a session runs unit register --standing --handle keeper --home /work/keeper-desk --harness grok
+    Then it throws naming claude, cursor, and codex
+    And no standing record exists for keeper
+
+  Scenario: a home whose agent definition does not resolve from the folder is refused
+    Given an empty registry
+    And an existing folder /work/keeper-desk that resolves no agent definition named triage
+    When a session runs unit register --standing --handle keeper --home /work/keeper-desk --agent triage
+    Then it throws that the agent definition triage does not resolve from the home
+    And no standing record exists for keeper
+
+  Scenario: a home on the primary checkout of its repository is refused
+    Given an empty registry
+    And a git repository whose primary checkout is /work/repo
+    When a session runs unit register --standing --handle keeper --home /work/repo --harness codex
+    Then it throws that the home refuses the primary checkout
+    And no standing record exists for keeper
+
+  Scenario: a launch with no home is refused
+    Given a standing identity keeper with no home
+    When a session runs unit register --standing --handle keeper --harness codex
+    Then it throws that a launch needs --home
+    And keeper's standing record carries no home
+
+  Scenario: --home together with --clear-home is refused
+    Given a standing identity keeper whose home is /work/keeper-desk with the harness codex
+    And an existing folder /work/other-desk
+    When a session runs unit register --standing --handle keeper --home /work/other-desk --harness codex --clear-home
+    Then it throws that --home and --clear-home contradict
+    And keeper's home is still /work/keeper-desk with the harness codex
+
+  Scenario: a home flag on a session registration is refused
+    Given an unregistered session in a tmux pane
+    And an existing folder /work/keeper-desk
+    When the session runs unit register --home /work/keeper-desk --harness codex
+    Then it throws that a home belongs only to a named standing owner
+    And no agent record is written for the session
+
+  Scenario: a home flag on the bare standing listing is refused
+    Given a standing identity keeper with no home
+    And an existing folder /work/keeper-desk
+    When a session runs unit register --standing --home /work/keeper-desk --harness codex
+    Then it throws that a home belongs only to a named standing owner
+    And keeper's standing record carries no home
+
   # ── A standing owner's presence (the live unit standing in for it) ──
 
   Scenario: unit claim binds the caller's unit as a standing owner's presence

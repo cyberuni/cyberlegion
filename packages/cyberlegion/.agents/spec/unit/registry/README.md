@@ -31,6 +31,8 @@ result and exit. A standing owner can have a **presence**: one live unit standin
 - **standing record** — a session-independent, prune-exempt owner inbox, keyed by handle.
 - **presence** — the one live unit bound as a standing owner's stand-in, so the owner's mail has
   someone who can act on it.
+- **home** — an optional folder on a standing record, plus how to launch a session there (an agent
+  definition or a harness), where a presence is spawned when mail arrives and none is live.
 - **reconcile** — comparing the registry against the panes the multiplexer actually shows: **cull**
   records whose pane is gone, and **adopt** live harness panes that have no record.
 
@@ -40,7 +42,8 @@ result and exit. A standing owner can have a **presence**: one live unit standin
 - Spawning or closing a peer session (`unit/lifecycle`).
 - Backend selection and placement (`mux/`), and the multiplexer probe itself — this node only
   *consults* it to gate a claim.
-- Ringing a bound presence on delivery (`mail/doorbell`).
+- Ringing a bound presence on delivery, and spawning one into the owner's home when none is live
+  (`mail/doorbell`). This node only stores the home.
 - Hook-based injection of mail into a harness turn (`mail/surface`).
 - The human's read-pane pointer (`attach/`).
 - Inferring the harness of a tmux pane for adoption — structurally deferred until tmux exposes a
@@ -50,7 +53,9 @@ result and exit. A standing owner can have a **presence**: one live unit standin
   higher-layer concern; this node knows only "standing owner", "presence", and "spawn capability".
 
 This node owns the registry only: register, recover, discover, prune, reconcile (both its cull and
-adopt halves), and the standing owner's presence pointer.
+adopt halves), the standing owner's presence pointer, and the standing owner's home. The pointer is
+also written by `mail/doorbell` when it binds (and, on a stuck trust prompt, unbinds) a presence it
+spawned into the home, under the same presence lock `unit claim` takes.
 
 **Provenance.** Migrated in CR-2 from `identity/` (register, whoami, who, prune, self-id, harness,
 touch, standing) plus `session/`'s `list` scenario (`cyberlegion-cli-realign`, ADR-0024): the
@@ -70,7 +75,8 @@ registry half of `unit` — the instance registry a unit's identity always was.
   and hand-opened harness panes made addressable.
 - **A frameless agent** (a cron-started session with no parent) — wants to `mail send --to <owner>`
   and exit.
-- **A person as standing owner** — wants one durable inbox, and a live unit acting for them.
+- **A person as standing owner** — wants one durable inbox, and a live unit acting for them — one
+  that appears on its own when mail arrives and nobody is standing in.
 - **Stakeholder: a mail sender** (`mail/`) — resolves handles through this registry; an owner report
   must never land in a dying session's inbox, and a name must never resolve to a dead unit.
 - **Stakeholder: the multiplexer backends** (`mux/`) — supply `listPanes`, the bulk pane enumeration
@@ -120,6 +126,49 @@ What else holds for a standing record, owned by the use cases named:
 - When a session and a standing record share a handle, **recipient resolution prefers the standing
   record**, so an owner report never lands in a dying session's inbox (`resolveRecipient`).
 - Sending to an unknown recipient still throws (fail-loud); it never auto-creates an owner.
+
+### unit register --standing --home — where the owner's presence is spawned on demand
+
+| | |
+|---|---|
+| Actor / goal | A person, or whoever sets up the hub for them, wants mail to the owner acted on even when no unit is standing in for it — above all mail from a sender with nobody watching, such as a cron job. |
+| Trigger | `unit register --standing --handle <name> --home <dir> (--agent <def> \| --harness <h>)`; `--clear-home` drops it |
+| Outcome | The standing record carries a **home**: an absolute folder plus how to launch a session there (an agent definition, or a bare harness). The delivery doorbell uses it to spawn a presence when none is live ([`mail/doorbell`](../../mail/doorbell/README.md)). |
+
+The home is **its own field**, separate from the record's `cwd`. `cwd` is wherever the registering
+process happened to run, rewritten on every refresh, so it cannot say where the owner lives. The
+home changes only when a registration names `--home` or `--clear-home`.
+
+Everything that can go wrong with a home is checked **here, when it is registered**, not at the
+first delivery. A failure at delivery time can only be a warning on someone else's send, so a typo
+caught then would surface late, to the wrong person.
+
+Extensions:
+
+- **A re-register naming neither `--home` nor `--clear-home`** keeps the home, and keeps the bound
+  presence. Refreshing the inbox is not reconfiguring it.
+- **The folder does not exist** — throws; nothing is written. cyberlegion creates no directory, the
+  same rule `unit spawn --cwd` follows.
+- **No launch named, or both `--agent` and `--harness`** — throws; nothing is written. A home needs
+  exactly one way to launch a session. An agent definition already names its harness, so a second
+  harness would be a conflict, not a refinement.
+- **`--agent` names a definition that does not resolve from the home** — throws; nothing is written.
+  The definition is looked up from the home, because that is where the spawn will look it up. The
+  record stores the definition's **name**, not its contents, so an edit to the definition reaches the
+  next spawn.
+- **`--harness` names an unrecognized harness** — throws naming `claude | cursor | codex`.
+- **The folder is the primary checkout of its repository** — throws; nothing is written. A spawned
+  unit never works in the primary checkout (`unit/lifecycle`), and a presence spawned on demand is a
+  spawned unit.
+- **`--agent` or `--harness` without `--home`** on a standing registration — throws. A launch with
+  nowhere to run it is not a home.
+- **`--home` together with `--clear-home`** — throws; the two contradict.
+- **A home flag (`--home`, `--clear-home`, `--agent`) without `--standing --handle`** — throws. Only a
+  named standing owner has a home. A plain `unit register` still takes `--harness` for itself.
+- **`--clear-home` on a record with no home** — a no-op, never an error.
+
+Surface trace: `--home` needs exactly one of `--agent` / `--harness`; `--clear-home` takes neither and
+excludes `--home`. All three apply only with `--standing --handle`.
 
 ### detectHarness — which harness is this session
 
@@ -350,7 +399,9 @@ Each use case enters its own sub-graph. Several share pieces: `register` runs `d
 
 ```mermaid
 graph TD
-  RG0["unit register [--handle] [--harness]"] --> RG1{"hub marker stamped — hub root writable?"}
+  RG0["unit register [--handle] [--harness]"] --> RGH{"--home, --clear-home, or --agent given?"}
+  RGH -- yes --> RGHX["throw: a home belongs only to a named standing owner; nothing written"]
+  RGH -- no --> RG1{"hub marker stamped — hub root writable?"}
   RG1 -- no --> RG1X["throw; no record written"]
   RG1 -- yes --> RG2{"detectHarness"}
   RG2 -- "explicit, unrecognized" --> RG2T["throw, naming claude | cursor | codex"]
@@ -370,9 +421,30 @@ graph TD
 ```mermaid
 graph TD
   SR0["unit register --standing [--handle]"] --> SR1{"--handle given?"}
-  SR1 -- no --> SR1L["list standing records only, with an 'N standing' aggregate"]
-  SR1 -- yes --> SR2["stamp hub marker; id := 'standing-' + slug of the handle"]
-  SR2 --> SR3["write: kind standing, pane null, no harness, status active, createdAt kept; no pane pointer"]
+  SR1 -- no --> SR1H{"a home flag given?"}
+  SR1H -- yes --> SR1HX["throw: a home belongs only to a named standing owner"]
+  SR1H -- no --> SR1L["list standing records only, with an 'N standing' aggregate"]
+  SR1 -- yes --> SRH{"home flags? (checked in this order; the first that matches wins)"}
+  SRH -- "--home with --clear-home" --> SRHC["throw: the two contradict; nothing written"]
+  SRH -- "--agent or --harness, no --home" --> SRHN["throw: a launch needs --home; nothing written"]
+  SRH -- "--clear-home" --> SRHD["home := none"]
+  SRH -- none --> SRHK["home := the existing record's home, if any"]
+  SRH -- "--home" --> SRH1{"the folder exists?"}
+  SRH1 -- no --> SRH1X["throw: the home must already exist; nothing written"]
+  SRH1 -- yes --> SRH2{"exactly one of --agent / --harness?"}
+  SRH2 -- no --> SRH2X["throw: a home needs exactly one of --agent or --harness; nothing written"]
+  SRH2 -- "--harness" --> SRH3{"a recognized harness?"}
+  SRH3 -- no --> SRH3X["throw naming claude | cursor | codex; nothing written"]
+  SRH2 -- "--agent" --> SRH4{"the definition resolves from the folder?"}
+  SRH4 -- no --> SRH4X["throw: no such agent definition from the home; nothing written"]
+  SRH3 -- yes --> SRH5{"the folder is the primary checkout of its repository?"}
+  SRH4 -- yes --> SRH5
+  SRH5 -- yes --> SRH5X["throw: refuses the primary checkout; nothing written"]
+  SRH5 -- no --> SRH6["home := absolute folder + the agent name or the harness"]
+  SRHD --> SR2
+  SRHK --> SR2
+  SRH6 --> SR2["stamp hub marker; id := 'standing-' + slug of the handle"]
+  SR2 --> SR3["write: kind standing, pane null, no harness, status active, createdAt kept, presence kept, the resolved home; no pane pointer"]
   SR3 --> SR4{"a live non-standing record carries that handle?"}
   SR4 -- yes --> SR4W["warn that a live session already claims the handle"]
   SR4 -- no --> SR5["done"]
@@ -595,6 +667,26 @@ adapters.
 | `RR3Y` | a live session and a standing record sharing a handle | `an owner handle colliding with a live session resolves to the standing record` |
 | `RR4X` | two live sessions sharing a handle, no standing record | `a handle two live records share fails loud rather than taking the first` |
 | `PR3 -- no` kind absent | a legacy record with no kind field | `a record with no kind field is treated as a session` |
+
+### unit register --standing --home
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `SRH6` agent | an existing folder resolving the definition, a session in another folder | `unit register --standing --home --agent records the owner's home and its agent definition` |
+| `SRH6` harness | an existing folder | `unit register --standing --home --harness records the owner's home and its harness` |
+| `SRHK` | a standing record with a home and a bound presence, a session in another folder | `re-registering a standing owner from another folder keeps its home and its presence` |
+| `SRHD` | a standing record with a home | `unit register --standing --clear-home drops the owner's home` |
+| `SRHD` no home | a standing record with no home | `--clear-home on a standing owner with no home is a no-op` |
+| `SRH1X` | an empty registry, a missing folder | `a home folder that does not exist is refused and nothing is written` |
+| `SRH2X` none | a standing record with a home, no launch named | `a home with no launch is refused` |
+| `SRH2X` both | a standing record with a home, both launches named | `a home naming both an agent definition and a harness is refused` |
+| `SRH3X` | an empty registry, an unrecognized harness | `a home with an unrecognized harness is refused` |
+| `SRH4X` | an empty registry, a folder resolving no such definition | `a home whose agent definition does not resolve from the folder is refused` |
+| `SRH5X` | an empty registry, the folder is a primary checkout | `a home on the primary checkout of its repository is refused` |
+| `SRHN` | a standing record with no home | `a launch with no home is refused` |
+| `SRHC` | a standing record with a home | `--home together with --clear-home is refused` |
+| `RGHX` | an unregistered session in a pane | `a home flag on a session registration is refused` |
+| `SR1HX` | a standing record with no home, no `--handle` | `a home flag on the bare standing listing is refused` |
 
 ### detectHarness
 
