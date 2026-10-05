@@ -323,7 +323,11 @@ Surface: `--show` and `--clear` are alternatives to claiming; given together, `-
 | Outcome | An id resolves to itself; a handle resolves among non-exited records, preferring the **standing** record when one shares the handle. |
 
 Extensions: a handle that matches only exited records, or nothing, throws — it never falls through to
-a corpse.
+a corpse. A handle that two or more non-exited, non-standing records carry (with no standing record
+among them) throws, naming each id — it never silently takes the first. Two same-named repositories
+give their service endpoints the same handle (`service/endpoint`), and two sessions can register the
+same `--handle`. `resolveAgent`, behind the verbs that take a unit ref, applies the same rule to a
+handle before it tries a worktree branch.
 
 ### listPanes — the bulk pane enumeration
 
@@ -543,7 +547,11 @@ graph TD
   RR1 -- yes --> RR1Y["that id"]
   RR1 -- no --> RR2{"non-exited records carrying that handle?"}
   RR2 -- no --> RR2X["throw — naming any exited holders"]
-  RR2 -- yes --> RR3["the standing one if any, else the first"]
+  RR2 -- yes --> RR3{"a standing one among them?"}
+  RR3 -- yes --> RR3Y["the standing one"]
+  RR3 -- no --> RR4{"exactly one?"}
+  RR4 -- yes --> RR4Y["that one"]
+  RR4 -- no --> RR4X["throw — naming each id"]
 ```
 
 ### listPanes
@@ -587,7 +595,8 @@ claim from a caller with no self id) have no scenario.
 | `SR1L` | two standing records and session agents | `bare unit register --standing lists the standing records` |
 | `PR3S` standing | a standing record with a stale lastSeen | `prune never marks a standing record exited even when its last-seen is stale` |
 | `WH5` any kind | a session agent and a standing record | `who lists a standing record alongside session agents` |
-| `RR3` | a live session and a standing record sharing a handle | `an owner handle colliding with a live session resolves to the standing record` |
+| `RR3Y` | a live session and a standing record sharing a handle | `an owner handle colliding with a live session resolves to the standing record` |
+| `RR4X` | two live sessions sharing a handle, no standing record | `a handle two live records share fails loud rather than taking the first` |
 | `PR3 -- no` kind absent | a legacy record with no kind field | `a record with no kind field is treated as a session` |
 
 ### detectHarness

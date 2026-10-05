@@ -254,6 +254,12 @@ Feature: unit registry — register, discover, and prune legion units
     When a recipient named homa is resolved
     Then it resolves to the standing record, not the live session
 
+  Scenario: a handle two live records share fails loud rather than taking the first
+    Given two live session agents that share the handle homa and no standing identity homa
+    When a recipient named homa is resolved
+    Then it errors naming both agents' ids
+    And each agent still resolves by its own id
+
   Scenario: unit register --standing warns when a live session already claims that handle
     Given a live session agent registered with handle homa
     When a session runs unit register --standing --handle homa
