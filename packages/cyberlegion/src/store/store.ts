@@ -104,6 +104,10 @@ export interface ProjectRecord {
 	/** The canonical (realpath) git common dir the id is derived from. */
 	commonDir: string
 	registeredAt: string
+	/** The repository's identity in its hosting store (GitHub's node id), resolved once when cynapse is
+	 * installed (`participants.ts`). cynapse keys the repository's channel by it; cyberlegion never
+	 * spells that key. Absent with no cynapse, no hosted remote, or no `gh`. */
+	subject?: { store: string; nativeId: string }
 }
 
 /** A project service's ownership lease (`service.ts`) — who authoritatively owns the service now,

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openStore } from 'cynapse'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FileStore } from './store/file-store.ts'
 
@@ -434,6 +435,36 @@ describe('spec:cyberlegion/unit', () => {
 		// spec: close on an unresolvable id errors and reaps nothing — at the CLI, close resolves the
 		// ref through resolveAgent (id/handle/branch) BEFORE decommission, so an unresolvable id throws
 		// the same "no agent addressable" message as the rest of the cluster and reaps nothing.
+		// cynapse is installed here (a dev dependency), so the unit lifecycle is mirrored into the store
+		// $CYNAPSE_HOME names: registered live, then retired on close (#153 stage 1). Both commands run
+		// from a scratch directory outside any repository: `register` records the caller's checkout, and
+		// `close` refuses a primary checkout, so inheriting the suite's cwd would make the result depend
+		// on whether the suite runs in a linked worktree or the primary checkout.
+		it('unit register then unit close leave the participant live, then retired', () => {
+			const home = mkdtempSync(join(tmpdir(), 'cl-cyn-'))
+			const outside = mkdtempSync(join(tmpdir(), 'cl-cyn-cwd-'))
+			const run = (args: string[]) =>
+				execFileSync('node', [BIN, ...args, '--space', space], {
+					cwd: outside,
+					encoding: 'utf8',
+					env: baseEnv({ CYNAPSE_HOME: home }),
+				})
+			const rec = JSON.parse(
+				run(['unit', 'register', '--harness', 'claude', '--handle', 'mirrored', '--format', 'json']),
+			)
+			const participant = () => {
+				const cyn = openStore({ path: join(home, 'cynapse.db') })
+				try {
+					return cyn.participants().find((p) => p.key === `cyberlegion:unit/${rec.id}`)
+				} finally {
+					cyn.close()
+				}
+			}
+			expect(participant()).toMatchObject({ kind: 'agent', name: 'mirrored', status: 'live' })
+			run(['unit', 'close', rec.id, '--keep-worktree'])
+			expect(participant()?.status).toBe('retired')
+		})
+
 		it('close on an unresolvable id errors and reaps nothing', () => {
 			const { stderr } = legionOut(['unit', 'close', 'ghost'])
 			expect(() => legion(['unit', 'close', 'ghost'])).toThrow()
