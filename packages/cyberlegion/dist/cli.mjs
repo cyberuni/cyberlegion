@@ -9162,6 +9162,169 @@ function fail(msg) {
 	process.exit(1);
 }
 //#endregion
+//#region src/participants.ts
+const UNIT_PREFIX = "cyberlegion:unit/";
+/** This hub's own participant key. One per hub root, so reconciling one hub (a `--space`, say)
+* never retires the units another hub registered in the same cynapse store. */
+function runtimeKey(root) {
+	return `cyberlegion:hub/${createHash("sha256").update(root).digest("hex").slice(0, 16)}`;
+}
+/** A unit's participant key; the participant id is UUIDv5 of it, so it is stable for the unit's life. */
+function unitKey(id) {
+	return `${UNIT_PREFIX}${id}`;
+}
+/** A record that is a unit: a session, never a standing owner or a service endpoint. */
+function isUnit(rec) {
+	return rec.kind === void 0 || rec.kind === "session";
+}
+/**
+* Bring cynapse's participants in line with this hub's unit records: register (or revive) every
+* unit that is not exited, rename one whose handle changed, and retire every participant this hub
+* registered whose unit is exited or gone. A stopped unit stays live — it keeps its address while
+* it has no session. Idempotent; a sync with nothing to change writes nothing.
+*/
+function syncParticipants(cyn, hub) {
+	const result = {
+		registered: [],
+		retired: [],
+		renamed: []
+	};
+	const runtime = cyn.registerParticipant({
+		key: runtimeKey(hub.root),
+		kind: "service",
+		name: "cyberlegion"
+	}).participant.id;
+	const mine = /* @__PURE__ */ new Map();
+	for (const p of cyn.participants({ registeredBy: runtime })) if (p.key?.startsWith(UNIT_PREFIX)) mine.set(p.key.slice(17), p);
+	const units = new Map(hub.listAgents().filter(isUnit).map((rec) => [rec.id, rec]));
+	for (const rec of units.values()) {
+		if (rec.status === "exited") continue;
+		let p = mine.get(rec.id);
+		if (!p || p.status === "retired") {
+			p = cyn.registerParticipant({
+				key: unitKey(rec.id),
+				kind: "agent",
+				name: rec.handle,
+				registeredBy: runtime
+			}).participant;
+			result.registered.push(rec.id);
+		}
+		if (p.name !== rec.handle) {
+			cyn.renameParticipant(p.id, rec.handle, runtime);
+			result.renamed.push(rec.id);
+		}
+	}
+	for (const [id, p] of mine) {
+		if (p.status !== "live") continue;
+		const rec = units.get(id);
+		if (rec && rec.status !== "exited") continue;
+		cyn.retireParticipant(p.id, runtime);
+		result.retired.push(id);
+	}
+	return result;
+}
+/**
+* The repository's native ID, for cynapse to key its channel by (ADR-0012). cynapse never calls a
+* store, so the runtime resolves it: the `origin` remote, through `gh`. Undefined with no origin, or
+* when `gh` is absent or cannot resolve it — cynapse then has no hosted subject for the repository.
+* The key string itself is cynapse's to build; this returns only the store and the id.
+*/
+function repoSubject(exec, dir) {
+	const remote = exec("git", [
+		"-C",
+		dir,
+		"remote",
+		"get-url",
+		"origin"
+	]);
+	if (!remote) return void 0;
+	const id = exec("gh", [
+		"repo",
+		"view",
+		remote,
+		"--json",
+		"id",
+		"--jq",
+		".id"
+	]);
+	return id ? {
+		store: "gh",
+		nativeId: id
+	} : void 0;
+}
+/**
+* Hand a project's native ID to cynapse: resolve it once (recorded on the project) and look up the
+* channel cynapse keys by it. Undefined when cynapse is not installed — the `gh` call is skipped
+* then — or when the repository has no hosted subject.
+*/
+async function projectAddress(hub, project, exec, env = process.env, load = importCynapse) {
+	let cyn;
+	try {
+		cyn = await openCynapse(env, load);
+		if (!cyn) return void 0;
+		let subject = project.subject;
+		if (!subject) {
+			subject = repoSubject(exec, project.root);
+			if (!subject) return void 0;
+			hub.putProject({
+				...project,
+				subject
+			});
+		}
+		const channel = cyn.getChannelBySubject(subject);
+		return {
+			subject,
+			...channel ? { channel: {
+				id: channel.id,
+				handle: channel.handle
+			} } : {}
+		};
+	} catch (err) {
+		console.error(`cynapse: project address skipped — ${err instanceof Error ? err.message : String(err)}`);
+		return;
+	} finally {
+		cyn?.close();
+	}
+}
+const importCynapse = async () => {
+	const { silenceSqliteWarning } = await import("cynapse/sqlite-warning");
+	silenceSqliteWarning();
+	return import("cynapse");
+};
+/**
+* Open the cynapse store this session shares with the agents it launches (`$CYNAPSE_HOME`), or
+* undefined when cynapse is not installed or cannot run here (no `node:sqlite`). Absence is the
+* runtime-only install, not a failure, so it is silent.
+*/
+async function openCynapse(env = process.env, load = importCynapse) {
+	let mod;
+	try {
+		mod = await load();
+	} catch {
+		return;
+	}
+	return mod.openStore({ path: mod.resolveDbPath(env) });
+}
+/**
+* Sync this hub's units into cynapse when it is installed; a no-op when it is not. Best-effort: a
+* cynapse failure is reported on stderr and never fails the command that changed the units — the
+* next sync converges, since it reconciles the whole hub.
+*/
+async function syncCynapse(hub, env = process.env, load = importCynapse) {
+	let cyn;
+	try {
+		cyn = await openCynapse(env, load);
+		if (!cyn) return void 0;
+		const store = cyn;
+		return hub.withLock("cynapse-participants", () => syncParticipants(store, hub));
+	} catch (err) {
+		console.error(`cynapse: participant sync skipped — ${err instanceof Error ? err.message : String(err)}`);
+		return;
+	} finally {
+		cyn?.close();
+	}
+}
+//#endregion
 //#region src/permission.ts
 const CLI_RULE = "Bash(cyberlegion *)";
 const COVERING = /^Bash(?:\((?:\*|cyberlegion(?: \*|:\*|\*))\))?$/;
@@ -10601,6 +10764,17 @@ function requireSelf(ctx) {
 function withGlobals(cmd) {
 	return cmd.option("--space <path>", "isolate the hub root (overrides the global hub / $CYBERLEGION_ROOT)").addOption(new Option("--format <format>", "output format").choices(["toon", "json"]).default("toon"));
 }
+/**
+* After a command that registers, spawns, closes, renames, or culls units, mirror the hub's units
+* into cynapse as participants (`participants.ts`). A no-op when cynapse is not installed.
+*/
+function syncsUnits(cmd) {
+	return cmd.hook("postAction", async (_cmd, action) => {
+		const opts = action.opts();
+		if (action.name() === "who" && !opts.reconcile) return;
+		await syncCynapse(ctxOf(opts).store);
+	});
+}
 const program = new Command();
 program.name("cyberlegion").description("Harness-agnostic agent session spawning and messaging over the filesystem").version(VERSION).enablePositionalOptions();
 const unit = program.command("unit").description("legion units — register, discover, spawn, and reap");
@@ -10649,7 +10823,7 @@ function runStanding(ctx, opts, home) {
 		json: rec
 	});
 }
-withGlobals(unit.command("register")).description("register or refresh this session identity (or --standing: a session-independent owner inbox)").option("--handle <name>", "human handle for this agent").option("--harness <h>", "claude | cursor | codex (else auto-detected)").option("--standing", "mint a standing, session-independent owner inbox (bare, with no --handle: list them)").option("--home <dir>", "with --standing: the existing folder a presence is spawned in when mail arrives and none is live").option("--agent <name>", "with --home: launch that agent definition, resolved from the home").option("--clear-home", "with --standing: drop the owner's home").action((opts) => {
+syncsUnits(withGlobals(unit.command("register"))).description("register or refresh this session identity (or --standing: a session-independent owner inbox)").option("--handle <name>", "human handle for this agent").option("--harness <h>", "claude | cursor | codex (else auto-detected)").option("--standing", "mint a standing, session-independent owner inbox (bare, with no --handle: list them)").option("--home <dir>", "with --standing: the existing folder a presence is spawned in when mail arrives and none is live").option("--agent <name>", "with --home: launch that agent definition, resolved from the home").option("--clear-home", "with --standing: drop the owner's home").action((opts) => {
 	const ctx = ctxOf(opts);
 	let home;
 	try {
@@ -10767,8 +10941,8 @@ function runWho(opts) {
 	});
 	if (agents.length === 0) nextStep("cyberlegion unit register to join");
 }
-withGlobals(unit.command("who")).description("list the addressable units").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
-withGlobals(unit.command("prune")).description("mark dead units exited and sweep").action((opts) => {
+syncsUnits(withGlobals(unit.command("who"))).description("list the addressable units").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
+syncsUnits(withGlobals(unit.command("prune"))).description("mark dead units exited and sweep").action((opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
 	const changed = prune(ctx);
@@ -10830,7 +11004,7 @@ function reportBaseFallback(res) {
 	if (res.base?.fallback) console.error(`base: fell back to local HEAD — ${res.base.fallback}`);
 }
 function defineSpawn(cmd) {
-	return withSpawnOptions(cmd).description("launch a new peer session in its own git worktree (tmux or herdr)").action(async (opts) => {
+	return syncsUnits(withSpawnOptions(cmd)).description("launch a new peer session in its own git worktree (tmux or herdr)").action(async (opts) => {
 		const ctx = ctxOf(opts);
 		touch(ctx);
 		let spawnInput;
@@ -10874,7 +11048,7 @@ function defineSpawn(cmd) {
 	});
 }
 defineSpawn(unit.command("spawn"));
-withGlobals(unit.command("close")).description("release the unit's worktree lease (or remove a worktree it holds no lease on), tear down its session, and reap its state (the inverse of spawn)").argument("<id>", "unit id, handle, or worktree branch/CR ref").option("--force", "discard uncommitted changes in a worktree close removes (never overrides refusing the primary checkout)").option("--keep-worktree", "leave the worktree on disk for reuse and reap everything else (skips the dirty check; never overrides refusing the primary checkout)").action(async (ref, opts) => {
+syncsUnits(withGlobals(unit.command("close"))).description("release the unit's worktree lease (or remove a worktree it holds no lease on), tear down its session, and reap its state (the inverse of spawn)").argument("<id>", "unit id, handle, or worktree branch/CR ref").option("--force", "discard uncommitted changes in a worktree close removes (never overrides refusing the primary checkout)").option("--keep-worktree", "leave the worktree on disk for reuse and reap everything else (skips the dirty check; never overrides refusing the primary checkout)").action(async (ref, opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
 	const agent = resolveAgent(ctx.store, ref);
@@ -11038,7 +11212,26 @@ function projectFields(p) {
 		root: p.root
 	};
 }
-withGlobals(project.command("register")).description("register (or refresh) the project containing a directory — any checkout of it").option("--dir <path>", "a directory inside the project (default: the current directory)").action((opts) => {
+/** A project, with the repository's native ID handed to cynapse when it is installed: the channel
+* cynapse keys by that ID, if anyone has created it. */
+async function emitProject(ctx, opts, rec) {
+	const address = await projectAddress(ctx.store, rec, ctx.exec ?? realExec);
+	const project = address ? {
+		...rec,
+		subject: address.subject
+	} : rec;
+	emit(formatOf(opts), {
+		toon: toonObject({
+			...projectFields(project),
+			...address ? { channel: address.channel?.handle ?? "none" } : {}
+		}),
+		json: address ? {
+			...project,
+			...address.channel ? { channel: address.channel } : {}
+		} : project
+	});
+}
+withGlobals(project.command("register")).description("register (or refresh) the project containing a directory — any checkout of it").option("--dir <path>", "a directory inside the project (default: the current directory)").action(async (opts) => {
 	const ctx = ctxOf(opts);
 	let rec;
 	try {
@@ -11046,10 +11239,7 @@ withGlobals(project.command("register")).description("register (or refresh) the 
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}
-	emit(formatOf(opts), {
-		toon: toonObject(projectFields(rec)),
-		json: rec
-	});
+	await emitProject(ctx, opts, rec);
 });
 withGlobals(project.command("list")).description("list the registered projects").action((opts) => {
 	const projects = listProjects(ctxOf(opts).store);
@@ -11072,7 +11262,7 @@ withGlobals(project.command("list")).description("list the registered projects")
 	});
 	if (projects.length === 0) nextStep("cyberlegion project register to add the current repository");
 });
-withGlobals(project.command("show")).description("resolve a registered project by id, path, or unique name").argument("<ref>", "project id, a path inside any of its checkouts, or its name").action((ref, opts) => {
+withGlobals(project.command("show")).description("resolve a registered project by id, path, or unique name").argument("<ref>", "project id, a path inside any of its checkouts, or its name").action(async (ref, opts) => {
 	const ctx = ctxOf(opts);
 	let rec;
 	try {
@@ -11080,10 +11270,7 @@ withGlobals(project.command("show")).description("resolve a registered project b
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}
-	emit(formatOf(opts), {
-		toon: toonObject(projectFields(rec)),
-		json: rec
-	});
+	await emitProject(ctx, opts, rec);
 });
 const service = program.command("service").description("project services — one authoritative owner each, fenced by generation");
 function serviceFields(v) {
@@ -11192,7 +11379,7 @@ withGlobals(service.command("verify")).description("the fencing check: exit 0 on
 		generation: opts.generation
 	}))));
 });
-withSpawnOptions(service.command("start")).description("resolve the healthy owner, or spawn one peer and bind it — concurrent starts launch once").argument("<project-or-name>", "project id, path, or unique name — omit to use the current directory").argument("[name]", "service name").option("--ttl <ms>", "how long the reservation holds while the peer launches", generationOf).action(async (first, second, opts) => {
+syncsUnits(withSpawnOptions(service.command("start"))).description("resolve the healthy owner, or spawn one peer and bind it — concurrent starts launch once").argument("<project-or-name>", "project id, path, or unique name — omit to use the current directory").argument("[name]", "service name").option("--ttl <ms>", "how long the reservation holds while the peer launches", generationOf).action(async (first, second, opts) => {
 	const [projectRef, name] = serviceTarget(first, second);
 	const ctx = ctxOf(opts);
 	touch(ctx);
@@ -11644,7 +11831,7 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 defineSpawn(program.command("spawn"));
 defineSend(program.command("send"));
 withGlobals(program.command("inbox")).description("list your mail (alias of `mail inbox`)").option("--unread", "only un-acked mail").option("--from <id>", "filter by sender").option("--thread <id>", "filter to messages carrying this thread id").action(runInbox);
-withGlobals(program.command("who")).description("list the addressable units (alias of `unit who`)").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
+syncsUnits(withGlobals(program.command("who"))).description("list the addressable units (alias of `unit who`)").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
 withGlobals(program).action((opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);

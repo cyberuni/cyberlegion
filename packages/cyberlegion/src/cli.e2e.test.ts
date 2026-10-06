@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { openStore } from 'cynapse'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { FileStore } from './store/file-store.ts'
 
@@ -434,6 +435,28 @@ describe('spec:cyberlegion/unit', () => {
 		// spec: close on an unresolvable id errors and reaps nothing — at the CLI, close resolves the
 		// ref through resolveAgent (id/handle/branch) BEFORE decommission, so an unresolvable id throws
 		// the same "no agent addressable" message as the rest of the cluster and reaps nothing.
+		// cynapse is installed here (a dev dependency), so the unit lifecycle is mirrored into the store
+		// $CYNAPSE_HOME names: registered live, then retired on close (#153 stage 1).
+		it('unit register then unit close leave the participant live, then retired', () => {
+			const home = mkdtempSync(join(tmpdir(), 'cl-cyn-'))
+			const rec = JSON.parse(
+				legion(['unit', 'register', '--harness', 'claude', '--handle', 'mirrored', '--format', 'json'], {
+					CYNAPSE_HOME: home,
+				}),
+			)
+			const participant = () => {
+				const cyn = openStore({ path: join(home, 'cynapse.db') })
+				try {
+					return cyn.participants().find((p) => p.key === `cyberlegion:unit/${rec.id}`)
+				} finally {
+					cyn.close()
+				}
+			}
+			expect(participant()).toMatchObject({ kind: 'agent', name: 'mirrored', status: 'live' })
+			legion(['unit', 'close', rec.id, '--keep-worktree'], { CYNAPSE_HOME: home })
+			expect(participant()?.status).toBe('retired')
+		})
+
 		it('close on an unresolvable id errors and reaps nothing', () => {
 			const { stderr } = legionOut(['unit', 'close', 'ghost'])
 			expect(() => legion(['unit', 'close', 'ghost'])).toThrow()

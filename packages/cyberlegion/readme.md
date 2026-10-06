@@ -98,6 +98,16 @@ Top-level shortcuts are provided for the common verbs: `spawn`, `send`, `inbox`,
 | `--space <path>`    | Isolate the hub root (overrides the global hub / `$CYBERLEGION_ROOT`) |
 | `--format <format>` | Output format: `toon` (default) or `json`                         |
 
+## cynapse (optional)
+
+[cynapse](https://github.com/cyberuni/cynapse) is an optional peer dependency. Install it beside
+cyberlegion (`npm i cyberlegion cynapse`) and the commands that change units (`unit register`,
+`unit spawn`, `unit close`, `unit prune`, `who --reconcile`, `service start`) mirror the hub's units
+into the cynapse store `$CYNAPSE_HOME` names: `live` while a unit exists, `retired` once it is gone.
+`project register` and `project show` also resolve the repository's GitHub node id and report the
+channel cynapse keys by it. Without cynapse these steps are skipped silently. Mail still goes through
+the hub.
+
 ## Agent plugin
 
 Agent session spawning, messaging, and dispatch — harness-agnostic, MCP-free. The foundation both

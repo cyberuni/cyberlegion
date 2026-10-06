@@ -34,6 +34,7 @@ import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send } from './m
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
+import { projectAddress, syncCynapse } from './participants.ts'
 import { resolveRoot } from './paths.ts'
 import {
 	addPermissionRule,
@@ -101,6 +102,18 @@ function withGlobals(cmd: Command): Command {
 		.addOption(new Option('--format <format>', 'output format').choices(['toon', 'json']).default('toon'))
 }
 
+/**
+ * After a command that registers, spawns, closes, renames, or culls units, mirror the hub's units
+ * into cynapse as participants (`participants.ts`). A no-op when cynapse is not installed.
+ */
+function syncsUnits(cmd: Command): Command {
+	return cmd.hook('postAction', async (_cmd, action) => {
+		const opts = action.opts() as GlobalOpts & { reconcile?: boolean }
+		if (action.name() === 'who' && !opts.reconcile) return
+		await syncCynapse(ctxOf(opts).store)
+	})
+}
+
 const program = new Command()
 program
 	.name('cyberlegion')
@@ -161,7 +174,7 @@ function runStanding(
 	})
 }
 
-withGlobals(unit.command('register'))
+syncsUnits(withGlobals(unit.command('register')))
 	.description('register or refresh this session identity (or --standing: a session-independent owner inbox)')
 	.option('--handle <name>', 'human handle for this agent')
 	.option('--harness <h>', 'claude | cursor | codex (else auto-detected)')
@@ -269,7 +282,7 @@ function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void
 	if (agents.length === 0) nextStep('cyberlegion unit register to join')
 }
 
-withGlobals(unit.command('who'))
+syncsUnits(withGlobals(unit.command('who')))
 	.description('list the addressable units')
 	.option('--all', 'include exited units')
 	.option(
@@ -278,7 +291,7 @@ withGlobals(unit.command('who'))
 	)
 	.action(runWho)
 
-withGlobals(unit.command('prune'))
+syncsUnits(withGlobals(unit.command('prune')))
 	.description('mark dead units exited and sweep')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
@@ -383,7 +396,7 @@ function reportBaseFallback(res: { base?: { fallback?: string } }): void {
 }
 
 function defineSpawn(cmd: Command): Command {
-	return withSpawnOptions(cmd)
+	return syncsUnits(withSpawnOptions(cmd))
 		.description('launch a new peer session in its own git worktree (tmux or herdr)')
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
@@ -435,7 +448,7 @@ function defineSpawn(cmd: Command): Command {
 }
 defineSpawn(unit.command('spawn'))
 
-withGlobals(unit.command('close'))
+syncsUnits(withGlobals(unit.command('close')))
 	.description(
 		"release the unit's worktree lease (or remove a worktree it holds no lease on), tear down its session, and reap its state (the inverse of spawn)",
 	)
@@ -622,10 +635,21 @@ function projectFields(p: ProjectRecord) {
 	return { id: p.id, name: p.name, root: p.root }
 }
 
+/** A project, with the repository's native ID handed to cynapse when it is installed: the channel
+ * cynapse keys by that ID, if anyone has created it. */
+async function emitProject(ctx: IdContext, opts: GlobalOpts, rec: ProjectRecord): Promise<void> {
+	const address = await projectAddress(ctx.store, rec, ctx.exec ?? realExec)
+	const project = address ? { ...rec, subject: address.subject } : rec
+	emit(formatOf(opts), {
+		toon: toonObject({ ...projectFields(project), ...(address ? { channel: address.channel?.handle ?? 'none' } : {}) }),
+		json: address ? { ...project, ...(address.channel ? { channel: address.channel } : {}) } : project,
+	})
+}
+
 withGlobals(project.command('register'))
 	.description('register (or refresh) the project containing a directory — any checkout of it')
 	.option('--dir <path>', 'a directory inside the project (default: the current directory)')
-	.action((opts) => {
+	.action(async (opts) => {
 		const ctx = ctxOf(opts)
 		let rec: ProjectRecord
 		try {
@@ -633,7 +657,7 @@ withGlobals(project.command('register'))
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}
-		emit(formatOf(opts), { toon: toonObject(projectFields(rec)), json: rec })
+		await emitProject(ctx, opts, rec)
 	})
 
 withGlobals(project.command('list'))
@@ -660,7 +684,7 @@ withGlobals(project.command('list'))
 withGlobals(project.command('show'))
 	.description('resolve a registered project by id, path, or unique name')
 	.argument('<ref>', 'project id, a path inside any of its checkouts, or its name')
-	.action((ref, opts) => {
+	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		let rec: ProjectRecord
 		try {
@@ -668,7 +692,7 @@ withGlobals(project.command('show'))
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}
-		emit(formatOf(opts), { toon: toonObject(projectFields(rec)), json: rec })
+		await emitProject(ctx, opts, rec)
 	})
 
 // -------------------------------------------------------------------------------------------
@@ -833,7 +857,7 @@ withGlobals(service.command('verify'))
 		emitService(opts, serviceFields(v))
 	})
 
-withSpawnOptions(service.command('start'))
+syncsUnits(withSpawnOptions(service.command('start')))
 	.description('resolve the healthy owner, or spawn one peer and bind it — concurrent starts launch once')
 	.argument('<project-or-name>', 'project id, path, or unique name — omit to use the current directory')
 	.argument('[name]', 'service name')
@@ -1343,7 +1367,7 @@ withGlobals(program.command('inbox'))
 	.option('--from <id>', 'filter by sender')
 	.option('--thread <id>', 'filter to messages carrying this thread id')
 	.action(runInbox)
-withGlobals(program.command('who'))
+syncsUnits(withGlobals(program.command('who')))
 	.description('list the addressable units (alias of `unit who`)')
 	.option('--all', 'include exited units')
 	.option(

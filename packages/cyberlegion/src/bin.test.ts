@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -87,5 +87,31 @@ describe('bin/cyberlegion on PATH at an install location', () => {
 
 		expect(statSync(join(PKG_DIR, 'bin', 'cyberlegion')).mode & 0o111).not.toBe(0)
 		expect(files.some((entry) => entry === 'bin' || entry === 'bin/cyberlegion')).toBe(true)
+	})
+})
+
+// cynapse is an optional peer (cyber-civitas decision 0001): a runtime-only install has no cynapse,
+// and the commands that sync units into it must work, silently, without it.
+describe('an install without cynapse', () => {
+	it('an install without cynapse registers and closes a unit and writes no cynapse store', () => {
+		const root = installShape(['bin/cyberlegion.mjs', 'dist/cli.mjs', 'package.json'])
+		const hub = join(root, 'hub')
+		const home = join(root, 'cynapse-home')
+		const env: NodeJS.ProcessEnv = { ...process.env, CYNAPSE_HOME: home }
+		for (const k of ['TMUX', 'TMUX_PANE', 'HERDR_ENV', 'HERDR_PANE_ID', 'CYBER_MUX', 'CYBER_MUX_PANE']) delete env[k]
+		const run = (args: string[]) =>
+			spawnSync('node', [join(root, 'bin', 'cyberlegion.mjs'), ...args, '--space', hub], {
+				cwd: root,
+				encoding: 'utf8',
+				env,
+			})
+
+		const reg = run(['unit', 'register', '--harness', 'claude', '--handle', 'solo', '--format', 'json'])
+		expect(reg.stderr).toBe('')
+		expect(reg.status).toBe(0)
+		const close = run(['unit', 'close', JSON.parse(reg.stdout).id, '--keep-worktree'])
+		expect(close.status).toBe(0)
+		expect(close.stderr).not.toContain('cynapse')
+		expect(existsSync(join(home, 'cynapse.db'))).toBe(false)
 	})
 })

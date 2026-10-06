@@ -231,6 +231,9 @@ importers:
       '@types/node':
         specifier: ^24.10.1
         version: 24.13.3
+      cynapse:
+        specifier: 0.1.0
+        version: 0.1.0
       smol-toml:
         specifier: ^1.8.0
         version: 1.8.0
@@ -2097,6 +2100,11 @@ packages:
   cyber-sdd@0.4.2:
     resolution: {integrity: sha512-z11dQShLfPjnnDb67sI2I7u44RPhyJrTt7H/BmNm+QA3eGEV2CjdEGYnsfFUVH9NOnWJe/AFQF/O4EwacwQm2Q==}
     engines: {node: '>=22.11'}
+    hasBin: true
+
+  cynapse@0.1.0:
+    resolution: {integrity: sha512-gz+QonPGdIf7YswOFejB0UT99UenDT6mx0ygKak0hxKEw4zTljV2Wwn+yh7kiryU2Ki36t6ArMnrKznjabM0lg==}
+    engines: {node: '>=22.13'}
     hasBin: true
 
   debug@4.4.3:
@@ -4960,6 +4968,10 @@ snapshots:
   cyber-sdd@0.4.2:
     dependencies:
       gherkin-cli: 0.2.1
+
+  cynapse@0.1.0:
+    dependencies:
+      commander: 15.0.0
 
   debug@4.4.3(supports-color@8.1.1):
     dependencies:

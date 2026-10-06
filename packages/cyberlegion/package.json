@@ -52,8 +52,17 @@
 		"commander": "^15.0.0",
 		"cyber-mux": "0.8.0"
 	},
+	"peerDependencies": {
+		"cynapse": "^0.1.0"
+	},
+	"peerDependenciesMeta": {
+		"cynapse": {
+			"optional": true
+		}
+	},
 	"devDependencies": {
 		"@types/node": "^24.10.1",
+		"cynapse": "0.1.0",
 		"smol-toml": "^1.8.0",
 		"tsdown": "^0.23.0",
 		"tsx": "^4.22.3",
