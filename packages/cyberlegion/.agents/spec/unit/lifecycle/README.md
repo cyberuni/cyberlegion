@@ -54,6 +54,16 @@ cleanly — the deterministic inverse pair:
     to a **sibling** of the primary checkout, `<parent>/<repo>.worktrees/legion-<id6>`, never nested
     inside the primary's own tree. With no `--branch`, it is created on `cyberlegion/unit-<id>`;
     `--branch <name>` names it instead.
+  - **Which commit the worktree's branch starts from** — the caller's local HEAD is often behind its
+    upstream, and a unit cut from it starts stale and has to rebase before doing anything. So with
+    no `--base`, spawn fetches `origin` in the primary checkout and cuts the branch from `origin/HEAD`
+    (the remote's default branch). Every way that can fail — no `origin` remote (nothing is
+    fetched), a failed fetch, no `origin/HEAD` recorded — falls back to local HEAD and says which;
+    a spawn never fails for being offline. `--base <ref>` names the start point instead and nothing
+    is fetched. The base is resolved after the primary-checkout refusal, so a refused spawn fetches
+    nothing, and both creation routes cut from the same base. The spawn reports the base it used.
+    Keeping a running unit current when trunk moves is not spawn's job; that stays with the fleet
+    layer, which knows the merge order.
   - **Which repository the worktree comes from** — the repository the caller's current directory
     is in, unless `-C, --repo <path>` names another: the worktree is then added against the primary
     checkout of the repository containing `<path>`, and the default location above is beside *that*
@@ -73,7 +83,7 @@ cleanly — the deterministic inverse pair:
     peer is registered with that directory as its cwd and no created worktree. `--cwd` requires the
     directory to already exist (cyberlegion creates no directory), refuses the primary checkout (the
     same guard the created-worktree path enforces), and is mutually exclusive with the
-    worktree-creating flags (`--branch` / `--worktree-path` / `--repo`). This is the enabler that lets a caller
+    worktree-creating flags (`--branch` / `--worktree-path` / `--repo` / `--base`). This is the enabler that lets a caller
     (e.g. the `cyberfleet` fleet layer) own the worktree lifecycle and hand cyberlegion a ready
     directory to run in.
   - **Spawn resolves the default placement by mode — own visible space vs the caller's current
@@ -425,7 +435,7 @@ graph TD
   SPB -- no --> SPB1["throw naming the map — no worktree, session or record"]
   SPB -- yes --> SPC{"a brief source given? --brief-file, --task -, or --task text"}
   SPC -- no --> SPC1["throw asking for a brief — no worktree, session or record"]
-  SPC -- yes --> SPD{"--cwd combined with --branch/--worktree-path/--repo?"}
+  SPC -- yes --> SPD{"--cwd combined with --branch/--worktree-path/--repo/--base?"}
   SPD -- yes --> SPD1["throw: mutually exclusive"]
   SPD -- no --> SPR{"--repo given and its path in no git repository?"}
   SPR -- yes --> SPR1["throw: not inside a git repository — no worktree, session or record"]
@@ -438,7 +448,14 @@ graph TD
   SPE -- no --> SPI["primary := primary checkout of --repo's repository ?? the current directory's; branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace; path := --worktree-path ?? parent/repo.worktrees/legion-id6 (beside primary)"]
   SPI --> SPJ{"the resolved worktree path is the primary checkout?"}
   SPJ -- yes --> SPJ1["throw BEFORE anything is created or opened"]
-  SPJ -- no --> SPK{"at = workspace AND the backend offers worktree creation?"}
+  SPJ -- no --> SPBA{"--base given?"}
+  SPBA -- yes --> SPBA1["base := --base; nothing fetched"]
+  SPBA -- no --> SPBB{"origin remote exists AND git fetch origin succeeds AND origin/HEAD is set?"}
+  SPBB -- yes --> SPBB1["base := origin/HEAD's branch (e.g. origin/main)"]
+  SPBB -- no --> SPBB2["base := HEAD; report the fallback and which step failed"]
+  SPBA1 --> SPK{"at = workspace AND the backend offers worktree creation?"}
+  SPBB1 --> SPK
+  SPBB2 --> SPK
   SPK -- yes --> SPK1["atomic: write the shim (SPS), then ONE backend call creates the worktree and opens its workspace"]
   SPK -- no --> SPK2["plain: git worktree add, write the shim (SPS), then a separate open"]
   SPK1 --> SPBK{"backstop: the root the route returned is the primary checkout?"}
@@ -727,6 +744,17 @@ column records. They are not gaps.
 | `SPI` --repo names the repository | a new-worktree spawn given --repo inside another repository | `--repo creates the worktree from the repository containing the path it names, not the caller's` |
 | `SPR -- yes` | --repo naming a path in no git repository | `--repo naming a path outside any git repository errors before anything is created` |
 
+### Which commit the worktree's branch starts from
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `SPBB -- yes` | no --base, origin fetches and records its default branch | `a spawn with no --base fetches origin and cuts the worktree from origin's default branch` |
+| `SPBA -- yes` | --base naming a ref | `--base cuts the worktree from the ref it names, without fetching` |
+| `SPBB -- no` fetch fails | no --base, origin cannot be fetched | `a spawn whose fetch of origin fails falls back to local HEAD and says so` |
+| `SPBB -- no` no remote | no --base, no origin remote | `a spawn in a repository with no origin remote falls back to local HEAD and says so` |
+| `SPBB -- no` no origin/HEAD | no --base, origin fetches but records no default branch | `a spawn whose origin has no default branch recorded falls back to local HEAD and says so` |
+| `SPK -- yes` carries the base | a workspace spawn on a backend that creates worktrees | `the atomic route cuts the worktree from the same base as the plain route` |
+
 ### Which route creates the worktree
 
 | Edge | Path (Given) | Scenario |
@@ -758,7 +786,7 @@ column records. They are not gaps.
 | `SPE -- yes` → `SPO` | --cwd naming an existing directory | `--cwd spawns a session into an existing directory and creates no worktree` |
 | `SPF -- no` | --cwd naming a directory that does not exist | `--cwd requires the directory to already exist` |
 | `SPG -- yes` | --cwd naming the primary checkout | `--cwd refuses the primary checkout, the same as a created worktree` |
-| `SPD -- yes` | --cwd combined with --branch/--worktree-path/--repo | `--cwd is mutually exclusive with the worktree-creating flags` |
+| `SPD -- yes` | --cwd combined with --branch/--worktree-path/--repo/--base | `--cwd is mutually exclusive with the worktree-creating flags` |
 
 ### spawn delivers the peer's first turn
 

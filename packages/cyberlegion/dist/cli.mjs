@@ -6963,6 +6963,29 @@ function primaryRootOf$1(exec, dir) {
 	}
 }
 /**
+* The start point for a new unit worktree. A caller's local HEAD is often behind its upstream, and a
+* unit cut from it starts stale and has to rebase before doing anything, so the default is origin's
+* default branch, fetched first. Every way that can fail falls back to local HEAD and names why —
+* a spawn never fails for being offline.
+*/
+function resolveSpawnBase(exec, primaryRoot, base) {
+	if (base) return { ref: base };
+	const git = (...args) => exec("git", [
+		"-C",
+		primaryRoot,
+		...args
+	]);
+	const local = (fallback) => ({
+		ref: "HEAD",
+		fallback
+	});
+	if (git("remote", "get-url", "origin") === null) return local("there is no origin remote");
+	if (git("fetch", "--quiet", "origin") === null) return local("the fetch of origin failed");
+	const head = git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD");
+	if (!head) return local("origin's default branch is unknown (origin/HEAD is not set)");
+	return { ref: head };
+}
+/**
 * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
 * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
 * its cwd set to that worktree, pre-register the peer, and drop its brief as a file — never typed
@@ -6985,7 +7008,7 @@ function spawn(ctx, input) {
 	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`spawn needs a --harness in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")})`);
 	const brief = resolveBrief(input);
 	if (brief == null) throw new Error("spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>");
-	if (input.cwd && (input.branch || input.worktreePath || input.repo)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo");
+	if (input.cwd && (input.branch || input.worktreePath || input.repo || input.base)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo/--base");
 	const id = randomId();
 	const primaryRoot = input.cwd !== void 0 && input.cwdOwnRepo === true ? primaryRootOf$1(exec, input.cwd) : input.repo ? primaryRootOfRepo(exec, input.repo) : resolvePrimaryRoot(exec);
 	const launch = input.command ?? LAUNCH_MAP[harness];
@@ -6993,6 +7016,7 @@ function spawn(ctx, input) {
 	const from = callerPane(sessionAdapter, normalizedEnv);
 	let cwd;
 	let worktree;
+	let base;
 	let target;
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) throw new Error(`--cwd directory must already exist: ${input.cwd}`);
@@ -7013,11 +7037,13 @@ function spawn(ctx, input) {
 		const at = input.at ?? "workspace";
 		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6));
 		assertDistinctFromPrimary(resolve(worktreePath), primaryRoot);
+		base = resolveSpawnBase(exec, primaryRoot, input.base);
 		if (at === "workspace" && sessionAdapter.worktree) {
 			const opened = sessionAdapter.worktree.createInWorkspace(exec, {
 				primaryRoot,
 				branch,
 				path: worktreePath,
+				base: base.ref,
 				launch: launchLine(),
 				...labelFor(at, input, brief, id)
 			});
@@ -7033,7 +7059,8 @@ function spawn(ctx, input) {
 			const added = gitWorktreeAdapter.add(exec, {
 				primaryRoot,
 				path: worktreePath,
-				branch
+				branch,
+				base: base.ref
 			});
 			assertDistinctFromPrimary(added.root, primaryRoot);
 			ensureMarker(join(added.root, ".agents", "cyberlegion"));
@@ -7076,7 +7103,8 @@ function spawn(ctx, input) {
 	return {
 		agent: rec,
 		pane: target.id,
-		launch
+		launch,
+		...base ? { base } : {}
 	};
 }
 /**
@@ -7655,6 +7683,7 @@ function spawnCommandInput(opts, listCursorModels) {
 			worktreePath: opts.worktreePath,
 			cwd: opts.cwd,
 			repo: opts.repo,
+			base: opts.base,
 			at: opts.at
 		},
 		noWake: opts.wake === false,
@@ -9687,7 +9716,7 @@ function warnEffortNotApplied(spawnInput) {
 }
 /** The launch options `unit spawn` and `service start` share. */
 function withSpawnOptions(cmd) {
-	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("-C, --repo <path>", "create the worktree from the git repository containing <path>, not the current directory's").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
+	return withGlobals(cmd).option("--harness <h>", "claude | cursor | codex (required unless --agent/--agent-file resolves one)").option("--agent <name>", "resolve an agent def (.agents/agents/<name>.md) for harness/model/effort/instructions").option("--agent-file <path>", "read an exact agent def file instead of resolving by name").option("--model <name>", "model for this launch only (flag > agent def > harness default)").option("--effort <level>", "effort for this launch only (flag > agent def > harness default)").option("--task <text>", "brief text, or - for stdin").option("--brief-file <path>", "read the brief from a file").option("--handle <name>", "handle for the new peer").option("--branch <name>", "branch for the new worktree (default cyberlegion/unit-<id>)").option("--worktree-path <path>", "where to check out the new worktree").option("-C, --repo <path>", "create the worktree from the git repository containing <path>, not the current directory's").option("--base <ref>", "start the new worktree's branch from <ref> (default: fetch origin and use its default branch, else local HEAD)").option("--cwd <path>", "spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo/--base)").addOption(new Option("--at <placement>", "where to open the new session (default: new-worktree → workspace, --cwd → tab)").choices([
 		"pane:right",
 		"pane:down",
 		"tab",
@@ -9708,6 +9737,11 @@ function reportTrustBlocked(res) {
 	}
 	process.exitCode = 1;
 }
+/** A spawn that wanted origin's default branch and cut from local HEAD instead says so: the unit may
+* start behind its upstream, and the caller would otherwise not know. */
+function reportBaseFallback(res) {
+	if (res.base?.fallback) console.error(`base: fell back to local HEAD — ${res.base.fallback}`);
+}
 function defineSpawn(cmd) {
 	return withSpawnOptions(cmd).description("launch a new peer session in its own git worktree (tmux or herdr)").action(async (opts) => {
 		const ctx = ctxOf(opts);
@@ -9722,6 +9756,7 @@ function defineSpawn(cmd) {
 		const res = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake });
 		if (res.warning) console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`);
 		reportTrustBlocked(res);
+		reportBaseFallback(res);
 		emit(formatOf(opts), {
 			toon: toonObject({
 				spawned: res.agent.id,
@@ -9730,6 +9765,7 @@ function defineSpawn(cmd) {
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 				effort: reportedEffort(spawnInput.launched),
 				worktree: res.agent.worktree?.root,
+				base: res.base?.ref,
 				pane: res.pane,
 				rung: res.rung,
 				trust: res.trust
@@ -9738,6 +9774,7 @@ function defineSpawn(cmd) {
 				agent: res.agent,
 				pane: res.pane,
 				launch: res.launch,
+				base: res.base,
 				model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 				effort: reportedEffort(spawnInput.launched),
 				rung: res.rung,
@@ -10086,6 +10123,7 @@ withSpawnOptions(service.command("start")).description("resolve the healthy owne
 				const spawned = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake });
 				warning = spawned.warning;
 				reportTrustBlocked(spawned);
+				reportBaseFallback(spawned);
 				return {
 					unit: spawned.agent.id,
 					pane: spawned.pane

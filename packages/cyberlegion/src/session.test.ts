@@ -538,7 +538,7 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 		// still find where git registered it once its directory is gone.
 		expect(res.agent.worktree).toEqual({ root: resolve(custom), branch: 'my-branch', primaryRoot })
 		const addCall = worktreeAddCalls[0]!
-		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '-b', 'my-branch', custom])
+		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '-b', 'my-branch', custom, 'HEAD'])
 	})
 
 	it('opens the session in an explicit --worktree-path and records that root', () => {
@@ -1950,5 +1950,138 @@ describe('spec:cyberlegion/unit/lifecycle spawn answers the folder-trust prompt 
 		expect(res.trust).toBe('none')
 		expect(sent.some((a) => a.at(-1) === 'Down')).toBe(false)
 		expect(sent.some(isDoorbell(res.agent.brief as string))).toBe(true)
+	})
+})
+
+describe('spec:cyberlegion/unit/lifecycle spawn cuts the worktree from the freshly fetched upstream', () => {
+	interface Origin {
+		/** No origin remote at all. */
+		none?: boolean
+		/** The fetch of origin fails (offline, auth). */
+		fetchFails?: boolean
+		/** What `origin/HEAD` points at after the fetch; null when it is not recorded. */
+		head?: string | null
+	}
+
+	/** A git that answers the base-resolution probes per `origin`, recording every git call. */
+	function originExec(origin: Origin, gitCalls: string[][], herdrCalls?: string[][]): Exec {
+		return (cmd, args) => {
+			if (cmd === 'git') {
+				gitCalls.push(args)
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('remote') && args.includes('get-url')) {
+					return origin.none ? null : 'https://example.test/repo.git'
+				}
+				if (args.includes('fetch')) return origin.fetchFails ? null : ''
+				if (args.includes('symbolic-ref')) return origin.head === undefined ? 'origin/main' : origin.head
+				if (args.includes('worktree')) return ''
+				return null
+			}
+			if (herdrCalls) {
+				herdrCalls.push(args)
+				if (args[0] === 'worktree' && args[1] === 'create') {
+					return JSON.stringify({
+						result: {
+							root_pane: { pane_id: 'w9:p1', tab_id: 'w9:tT' },
+							worktree: { branch: 'b', path: mkdtempSync(join(tmpdir(), 'cl-wt-')) },
+							workspace: { workspace_id: 'w9' },
+						},
+					})
+				}
+				return null
+			}
+			if (tmuxVerb(args) === 'split-window' || tmuxVerb(args) === 'new-window') return '%9\t@1'
+			return null
+		}
+	}
+
+	const addCall = (gitCalls: string[][]) => gitCalls.find((c) => c.includes('worktree') && c.includes('add'))
+	const fetched = (gitCalls: string[][]) => gitCalls.some((c) => c.includes('fetch'))
+
+	function spawnWith(origin: Origin, gitCalls: string[][], input: { base?: string } = {}) {
+		return spawn(
+			{ store, env: { TMUX: 't' }, exec: originExec(origin, gitCalls), now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'tab', ...input },
+		)
+	}
+
+	it('a spawn with no --base fetches origin and cuts the worktree from its default branch', () => {
+		const gitCalls: string[][] = []
+		const res = spawnWith({}, gitCalls)
+		const fetchAt = gitCalls.findIndex((c) => c.includes('fetch'))
+		const addAt = gitCalls.findIndex((c) => c.includes('worktree') && c.includes('add'))
+		expect(fetchAt).toBeGreaterThanOrEqual(0)
+		expect(gitCalls[fetchAt]).toEqual(expect.arrayContaining(['-C', primaryRoot, 'fetch', 'origin']))
+		expect(fetchAt).toBeLessThan(addAt)
+		expect(addCall(gitCalls)?.at(-1)).toBe('origin/main')
+		expect(res.base).toEqual({ ref: 'origin/main' })
+	})
+
+	it('--base cuts the worktree from the ref it names, without fetching', () => {
+		const gitCalls: string[][] = []
+		const res = spawnWith({}, gitCalls, { base: 'feature/stack-on-me' })
+		expect(addCall(gitCalls)?.at(-1)).toBe('feature/stack-on-me')
+		expect(fetched(gitCalls)).toBe(false)
+		expect(res.base).toEqual({ ref: 'feature/stack-on-me' })
+	})
+
+	it('a spawn whose fetch of origin fails falls back to local HEAD and says so', () => {
+		const gitCalls: string[][] = []
+		const res = spawnWith({ fetchFails: true }, gitCalls)
+		expect(addCall(gitCalls)?.at(-1)).toBe('HEAD')
+		expect(res.base?.ref).toBe('HEAD')
+		expect(res.base?.fallback).toMatch(/fetch.*origin.*failed/i)
+	})
+
+	it('a spawn in a repository with no origin remote falls back to local HEAD and says so', () => {
+		const gitCalls: string[][] = []
+		const res = spawnWith({ none: true }, gitCalls)
+		expect(fetched(gitCalls)).toBe(false)
+		expect(addCall(gitCalls)?.at(-1)).toBe('HEAD')
+		expect(res.base?.ref).toBe('HEAD')
+		expect(res.base?.fallback).toMatch(/no origin remote/i)
+	})
+
+	it('a spawn whose origin has no default branch recorded falls back to local HEAD and says so', () => {
+		const gitCalls: string[][] = []
+		const res = spawnWith({ head: null }, gitCalls)
+		expect(addCall(gitCalls)?.at(-1)).toBe('HEAD')
+		expect(res.base?.ref).toBe('HEAD')
+		expect(res.base?.fallback).toMatch(/default branch.*unknown/i)
+	})
+
+	it('the atomic route cuts the worktree from the same base as the plain route', () => {
+		const gitCalls: string[][] = []
+		const herdrCalls: string[][] = []
+		spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec: originExec({}, gitCalls, herdrCalls), now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'workspace' },
+		)
+		const create = herdrCalls.find((c) => c[0] === 'worktree' && c[1] === 'create')
+		expect(create?.[(create?.indexOf('--base') ?? -2) + 1]).toBe('origin/main')
+	})
+
+	it('--base is mutually exclusive with --cwd', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		const gitCalls: string[][] = []
+		expect(() =>
+			spawn(
+				{ store, env: { TMUX: 't' }, exec: originExec({}, gitCalls), now: () => 1 },
+				{ harness: 'claude', task: 't', cwd: existingDir, base: 'main' },
+			),
+		).toThrow(/cannot combine/)
+		expect(addCall(gitCalls)).toBeUndefined()
+		expect(store.listAgents()).toEqual([])
+	})
+
+	it('a --cwd spawn creates no worktree and so reports no base', () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		const gitCalls: string[][] = []
+		const res = spawn(
+			{ store, env: { TMUX: 't' }, exec: originExec({}, gitCalls), now: () => 1 },
+			{ harness: 'claude', task: 't', cwd: existingDir },
+		)
+		expect(fetched(gitCalls)).toBe(false)
+		expect(res.base).toBeUndefined()
 	})
 })

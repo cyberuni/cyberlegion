@@ -96,6 +96,10 @@ export interface SpawnInput {
 	 * so a caller spawns for another repository without a `cd` chained in front of the command.
 	 * Mutually exclusive with `cwd` (that one creates no worktree to place). */
 	repo?: string
+	/** Start point for the new worktree's branch. With none, spawn fetches origin and cuts from
+	 * origin's default branch, falling back to local HEAD (and saying so) when it cannot. Named
+	 * explicitly, it is used as given and nothing is fetched. */
+	base?: string
 	/** Placement relative to the caller; defaults to 'tab'. */
 	at?: MuxPlacement
 	/** With `cwd`: keep the unit out of the primary checkout of the repository **containing `cwd`**,
@@ -127,10 +131,36 @@ export function primaryRootOf(exec: Exec, dir: string): string | undefined {
 	}
 }
 
+/** The commit a new worktree's branch was cut from. `fallback` says why it is local HEAD rather than
+ * the upstream default — present only when spawn wanted the upstream and could not reach it. */
+interface SpawnBase {
+	ref: string
+	fallback?: string
+}
+
 export interface SpawnResult {
 	agent: AgentRecord
 	pane: string
 	launch: string
+	/** Absent for a `--cwd` spawn, which creates no worktree. */
+	base?: SpawnBase
+}
+
+/**
+ * The start point for a new unit worktree. A caller's local HEAD is often behind its upstream, and a
+ * unit cut from it starts stale and has to rebase before doing anything, so the default is origin's
+ * default branch, fetched first. Every way that can fail falls back to local HEAD and names why —
+ * a spawn never fails for being offline.
+ */
+function resolveSpawnBase(exec: Exec, primaryRoot: string, base?: string): SpawnBase {
+	if (base) return { ref: base }
+	const git = (...args: string[]) => exec('git', ['-C', primaryRoot, ...args])
+	const local = (fallback: string): SpawnBase => ({ ref: 'HEAD', fallback })
+	if (git('remote', 'get-url', 'origin') === null) return local('there is no origin remote')
+	if (git('fetch', '--quiet', 'origin') === null) return local('the fetch of origin failed')
+	const head = git('symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD')
+	if (!head) return local("origin's default branch is unknown (origin/HEAD is not set)")
+	return { ref: head }
 }
 
 /**
@@ -162,8 +192,8 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		throw new Error('spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>')
 	}
 
-	if (input.cwd && (input.branch || input.worktreePath || input.repo)) {
-		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo')
+	if (input.cwd && (input.branch || input.worktreePath || input.repo || input.base)) {
+		throw new Error('--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo/--base')
 	}
 
 	const id = randomId()
@@ -187,6 +217,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 
 	let cwd: string
 	let worktree: { root: string; branch: string; primaryRoot?: string } | null
+	let base: SpawnBase | undefined
 	let target: MuxTarget
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) {
@@ -216,6 +247,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		// creates the worktree AND opens the session in one call, so a check after it has already
 		// stranded a pane. The frozen scenarios say nothing is opened, so nothing may be.
 		assertDistinctFromPrimary(resolve(worktreePath), primaryRoot)
+		base = resolveSpawnBase(exec, primaryRoot, input.base)
 		if (at === 'workspace' && sessionAdapter.worktree) {
 			// The backend can create the worktree and open its new workspace in one atomic call —
 			// a real organizational improvement (herdr nests the worktree under its source workspace)
@@ -224,6 +256,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 				primaryRoot,
 				branch,
 				path: worktreePath,
+				base: base.ref,
 				launch: launchLine(),
 				...labelFor(at, input, brief, id),
 			})
@@ -233,7 +266,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 			worktree = { ...opened.worktree, primaryRoot }
 			target = opened.target
 		} else {
-			const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch })
+			const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch, base: base.ref })
 			assertDistinctFromPrimary(added.root, primaryRoot)
 			// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't
 			// been committed yet, so without this the freshly spawned unit wouldn't detect itself
@@ -266,7 +299,7 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.putPaneIndex(target.id, id)
 	ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions))
 
-	return { agent: rec, pane: target.id, launch }
+	return { agent: rec, pane: target.id, launch, ...(base ? { base } : {}) }
 }
 
 /**
