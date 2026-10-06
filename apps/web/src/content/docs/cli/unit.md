@@ -93,7 +93,7 @@ Mark dead units exited and sweep. Output: a `pruned` table (`id`, `handle`).
 ## spawn
 
 ```sh
-npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [-C, --repo <path>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
+npx cyberlegion unit spawn --harness <h> [--agent <name> | --agent-file <path>] [--model <name>] [--effort <level>] [--task <text> | --brief-file <path>] [--handle <name>] [--branch <name>] [--worktree-path <path>] [-C, --repo <path>] [--base <ref>] [--cwd <path>] [--at pane:right|pane:down|tab|workspace] [--no-wake]
 ```
 
 Launch a new peer session in its own git worktree (tmux or herdr), or into an existing directory
@@ -112,7 +112,8 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | `--branch <name>` | branch for the new worktree (default `cyberlegion/unit-<id>`) |
 | `--worktree-path <path>` | where to check out the new worktree |
 | `-C, --repo <path>` | create the worktree from the git repository containing `<path>`, not the current directory's — spawn for another repository without `cd`; the default `--worktree-path` sits beside that repository's primary checkout |
-| `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`/`--repo`) |
+| `--base <ref>` | start the new worktree's branch from `<ref>` (default: fetch `origin` and use its default branch, else local `HEAD`); see [Base](#base) |
+| `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`/`--repo`/`--base`) |
 | `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`); see [Placement](/cyberlegion/concepts/architecture/#placement-is-a-concept-not-a-backend-command) |
 | `--no-wake` | suppress the first-turn doorbell (spawn idle; the caller drives the first turn itself) |
 
@@ -154,9 +155,25 @@ On cursor, spawn writes the instructions in front of the task in the peer's brie
 therefore gets them as its first user turn, not as a system prompt. With `--no-wake`, a cursor peer
 sees its instructions only once something makes it read the brief.
 
+### Base
+
+A new worktree's branch starts from the upstream, not from the caller's checkout. The caller's local
+`HEAD` is often behind `origin`, and a unit cut from it would have to rebase before doing anything.
+So with no `--base`, spawn runs `git fetch origin` in the primary checkout and cuts the branch from
+`origin/HEAD`, the remote's default branch (usually `origin/main`).
+
+When that cannot work, spawn still succeeds: it cuts from local `HEAD` and says why on stderr
+(`base: fell back to local HEAD — <reason>`). The reasons are no `origin` remote, a failed fetch (for
+example, offline), or no `origin/HEAD` recorded. Run `git remote set-head origin --auto` once to
+record the last one.
+
+`--base <ref>` names the start point instead, and nothing is fetched: stack on an in-flight branch
+(`--base origin/feat-x`), or keep the old behavior (`--base HEAD`). A `--cwd` spawn creates no
+worktree, so it has no base.
+
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
 act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `model`, `effort`,
-`worktree`, `pane`, `rung`, `trust`. The `model` and `effort` fields report what the session launched with,
+`worktree`, `base`, `pane`, `rung`, `trust`. The `model` and `effort` fields report what the session launched with,
 from whichever source won, and read `(harness default)` when no source set one. Suggests
 `unit read <id>` as a next step.
 

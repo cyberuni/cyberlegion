@@ -37,6 +37,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn command options', () => {
 			branch: 'topic',
 			worktreePath: '/tmp/wt',
 			repo: '/tmp/repo',
+			base: 'origin/topic',
 			at: 'tab',
 		})
 		expect(input).toMatchObject({
@@ -47,6 +48,7 @@ describe('spec:cyberlegion/unit/lifecycle spawn command options', () => {
 			branch: 'topic',
 			worktreePath: '/tmp/wt',
 			repo: '/tmp/repo',
+			base: 'origin/topic',
 			at: 'tab',
 		})
 	})

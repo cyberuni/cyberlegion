@@ -274,6 +274,58 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then the worktree is created on branch legion/greenhouse-vents
     And the peer's record carries that branch
 
+  # ── Which commit the worktree's branch starts from ──
+  # The caller's local HEAD is often behind its upstream, and a unit cut from it starts stale. The
+  # default base is the freshly fetched upstream default branch; local HEAD is the fallback, never
+  # the silent default.
+
+  Scenario: a spawn with no --base fetches origin and cuts the worktree from origin's default branch
+    Given a primary checkout with an origin remote whose default branch is main
+    And a caller running unit spawn with no --base (creating a new worktree)
+    When unit spawn runs
+    Then origin is fetched before the worktree is created
+    And the worktree's branch is created starting from origin/main
+    And the spawn reports origin/main as its base
+
+  Scenario: --base cuts the worktree from the ref it names, without fetching
+    Given a primary checkout with an origin remote
+    And a caller running unit spawn --base feature/stack-on-me (creating a new worktree)
+    When unit spawn runs
+    Then the worktree's branch is created starting from feature/stack-on-me
+    And nothing is fetched
+    And the spawn reports feature/stack-on-me as its base
+
+  Scenario: a spawn whose fetch of origin fails falls back to local HEAD and says so
+    Given a primary checkout with an origin remote that cannot be fetched
+    And a caller running unit spawn with no --base (creating a new worktree)
+    When unit spawn runs
+    Then the worktree's branch is created starting from local HEAD
+    And the spawn reports HEAD as its base
+    And it says the base fell back to local HEAD because the fetch of origin failed
+
+  Scenario: a spawn in a repository with no origin remote falls back to local HEAD and says so
+    Given a primary checkout with no origin remote
+    And a caller running unit spawn with no --base (creating a new worktree)
+    When unit spawn runs
+    Then nothing is fetched
+    And the worktree's branch is created starting from local HEAD
+    And the spawn reports HEAD as its base
+    And it says the base fell back to local HEAD because there is no origin remote
+
+  Scenario: a spawn whose origin has no default branch recorded falls back to local HEAD and says so
+    Given a primary checkout with an origin remote that fetches but has no origin/HEAD
+    And a caller running unit spawn with no --base (creating a new worktree)
+    When unit spawn runs
+    Then the worktree's branch is created starting from local HEAD
+    And the spawn reports HEAD as its base
+    And it says the base fell back to local HEAD because origin's default branch is unknown
+
+  Scenario: the atomic route cuts the worktree from the same base as the plain route
+    Given a primary checkout with an origin remote whose default branch is main
+    And a caller running unit spawn --at workspace on a backend that offers worktree creation
+    When unit spawn runs
+    Then the backend is asked to create the worktree starting from origin/main
+
   # ── Which route creates the worktree: the backend's atomic call, or git worktree add then open ──
   # A compound guard — the atomic route runs only when the backend offers worktree creation AND the
   # placement is `workspace`. The same plain branch is therefore reached two ways, so both halves of
@@ -404,7 +456,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And no unit is registered
 
   Scenario: --cwd is mutually exclusive with the worktree-creating flags
-    Given a caller running unit spawn --cwd <dir> together with --worktree-path, --branch, or --repo
+    Given a caller running unit spawn --cwd <dir> together with --worktree-path, --branch, --repo, or --base
     When unit spawn runs
     Then it throws that --cwd cannot combine with worktree-creating flags
     And no worktree is created

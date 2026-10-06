@@ -343,8 +343,12 @@ function withSpawnOptions(cmd: Command): Command {
 			"create the worktree from the git repository containing <path>, not the current directory's",
 		)
 		.option(
+			'--base <ref>',
+			"start the new worktree's branch from <ref> (default: fetch origin and use its default branch, else local HEAD)",
+		)
+		.option(
 			'--cwd <path>',
-			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo)',
+			'spawn the session in an existing directory; create no worktree (mutually exclusive with --branch/--worktree-path/--repo/--base)',
 		)
 		.addOption(
 			// No hard default here — spawn resolves the default by mode (new-worktree → workspace,
@@ -372,6 +376,12 @@ function reportTrustBlocked(res: { trustBlocked?: string; agent: { handle: strin
 	process.exitCode = 1
 }
 
+/** A spawn that wanted origin's default branch and cut from local HEAD instead says so: the unit may
+ * start behind its upstream, and the caller would otherwise not know. */
+function reportBaseFallback(res: { base?: { fallback?: string } }): void {
+	if (res.base?.fallback) console.error(`base: fell back to local HEAD — ${res.base.fallback}`)
+}
+
 function defineSpawn(cmd: Command): Command {
 	return withSpawnOptions(cmd)
 		.description('launch a new peer session in its own git worktree (tmux or herdr)')
@@ -393,6 +403,7 @@ function defineSpawn(cmd: Command): Command {
 				console.error(`first-turn doorbell not confirmed (peer still spawned; nudge it manually): ${res.warning}`)
 			}
 			reportTrustBlocked(res)
+			reportBaseFallback(res)
 			emit(formatOf(opts), {
 				toon: toonObject({
 					spawned: res.agent.id,
@@ -401,6 +412,7 @@ function defineSpawn(cmd: Command): Command {
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 					effort: reportedEffort(spawnInput.launched),
 					worktree: res.agent.worktree?.root,
+					base: res.base?.ref,
 					pane: res.pane,
 					rung: res.rung,
 					trust: res.trust,
@@ -409,6 +421,7 @@ function defineSpawn(cmd: Command): Command {
 					agent: res.agent,
 					pane: res.pane,
 					launch: res.launch,
+					base: res.base,
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 					effort: reportedEffort(spawnInput.launched),
 					rung: res.rung,
@@ -838,6 +851,7 @@ withSpawnOptions(service.command('start'))
 					const spawned = await spawnAndWake(ctx, spawnInput.input, { noWake: spawnInput.noWake })
 					warning = spawned.warning
 					reportTrustBlocked(spawned)
+					reportBaseFallback(spawned)
 					return { unit: spawned.agent.id, pane: spawned.pane }
 				},
 			})
