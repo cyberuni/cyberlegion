@@ -412,6 +412,7 @@ function defineSpawn(cmd: Command): Command {
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 					effort: reportedEffort(spawnInput.launched),
 					worktree: res.agent.worktree?.root,
+					reused: res.reused ?? '-',
 					base: res.base?.ref,
 					pane: res.pane,
 					rung: res.rung,
@@ -422,6 +423,7 @@ function defineSpawn(cmd: Command): Command {
 					pane: res.pane,
 					launch: res.launch,
 					base: res.base,
+					...(res.reused !== undefined ? { reused: res.reused } : {}),
 					model: spawnInput.launched.model ?? HARNESS_DEFAULT,
 					effort: reportedEffort(spawnInput.launched),
 					rung: res.rung,
@@ -434,23 +436,29 @@ function defineSpawn(cmd: Command): Command {
 defineSpawn(unit.command('spawn'))
 
 withGlobals(unit.command('close'))
-	.description("tear down a unit's worktree + session and reap its state (the inverse of spawn)")
+	.description(
+		"release the unit's worktree lease (or remove a worktree it holds no lease on), tear down its session, and reap its state (the inverse of spawn)",
+	)
 	.argument('<id>', 'unit id, handle, or worktree branch/CR ref')
-	.option('--force', 'discard uncommitted changes in the worktree (never overrides refusing the primary checkout)')
+	.option(
+		'--force',
+		'discard uncommitted changes in a worktree close removes (never overrides refusing the primary checkout)',
+	)
 	.option(
 		'--keep-worktree',
 		'leave the worktree on disk for reuse and reap everything else (skips the dirty check; never overrides refusing the primary checkout)',
 	)
-	.action((ref, opts) => {
+	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
 		const agent = resolveAgent(ctx.store, ref)
-		const res = decommission(ctx, { id: agent.id, force: opts.force, keepWorktree: opts.keepWorktree })
+		const res = await decommission(ctx, { id: agent.id, force: opts.force, keepWorktree: opts.keepWorktree })
 		emit(formatOf(opts), {
 			toon: toonObject({
 				closed: agent.id,
 				worktree: res.worktreeRoot ?? '-',
 				retained: res.retainedWorktree ?? '-',
+				lease: res.lease ? (res.lease.released ? 'released' : res.lease.reason) : '-',
 				pane: res.pane ?? '-',
 			}),
 			json: res,

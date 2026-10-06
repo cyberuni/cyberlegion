@@ -33,8 +33,9 @@ plugin) composes. It never selects a backend and never invokes a harness subagen
 
 State lives in a global hub at `~/.agents/cyberlegion/` (identity + mail data, addressable
 across project and worktree boundaries) plus a project-local `<project>/.agents/cyberlegion/` (tracked
-marker only). A spawned unit's own git worktree checks out as a **sibling** of the primary checkout
-(`<parent>/<repo>.worktrees/legion-<id6>`), never nested inside the primary's own tree. All
+marker only). A spawned unit's own git worktree is leased from the worktree library
+(`@cyberuni/agent-harness/worktrees`) and checks out as a **sibling** of the primary checkout
+(`<parent>/<repo>.worktrees/<repo>-<n>`), never nested inside the primary's own tree. All
 mailbox + registry access goes through a domain `Store` interface (a `FileStore` impl today).
 
 ## Capabilities

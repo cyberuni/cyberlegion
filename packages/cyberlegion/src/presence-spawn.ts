@@ -57,7 +57,7 @@ export async function spawnPresence(
 		const live = presenceOf(ctx.store, current)
 		if (live) return { existing: live }
 		const launched = resolveSpawnLaunch({ agent: home.agent, harness: home.harness, cwd: home.dir })
-		const res = spawn(ctx, {
+		const res = await spawn(ctx, {
 			harness: launched.harness,
 			command: launched.command,
 			briefInstructions: launched.briefInstructions,

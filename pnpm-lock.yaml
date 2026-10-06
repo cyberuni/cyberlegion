@@ -218,6 +218,9 @@ importers:
 
   packages/cyberlegion:
     dependencies:
+      '@cyberuni/agent-harness':
+        specifier: ^0.6.0
+        version: 0.6.0(typescript@7.0.2)
       commander:
         specifier: ^15.0.0
         version: 15.0.0
@@ -554,6 +557,12 @@ packages:
     resolution: {integrity: sha512-y7/yvZ2TPAnR9+jnc00klvNNLkJiXFFrQA/hlLCcxA9a2A4zQIOimyFQ9XfwYKiGD1fb5GY8vbKIIgO8d5Tb2A==}
     engines: {node: '>= 20.12.0'}
 
+  '@clibuilder/axi@0.1.0':
+    resolution: {integrity: sha512-axduLxgCRP33iEPv8AGeFY9xDo0z6LH5JwhqpF/JqNmKo99UNI5rmSLduEjCfgIBc7TRwM1jiV0mBFNPKuLabA==}
+    engines: {node: '>= 20.19'}
+    peerDependencies:
+      clibuilder: ^11.0.0
+
   '@commitlint/cli@21.2.2':
     resolution: {integrity: sha512-a+6hQxIxnpdvSvS2apvttPNbEliYsVC3PqFYDiiB2kjbwIsQsj1urvQ4Tkf70pKYozPalKAuRQmm/GHwndduqA==}
     engines: {node: '>=22.12.0'}
@@ -652,6 +661,11 @@ packages:
   '@cyberuni/agent-harness@0.3.0':
     resolution: {integrity: sha512-o1q19ZWll8IMpIdUwOZy0ETxryOQvCI3R56lAPOxrBKx/iabxrmZkhRdooDAlnYcny243GR/mkfrqm5e4DrpRg==}
     engines: {node: '>=22'}
+
+  '@cyberuni/agent-harness@0.6.0':
+    resolution: {integrity: sha512-ELy0pcHiRb9vjaVymBIvCQTDaQTOyliVKEx3MdpiDLeaGAYkhBwgCfoIa/ov/hPFxed4gQdYLBv6O3UTNgr78A==}
+    engines: {node: '>=22'}
+    hasBin: true
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -1022,6 +1036,9 @@ packages:
 
   '@just-func/types@0.6.0':
     resolution: {integrity: sha512-5/nFEvX/QizdRCMXjo/VfW4qgBw2pX2+Sz5+aJ907d7NqXVXxEu1Hwu6k35A5INI2NtIOvplQnkm7uFqPGiL0w==}
+
+  '@just-func/types@0.6.1':
+    resolution: {integrity: sha512-uIE3xNCNcyIsM/YhOAEEh8xNwDhcT5KMM6F4R/aQGVijt6sMePjd7CDPeVrXd2XFks2nGiin/cEMTYhAIaXa6A==}
 
   '@manypkg/find-root@3.1.0':
     resolution: {integrity: sha512-BcSqCyKhBVZ5YkSzOiheMCV41kqAFptW6xGqYSTjkVTl9XQpr+pqHhwgGCOHQtjDCv7Is6EFyA14Sm5GVbVABA==}
@@ -1966,6 +1983,10 @@ packages:
 
   clibuilder@11.2.2:
     resolution: {integrity: sha512-Z4JQcOdCdKDi21T20jwDr26JwCUyF3cGKhJ/B4+zKSVL73QYgzFaR8YAlK5bROIZ/mbxiYCJgWUB+yf1oJpPdA==}
+    engines: {node: '>= 20.19'}
+
+  clibuilder@11.3.2:
+    resolution: {integrity: sha512-W84b3U2iR1g4ZIRU3ckmfHrSR2LIKNggQgUY9Thuke7UJBle6/+Yo/RgFbheuyJxgTj+NroxtUBwYLlTkLCa3g==}
     engines: {node: '>= 20.19'}
 
   cliui@9.0.1:
@@ -2932,8 +2953,16 @@ packages:
     peerDependencies:
       standard-log: '>=11.0.1'
 
+  standard-log-color@13.3.1:
+    resolution: {integrity: sha512-CR++e1aHcpuq5bh0jFC2EbwchokUjd3L5EZ+HDl8AwXzOAtn899TkoSdIIR8CgVJX07cBlGOW8xXgZdj3mc9+Q==}
+    peerDependencies:
+      standard-log: '>=11.0.1'
+
   standard-log@13.3.0:
     resolution: {integrity: sha512-G2SVB/gcbCdQIeR+41ciB+Lr/Kp95vvl2jb1fIYwkAIUSKDcr2OR0uEMwfzUYEIlg7x9tzrz09lGfKtH4yEidA==}
+
+  standard-log@13.3.1:
+    resolution: {integrity: sha512-WcDZypKwq35deXwUV1/ttKodpijdGYSaRVVPHHGNtAIPbvS4rC6xIs1faPtXEUBD33W4RdtJKCZ7/oV1uIrQFw==}
 
   std-env@4.2.0:
     resolution: {integrity: sha512-oCUKSupKTHX53EyjDtuZQ64pjLJ6yYCtpmEw0goYxtjG9KpbRe8KAsl2tBUGU9DyMcJ0RwJ8GqJAFzMXcXW1Rw==}
@@ -2975,6 +3004,9 @@ packages:
 
   tersify@4.0.7:
     resolution: {integrity: sha512-HbSau9xNaHqYRJ/Y6lAddBLNpi5wowJhDGuhfM/6LAmyhsIiNKX3Q50qJwRcKFsV4/BV45XMyTdaHZ5nW6OjRg==}
+
+  tersify@4.0.8:
+    resolution: {integrity: sha512-8SP19qXCXiWztbyJLqmCwstqtZg7F5grbSov3yh8C+fyqHgKyfMaI/c5DCMKIGDkpoKX8cIz9ZqJxN7zZDtQcQ==}
 
   tiny-inflate@1.0.3:
     resolution: {integrity: sha512-pkY1fj1cKHb2seWDy0B16HeWyczlJA9/WW3u3c4z/NiWDsO3DOU5D7nhTLE9CF0yXv/QZFY7sEJmj24dK+Rrqw==}
@@ -3063,6 +3095,11 @@ packages:
     resolution: {integrity: sha512-ZdhzmQg7f8oxt5Cbivslk8o3zef8L3ibpKIeGH1ESf73y8ZEY1z9fe4Z3fTxcjmFOb8ESE1TbW/MCgEvpeLC4w==}
     peerDependencies:
       typescript: '>= 5.6.0'
+
+  type-plus@8.0.0-beta.12:
+    resolution: {integrity: sha512-isf19V90L8JOn9VBWWwUfH8DU6G3dfPptr3R+JtraYWHqLAsXYI2f9x1HZVTkajrkSffdEbetXUXf7FcIjSIRg==}
+    peerDependencies:
+      typescript: '>= 5.4.0'
 
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
@@ -3695,6 +3732,11 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
+  '@clibuilder/axi@0.1.0(clibuilder@11.3.2(typescript@7.0.2))':
+    dependencies:
+      '@toon-format/toon': 4.1.1
+      clibuilder: 11.3.2(typescript@7.0.2)
+
   '@commitlint/cli@21.2.2(@types/node@24.13.3)(conventional-commits-parser@7.1.2)(typescript@7.0.2)':
     dependencies:
       '@commitlint/config-conventional': 21.2.2
@@ -3823,6 +3865,14 @@ snapshots:
   '@cucumber/messages@33.0.4': {}
 
   '@cyberuni/agent-harness@0.3.0': {}
+
+  '@cyberuni/agent-harness@0.6.0(typescript@7.0.2)':
+    dependencies:
+      '@clibuilder/axi': 0.1.0(clibuilder@11.3.2(typescript@7.0.2))
+      clibuilder: 11.3.2(typescript@7.0.2)
+      yaml: 2.9.0
+    transitivePeerDependencies:
+      - typescript
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -4091,6 +4141,12 @@ snapshots:
   '@just-func/types@0.6.0(typescript@7.0.2)':
     dependencies:
       type-plus: 8.0.0-beta.10(typescript@7.0.2)
+    transitivePeerDependencies:
+      - typescript
+
+  '@just-func/types@0.6.1(typescript@7.0.2)':
+    dependencies:
+      type-plus: 8.0.0-beta.12(typescript@7.0.2)
     transitivePeerDependencies:
       - typescript
 
@@ -4784,6 +4840,25 @@ snapshots:
       tmp: 0.2.7
       tslib: 2.8.1
       type-plus: 8.0.0-beta.10(typescript@7.0.2)
+      wordwrap: 1.0.0
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - typescript
+
+  clibuilder@11.3.2(typescript@7.0.2):
+    dependencies:
+      find-installed-packages: 4.0.1
+      import-meta-resolve: 4.2.0
+      js-yaml: 4.3.2
+      jsonc-parser: 3.3.1
+      pad-right: 0.2.2
+      search-packages: 2.2.3
+      standard-log: 13.3.1(typescript@7.0.2)
+      standard-log-color: 13.3.1(standard-log@13.3.1(typescript@7.0.2))
+      tersify: 4.0.8
+      tmp: 0.2.7
+      tslib: 2.8.1
+      type-plus: 8.0.0-beta.12(typescript@7.0.2)
       wordwrap: 1.0.0
       zod: 3.25.76
     transitivePeerDependencies:
@@ -5942,12 +6017,29 @@ snapshots:
       supports-color: 8.1.1
       unpartial: 1.0.8
 
+  standard-log-color@13.3.1(standard-log@13.3.1(typescript@7.0.2)):
+    dependencies:
+      color-map: 2.2.0
+      standard-log: 13.3.1(typescript@7.0.2)
+      supports-color: 8.1.1
+      unpartial: 1.0.8
+
   standard-log@13.3.0(typescript@7.0.2):
     dependencies:
       '@just-func/types': 0.6.0(typescript@7.0.2)
       iso-error: 7.0.0
       ms: 2.1.3
       type-plus: 8.0.0-beta.10(typescript@7.0.2)
+    transitivePeerDependencies:
+      - typescript
+
+  standard-log@13.3.1(typescript@7.0.2):
+    dependencies:
+      '@just-func/types': 0.6.1(typescript@7.0.2)
+      iso-error: 7.0.0
+      ms: 2.1.3
+      type-plus: 8.0.0-beta.12(typescript@7.0.2)
+      unpartial: 1.0.8
     transitivePeerDependencies:
       - typescript
 
@@ -5997,6 +6089,11 @@ snapshots:
       rimraf: 2.6.3
 
   tersify@4.0.7:
+    dependencies:
+      acorn: 8.18.0
+      unpartial: 1.0.8
+
+  tersify@4.0.8:
     dependencies:
       acorn: 8.18.0
       unpartial: 1.0.8
@@ -6068,6 +6165,12 @@ snapshots:
       '@turbo/windows-arm64': 2.10.11
 
   type-plus@8.0.0-beta.10(typescript@7.0.2):
+    dependencies:
+      tersify: 4.0.7
+      typescript: 7.0.2
+      unpartial: 1.0.8
+
+  type-plus@8.0.0-beta.12(typescript@7.0.2):
     dependencies:
       tersify: 4.0.7
       typescript: 7.0.2

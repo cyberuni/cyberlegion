@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { basename, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { resolvePrimaryRoot } from 'cyber-mux/worktree'
 
 /** The tracked marker file that makes a hub root initialized (see ensureMarker). */
@@ -60,8 +60,9 @@ export function resolveRoot(opts: RootOptions = {}): string {
 /**
  * Resolve the primary checkout's project-local cyberlegion dir — the tracked marker for a
  * legion-enabled project (never the global hub, and never where spawned unit worktrees themselves
- * are checked out — see `resolveUnitWorktreePath`), keyed off `git worktree`'s common-dir so it
- * resolves the same from the primary checkout or from any of its linked worktrees.
+ * are checked out — the worktree library places those beside the primary checkout), keyed off
+ * `git worktree`'s common-dir so it resolves the same from the primary checkout or from any of its
+ * linked worktrees.
  */
 export function resolveProjectLocalRoot(opts: RootOptions = {}): string {
 	const exec = opts.exec ?? makeDefaultExec(opts.cwd)
@@ -146,21 +147,6 @@ export const paths = {
 		join(paths.inboxDir(root, toId), `${assertSafeId(msgId, 'message id')}.json`),
 	messageReadFile: (root: string, toId: string, msgId: string) =>
 		join(paths.inboxReadDir(root, toId), `${assertSafeId(msgId, 'message id')}.json`),
-}
-
-/**
- * Where a spawned unit's own git worktree is checked out by default — a sibling of the primary
- * checkout (`<parent>/<repo>.worktrees/legion-<id>`), never nested inside the primary's own working
- * tree. A linked worktree living inside the primary's tree is untracked-but-present: it pollutes
- * `git status` in the primary checkout, confuses tooling that walks the tree recursively (test
- * runners, watchers, `find`/`rm -rf`), and risks a tree-wide op in the primary crossing into the
- * nested worktree's own checkout. `<repo>.worktrees/` matches the sibling convention already in use
- * for other tools' worktrees in this environment (herdr's `worktree-<word>-<word>-<hash>`, cursor's
- * `<proj><count>`); the `legion-` prefix self-identifies this tool's own units the same way, without
- * needing a subfolder.
- */
-export function resolveUnitWorktreePath(primaryRoot: string, id: string): string {
-	return join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id}`)
 }
 
 /** tmux pane ids look like "%3"; make them filesystem-safe. */

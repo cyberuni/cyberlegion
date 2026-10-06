@@ -31,8 +31,15 @@ export interface AgentRecord {
 	cwd: string
 	/** `primaryRoot` is the primary checkout of the repository the worktree belongs to, recorded by
 	 * spawn — the one place to find git's registration of a worktree whose directory is gone. Absent
-	 * on a registered session and on records from before it was recorded. */
-	worktree?: { root: string; branch?: string; primaryRoot?: string } | null
+	 * on a registered session and on records from before it was recorded. `lease` is the worktree
+	 * library's lease the unit holds on a worktree spawn acquired; absent on a `--worktree-path` spawn
+	 * and on records from before spawn acquired, whose worktrees close removes instead of releasing. */
+	worktree?: {
+		root: string
+		branch?: string
+		primaryRoot?: string
+		lease?: { leaseId: string; holder: string }
+	} | null
 	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
 	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
 	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null

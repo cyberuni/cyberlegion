@@ -40,9 +40,9 @@ cleanly — the deterministic inverse pair:
     - **The record's `spawnedBy` is present or absent, never empty.** A caller that is itself a
       registered unit is recorded as the parent; a caller with no unit id of its own leaves the
       field off the record entirely rather than writing an empty or fabricated parent.
-    - **The unit's `handle` is `--handle`, else the id's first 6 characters** — the same slice the
-      default worktree directory's `legion-<id6>` suffix uses, so the directory on disk and the name
-      shown to the caller line up.
+    - **The unit's `handle` is `--handle`, else the id's first 6 characters.** The handle no longer
+      names the worktree directory: the worktree library names it, and a recycled worktree outlives
+      the unit that first held it.
   - **The new worktree is always distinct from the primary checkout** — spawn refuses (throws) a
     `--worktree-path` that resolves onto the primary checkout rather than opening a session there,
     and the refusal runs **before anything is created**: afterwards no worktree was added at that
@@ -50,10 +50,22 @@ cleanly — the deterministic inverse pair:
     throw — the backstop checks that run *after* creation cannot honor it, and nothing rolls the
     created worktree (or, on the atomic route, the pane) back. A `--worktree-path` **outside** the
     primary checkout is accepted and the worktree created there.
-  - **Where the worktree lands, and on which branch** — with no `--worktree-path`, the checkout goes
-    to a **sibling** of the primary checkout, `<parent>/<repo>.worktrees/legion-<id6>`, never nested
-    inside the primary's own tree. With no `--branch`, it is created on `cyberlegion/unit-<id>`;
-    `--branch <name>` names it instead.
+  - **Where the worktree lands, and on which branch** — with no `--worktree-path`, the worktree is
+    **leased** from the worktree library (`@cyberuni/agent-harness/worktrees`, `acquire`): an idle
+    worktree a closed unit released is recycled onto the new branch, and only when none is idle is a
+    new one created, at the library's own slot path `<parent>/<repo>.worktrees/<repo>-<n>` — a
+    **sibling** of the primary checkout, never nested inside the primary's own tree. The lease is
+    git's own lock on the worktree, its reason naming the holder `cyberlegion:<id>`; the record
+    carries the lease so close can give it back, and the spawn reports whether the worktree was
+    `reused`. The library never fetches, so spawn's own fetch (below) still decides the base, and the
+    stamped marker is passed to it as ignorable, so an untracked marker never keeps a released
+    worktree from reuse. With no `--branch`, it is created on `cyberlegion/unit-<id>`; `--branch
+    <name>` names it instead.
+  - **A `--worktree-path` bypasses the worktree library** — a caller-chosen path is outside the
+    library's slot naming, and the library assigns paths a caller cannot choose. So that spawn
+    creates the worktree at the path itself, holds no lease, and close removes it as it always has.
+    A recycled worktree on the atomic route already exists, so the backend opens it in a workspace
+    bound to it rather than creating one.
   - **Which commit the worktree's branch starts from** — the caller's local HEAD is often behind its
     upstream, and a unit cut from it starts stale and has to rebase before doing anything. So with
     no `--base`, spawn fetches `origin` in the primary checkout and cuts the branch from `origin/HEAD`
@@ -445,8 +457,8 @@ graph TD
   SPF -- yes --> SPG{"resolves onto the primary checkout?"}
   SPG -- yes --> SPG1["throw: refuses the primary checkout"]
   SPG -- no --> SPO["at := --at ?? tab; write the shim (SPS), open the session; worktree := none"]
-  SPE -- no --> SPI["primary := primary checkout of --repo's repository ?? the current directory's; branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace; path := --worktree-path ?? parent/repo.worktrees/legion-id6 (beside primary)"]
-  SPI --> SPJ{"the resolved worktree path is the primary checkout?"}
+  SPE -- no --> SPI["primary := primary checkout of --repo's repository ?? the current directory's; branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace"]
+  SPI --> SPJ{"--worktree-path given and it is the primary checkout?"}
   SPJ -- yes --> SPJ1["throw BEFORE anything is created or opened"]
   SPJ -- no --> SPBA{"--base given?"}
   SPBA -- yes --> SPBA1["base := --base; nothing fetched"]
@@ -456,12 +468,19 @@ graph TD
   SPBA1 --> SPK{"at = workspace AND the backend offers worktree creation?"}
   SPBB1 --> SPK
   SPBB2 --> SPK
-  SPK -- yes --> SPK1["atomic: write the shim (SPS), then ONE backend call creates the worktree and opens its workspace"]
-  SPK -- no --> SPK2["plain: git worktree add, write the shim (SPS), then a separate open"]
-  SPK1 --> SPBK{"backstop: the root the route returned is the primary checkout?"}
-  SPK2 --> SPBK
+  SPK -- yes --> SPK1["creator := atomic: write the shim (SPS), then ONE backend call creates the worktree and opens its workspace"]
+  SPK -- no --> SPK2["creator := plain: git worktree add"]
+  SPK1 --> SPWP{"--worktree-path given?"}
+  SPK2 --> SPWP
+  SPWP -- yes --> SPWP1["the creator makes the worktree at that path; no lease"]
+  SPWP -- no --> SPAQ["acquire from the worktree library, holder cyberlegion:id: recycle an idle released worktree, else the creator makes the next slot parent/repo.worktrees/repo-n; record the lease"]
+  SPWP1 --> SPOP
+  SPAQ --> SPOP{"a session already opened by the atomic creator?"}
+  SPOP -- yes --> SPBK
+  SPOP -- no --> SPOP1["write the shim (SPS); atomic backend: open the existing worktree in a bound workspace; else a separate open"]
+  SPOP1 --> SPBK{"backstop: the worktree root is the primary checkout?"}
   SPBK -- yes --> SPBK1["throw — fires AFTER creation; nothing rolls it back"]
-  SPBK -- no --> SPL["stamp the new worktree's own .agents/cyberlegion marker"]
+  SPBK -- no --> SPL["stamp the worktree's own .agents/cyberlegion marker (a recycle's clean took it)"]
   SPO --> SPN
   SPL --> SPN["register: status active, handle, harness, cwd, worktree and its repository's primary checkout, pane locator, brief path, launch command, spawnedBy when the caller has an id"]
   SPN --> SPIB{"the realized launch hands the def's instructions to the brief? — cursor only"}
@@ -562,7 +581,10 @@ graph TD
   CL1 -- yes --> CLR["resolve the unit's repository: from the worktree itself when on disk, else the primary checkout spawn recorded — never from the caller's directory"]
   CLR --> CL2{"its worktree root is its repository's primary checkout?"}
   CL2 -- yes --> CL2X["throw — neither --force nor --keep-worktree overrides this"]
-  CL2 -- no --> CL3{"a worktree still on disk?"}
+  CL2 -- no --> CLL{"the record carries a lease?"}
+  CLL -- yes --> CLL1["release the lease — nothing removed, no dirty check; a lease someone took away is reported lost, not thrown; report the worktree retained"]
+  CLL1 --> CL6
+  CLL -- no --> CL3{"a worktree still on disk?"}
   CL3 -- no --> CLP["skip removal — an already-gone worktree is tolerated; git worktree prune in the recorded repository, if any"]
   CLP --> CL6
   CL3 -- yes --> CLK{"--keep-worktree?"}
@@ -738,7 +760,11 @@ column records. They are not gaps.
 |---|---|---|
 | `SPJ -- yes` refuse before creating | a --worktree-path resolving onto the primary checkout | `spawn refuses a --worktree-path that resolves onto the primary checkout` |
 | `SPJ -- no` admit | a --worktree-path outside the primary checkout | `a --worktree-path outside the primary checkout is accepted and the worktree created there` |
-| `SPI` default path | a new-worktree spawn with no --worktree-path | `a spawn with no --worktree-path checks out beside the primary checkout, never inside it` |
+| `SPAQ` default path | a new-worktree spawn with no --worktree-path | `a spawn with no --worktree-path checks out beside the primary checkout, never inside it` |
+| `SPAQ` lease | a new-worktree spawn with no --worktree-path, real git | `a worktree spawn leases its worktree under a holder naming the unit` |
+| `SPAQ` recycle | a closed unit's released, clean, landed worktree | `a spawn recycles a worktree a closed unit released` |
+| `SPAQ` held | a live unit holding its lease | `a worktree a live unit still holds is never handed to another spawn` |
+| `SPWP -- yes` → `SPWP1` | a --worktree-path outside the primary checkout, real git | `a --worktree-path spawn bypasses the worktree library and holds no lease` |
 | `SPI` default branch | a new-worktree spawn with no --branch | `a spawn with no --branch creates the worktree on a branch named for the unit` |
 | `SPI` explicit branch | a new-worktree spawn given --branch | `--branch names the branch the worktree is created on` |
 | `SPI` --repo names the repository | a new-worktree spawn given --repo inside another repository | `--repo creates the worktree from the repository containing the path it names, not the caller's` |
@@ -763,6 +789,7 @@ column records. They are not gaps.
 | `SPK -- no` → `SPK2` | at = workspace on a backend that does not | `a workspace spawn on a backend that cannot create worktrees takes the plain route` |
 | `SPK -- no` → `SPK2` | at = tab on a backend that does create worktrees | `a tab placement takes the plain route even on a backend that can create worktrees` |
 | `SPL` marker stamped | any (either creation route) | `the created worktree carries its own tracked cyberlegion marker, whichever route created it` |
+| `SPOP1` atomic reopen | a workspace spawn on a worktree-creating backend, the library recycling an idle worktree | `a recycled worktree on the atomic route opens in a workspace bound to it, creating no worktree` |
 
 ### A workspace placement is labeled so a human can find it by eye
 
@@ -816,7 +843,10 @@ column records. They are not gaps.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `CL10` full teardown + reap | a unit with a clean worktree and a live pane, no --force | `close removes the worktree, tears down the session, and reaps the registry record` |
+| `CLL -- yes` → `CLL1` | a leased unit with a live pane, real git | `close of a leased unit releases the lease and leaves the worktree on disk` |
+| `CLL1` no dirty check | a leased unit with uncommitted changes, real git | `close of a leased unit with uncommitted changes releases it without refusing` |
+| `CLL1` lost | a leased unit whose worktree was unlocked, real git | `close of a unit whose lease was taken away reports it lost and still reaps` |
+| `CL10` full teardown + reap | a unit with a clean worktree it holds no lease on and a live pane, no --force | `close removes the worktree, tears down the session, and reaps the registry record` |
 | `CL3 -- no` nothing to remove | a unit spawned with --cwd (owns no worktree) | `close on a unit spawned with --cwd removes no worktree` |
 | `CL2 -- yes` | a unit with a live pane whose worktree is the primary checkout | `close refuses a unit whose worktree is the primary checkout` |
 | `CL2 -- yes` under --force | the same, with --force | `--force does not override the primary-checkout refusal` |

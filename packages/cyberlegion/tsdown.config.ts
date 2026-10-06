@@ -26,8 +26,8 @@ export default defineConfig([
 		//
 		// `bin/cyberlegion.mjs` imports this file and calls `runCli`, so `dts` buys nothing here.
 		//
-		// Regexes rather than bare names because `cyber-mux` is imported by subpath too
-		// (`cyber-mux/worktree`). Only this package's own `dependencies` need listing — those are
+		// Regexes rather than bare names because `cyber-mux` and `@cyberuni/agent-harness` are imported
+		// by subpath (`cyber-mux/worktree`, `@cyberuni/agent-harness/worktrees`). Only this package's own `dependencies` need listing — those are
 		// the only ones tsdown externalizes by default, so anything they pull in transitively is
 		// inlined automatically. `onlyBundle: false` silences the "bundled a dependency" warnings
 		// that are the whole point here.
@@ -35,7 +35,7 @@ export default defineConfig([
 		entry: { cli: 'src/cli.ts' },
 		dts: false,
 		deps: {
-			alwaysBundle: [/^commander(\/|$)/, /^cyber-mux(\/|$)/],
+			alwaysBundle: [/^commander(\/|$)/, /^cyber-mux(\/|$)/, /^@cyberuni\/agent-harness(\/|$)/],
 			onlyBundle: false,
 		},
 	},
