@@ -197,8 +197,8 @@ importers:
         specifier: ^2.10.8
         version: 2.10.11
       universal-plugin:
-        specifier: ^0.11.0
-        version: 0.11.0
+        specifier: ^0.12.0
+        version: 0.12.0
 
   apps/web:
     dependencies:
@@ -649,8 +649,8 @@ packages:
   '@cucumber/messages@33.0.4':
     resolution: {integrity: sha512-i6P1a0bnmhecOHfvIW0rhMxv/gMKfBKwDMxmD9/Uo1HSqpQ17ocHms1JwWW6uTMLAopqqWlcz7l6Pax+qUOTzg==}
 
-  '@cyberuni/agent-harness@0.1.0':
-    resolution: {integrity: sha512-EFi1GZpZ2ziQ+GoE7Fyu0dIn881IVUdxQNXSMDkSCsliz2O8P3hnCxBinLaJYtgN4CuqeE0o9twSLzqD1OIrgQ==}
+  '@cyberuni/agent-harness@0.3.0':
+    resolution: {integrity: sha512-o1q19ZWll8IMpIdUwOZy0ETxryOQvCI3R56lAPOxrBKx/iabxrmZkhRdooDAlnYcny243GR/mkfrqm5e4DrpRg==}
     engines: {node: '>=22'}
 
   '@emnapi/core@1.11.1':
@@ -1333,8 +1333,8 @@ packages:
     peerDependencies:
       '@biomejs/biome': '>= 2'
 
-  '@repobuddy/upx@0.1.1':
-    resolution: {integrity: sha512-WBLoxQFQN41VmhX/GZ5PNZl8G54VmUL1ovHO1/w5RqOxVSFyOd8RhXrIITq7SVnQMaWJE7GvCmHoDsV+tqf2Cw==}
+  '@repobuddy/upx@0.2.0':
+    resolution: {integrity: sha512-uoiPhl9RkZGH9DqIZbsFDdcljmmZEemLNwSB0ZJFcqYs/rq86kFZEb//YFw9NNmHt+jlHtSCwIoAGAaIe4q0Vw==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -3116,8 +3116,8 @@ packages:
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
 
-  universal-plugin@0.11.0:
-    resolution: {integrity: sha512-j6bjAJQlkG3YNzHcwwXiNttNTpIY0btgwFz1rlgNWXdTsLX53o85YsNxZtM2lztiuykcM6PnTydNM9g82QR2Jw==}
+  universal-plugin@0.12.0:
+    resolution: {integrity: sha512-wOkRhfVBF5QKLE3gdNUgxmixpfhgbZKp84z+4XTefI9RNsUUAFZ+YmhzV7yjnAevYn07d6TtT2RdGReJhi9k0Q==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -3822,7 +3822,7 @@ snapshots:
 
   '@cucumber/messages@33.0.4': {}
 
-  '@cyberuni/agent-harness@0.1.0': {}
+  '@cyberuni/agent-harness@0.3.0': {}
 
   '@emnapi/core@1.11.1':
     dependencies:
@@ -4287,7 +4287,7 @@ snapshots:
     dependencies:
       '@biomejs/biome': 2.5.9
 
-  '@repobuddy/upx@0.1.1':
+  '@repobuddy/upx@0.2.0':
     dependencies:
       semver: 7.8.5
 
@@ -6157,12 +6157,12 @@ snapshots:
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
 
-  universal-plugin@0.11.0:
+  universal-plugin@0.12.0:
     dependencies:
-      '@cyberuni/agent-harness': 0.1.0
-      '@repobuddy/upx': 0.1.1
+      '@cyberuni/agent-harness': 0.3.0
+      '@repobuddy/upx': 0.2.0
       '@toon-format/toon': 4.1.1
-      commander: 14.0.3
+      commander: 15.0.0
       semver: 7.8.5
 
   unpartial@1.0.8: {}
