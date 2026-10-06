@@ -243,8 +243,39 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Given a caller running unit spawn with no --worktree-path (creating a new worktree)
     When unit spawn runs
     Then the worktree is created under a sibling directory of the primary checkout named <the primary's own directory name>.worktrees
-    And its directory name is legion- followed by the unit's 6-character short id
+    And its directory name is <the primary's own directory name>- followed by a slot number
     And that path is not nested inside the primary checkout
+
+  # ── A worktree spawn leases its worktree from the worktree library ──
+  # The worktree comes from @cyberuni/agent-harness/worktrees' acquire, not a fresh checkout per unit:
+  # an idle worktree a closed unit released is recycled onto the new unit's branch, and only when none
+  # is idle is a new slot created. The lease is git's own lock on the worktree, so it is observed in
+  # git, and the unit holds it until close releases it.
+
+  Scenario: a worktree spawn leases its worktree under a holder naming the unit
+    Given a caller running unit spawn with no --worktree-path (creating a new worktree)
+    When unit spawn runs
+    Then git lists the new worktree as locked with a reason naming cyberlegion and the unit's id
+    And the peer's record carries the lease id that lock records
+
+  Scenario: a spawn recycles a worktree a closed unit released
+    Given a unit spawned with no --worktree-path and then closed, its branch landed and its worktree clean
+    When a caller runs unit spawn with no --worktree-path
+    Then the new unit's worktree is the released worktree's path
+    And that worktree is checked out on the new unit's branch
+    And the spawn reports the worktree as reused
+
+  Scenario: a worktree a live unit still holds is never handed to another spawn
+    Given a live unit spawned with no --worktree-path
+    When a caller runs unit spawn with no --worktree-path
+    Then the new unit's worktree is a different slot from the live unit's
+
+  Scenario: a --worktree-path spawn bypasses the worktree library and holds no lease
+    Given a caller running unit spawn with --worktree-path set to a path outside the primary checkout
+    When unit spawn runs
+    Then the worktree is created at that path
+    And git does not list it as locked
+    And the peer's record carries no lease
 
   Scenario: --repo creates the worktree from the repository containing the path it names, not the caller's
     Given a caller whose current directory is in one repository
@@ -358,6 +389,14 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     When unit spawn runs
     Then a cyberlegion marker file exists under .agents/cyberlegion inside the new worktree
     And that marker is present whether the atomic route or the plain route created the worktree
+
+  Scenario: a recycled worktree on the atomic route opens in a workspace bound to it, creating no worktree
+    Given a caller running unit spawn --at workspace on a backend that offers worktree creation
+    And the worktree library recycles an idle worktree for it
+    When unit spawn runs
+    Then the backend is asked to open the existing worktree in a bound workspace
+    And the backend's worktree-creating call is not used
+    And the recycled worktree carries the cyberlegion marker
 
   # ── A workspace placement is labeled so a human can find it by eye ──
   # A unit's own visible space is what the human scans to locate a session, so spawn resolves a
@@ -608,10 +647,40 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     Then spawn sends the keys that accept the trust prompt
     And no first-turn doorbell is delivered to any pane
 
+  # ── close releases a leased worktree rather than removing it ──
+  # Release does not recycle: an occupant may still be working there, and the library's next acquire
+  # recycles only an idle, clean, landed worktree. Nothing is discarded, so neither the dirty refusal
+  # nor --force applies to a leased worktree.
+
+  Scenario: close of a leased unit releases the lease and leaves the worktree on disk
+    Given a unit spawned with no --worktree-path, holding a lease on its worktree, with a live session pane
+    When a caller runs unit close <id>
+    Then git no longer lists the worktree as locked
+    And the worktree is still on disk
+    And the session pane is torn down
+    And the unit's registry record, pane pointer, and stored data are gone
+    And the result reports the lease released and names the worktree as retained
+
+  Scenario: close of a leased unit with uncommitted changes releases it without refusing
+    Given a unit spawned with no --worktree-path whose worktree has uncommitted changes
+    When a caller runs unit close <id>
+    Then it does not throw about uncommitted changes
+    And the uncommitted changes are still on disk
+    And the next unit spawn does not recycle that worktree
+
+  Scenario: close of a unit whose lease was taken away reports it lost and still reaps
+    Given a unit spawned with no --worktree-path whose worktree someone unlocked with git worktree unlock
+    When a caller runs unit close <id>
+    Then the result reports the lease lost
+    And the worktree is still on disk
+    And the unit's registry record is gone
+
   # ── close tears down the worktree + session and reaps the state (spawn's inverse) ──
+  # Every close scenario from here on is about a worktree the unit holds no lease on — a
+  # --worktree-path spawn, or a unit spawned before spawn leased — which close removes.
 
   Scenario: close removes the worktree, tears down the session, and reaps the registry record
-    Given a registered unit with a worktree and a live session pane
+    Given a registered unit with a worktree it holds no lease on and a live session pane
     When a caller runs unit close <id>
     Then the worktree is removed
     And the session pane is torn down

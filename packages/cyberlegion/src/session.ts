@@ -1,7 +1,12 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import {
+	gitWorktreeCreator,
+	primaryRoot as libraryPrimaryRoot,
+	type WorktreeCreator,
+} from '@cyberuni/agent-harness/worktrees'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
-import { assertDistinctFromPrimary, gitWorktreeAdapter, resolvePrimaryRoot } from 'cyber-mux/worktree'
+import { assertDistinctFromPrimary, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import { ringTurn } from './console/ring.ts'
@@ -19,8 +24,9 @@ import {
 } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
-import { ensureMarker, paths, resolveUnitWorktreePath } from './paths.ts'
+import { ensureMarker, paths } from './paths.ts'
 import { deriveWorkspaceLabel } from './workspace-label.ts'
+import { asyncExec, LEASE_IGNORE, leaseHolder, libraryLeases } from './worktree-lease.ts'
 
 /** How each harness's own CLI is launched in the new pane. */
 export const LAUNCH_MAP: Record<Harness, string> = {
@@ -85,9 +91,10 @@ export interface SpawnInput {
 	briefInstructions?: string
 	/** Branch to create the unit's worktree on; defaults to `cyberlegion/unit-<id>`. */
 	branch?: string
-	/** Where to check out the unit's worktree; defaults to a sibling of the primary checkout
-	 * (`<parent>/<repo>.worktrees/legion-<id6>`, `id6` the same 6-char slice `handle` defaults to)
-	 * — never nested inside the primary's own tree. */
+	/** Where to check out the unit's worktree. Absent, the worktree library leases one — an idle
+	 * worktree recycled, else a new slot `<parent>/<repo>.worktrees/<repo>-<n>`, never nested inside the
+	 * primary's own tree. Named, the path is outside the library's naming, so the spawn bypasses it:
+	 * the worktree is created there with no lease, and close removes it rather than releasing it. */
 	worktreePath?: string
 	/** Spawn into this existing directory instead — creates no worktree. Mutually exclusive with
 	 * `branch`/`worktreePath` (those create a worktree; this reuses one). */
@@ -111,10 +118,9 @@ export interface SpawnInput {
 
 /** The primary checkout of the repository containing `repo`, asked of git from inside it (`git -C`)
  * rather than from the process cwd. */
-function primaryRootOfRepo(exec: Exec, repo: string): string {
-	const dir = resolve(repo)
+async function primaryRootOfRepo(exec: Exec, repo: string): Promise<string> {
 	try {
-		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === 'git' ? ['-C', dir, ...args] : args))
+		return await libraryPrimaryRoot({ from: resolve(repo), exec: asyncExec(exec) })
 	} catch {
 		throw new Error(`--repo ${repo} is not inside a git repository`)
 	}
@@ -124,8 +130,9 @@ function primaryRootOfRepo(exec: Exec, repo: string): string {
  * repository — for a folder that may sit outside any repository, where there is no primary checkout
  * to keep a unit out of. */
 export function primaryRootOf(exec: Exec, dir: string): string | undefined {
+	const at = resolve(dir)
 	try {
-		return primaryRootOfRepo(exec, dir)
+		return resolvePrimaryRoot((cmd, args) => exec(cmd, cmd === 'git' ? ['-C', at, ...args] : args))
 	} catch {
 		return undefined
 	}
@@ -144,6 +151,9 @@ export interface SpawnResult {
 	launch: string
 	/** Absent for a `--cwd` spawn, which creates no worktree. */
 	base?: SpawnBase
+	/** Whether the worktree library recycled an idle worktree rather than creating one. Absent when
+	 * the spawn acquired nothing: a `--cwd` or `--worktree-path` spawn. */
+	reused?: boolean
 }
 
 /**
@@ -164,19 +174,24 @@ function resolveSpawnBase(exec: Exec, primaryRoot: string, base?: string): Spawn
 }
 
 /**
- * Launch a new peer session as a genuine sibling unit: create a real git worktree distinct from
- * the primary checkout (refuse the primary checkout), open a session backend (tmux or herdr) with
- * its cwd set to that worktree, pre-register the peer, and drop its brief as a file — never typed
- * into its prompt. Nothing loads that file for the peer: it is the spawn wake that tells the peer to
- * go read it, naming its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a
- * peer sitting idle with its brief unread, which is why callers want `spawnAndWake`.
+ * Launch a new peer session as a genuine sibling unit: lease a git worktree distinct from the primary
+ * checkout (refuse the primary checkout), open a session backend (tmux or herdr) with its cwd set to
+ * that worktree, pre-register the peer, and drop its brief as a file — never typed into its prompt.
+ * Nothing loads that file for the peer: it is the spawn wake that tells the peer to go read it, naming
+ * its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a peer sitting idle
+ * with its brief unread, which is why callers want `spawnAndWake`.
  *
- * Spawned unit worktrees live sibling to the primary checkout (`<parent>/<repo>.worktrees/legion-<id6>`),
- * never nested inside it, even though the registry/mailbox itself lives in the global hub — the hub
- * addresses units across project and worktree boundaries, but a unit's checkout is necessarily
- * scoped to this one project's git remote.
+ * The worktree comes from the worktree library's `acquire` (`@cyberuni/agent-harness/worktrees`): an
+ * idle worktree a closed unit released is recycled onto the new branch, and only when none is idle is
+ * a new one created, at the library's own slot path (`<parent>/<repo>.worktrees/<repo>-<n>`) — a
+ * sibling of the primary checkout, never nested inside it. The unit holds the lease until `unit close`
+ * releases it. A `--worktree-path` names a path outside the library's naming, so that spawn bypasses
+ * the library: the worktree is created there, holds no lease, and close removes it as before.
+ *
+ * The registry/mailbox itself lives in the global hub — the hub addresses units across project and
+ * worktree boundaries, but a unit's checkout is necessarily scoped to this one project's git remote.
  */
-export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
+export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnResult> {
 	ctx.store.ensureMarker()
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
@@ -203,8 +218,8 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const primaryRoot = ownRepo
 		? primaryRootOf(exec, input.cwd as string)
 		: input.repo
-			? primaryRootOfRepo(exec, input.repo)
-			: resolvePrimaryRoot(exec)
+			? await primaryRootOfRepo(exec, input.repo)
+			: await libraryPrimaryRoot({ exec: asyncExec(exec) })
 	const launch = input.command ?? LAUNCH_MAP[harness]
 	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
 	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
@@ -216,8 +231,9 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	const from = callerPane(sessionAdapter, normalizedEnv)
 
 	let cwd: string
-	let worktree: { root: string; branch: string; primaryRoot?: string } | null
+	let worktree: AgentRecord['worktree']
 	let base: SpawnBase | undefined
+	let reused: boolean | undefined
 	let target: MuxTarget
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) {
@@ -238,44 +254,66 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 		// Mapped per-mux: herdr nests a new workspace under its source; tmux (no Workspace tier) opens
 		// a visible window. Deterministic — independent of whichever workspace is currently focused.
 		const at = input.at ?? 'workspace'
-		// Sliced to 6 hex chars — matches the same default the record's own `handle` uses below, so
-		// the directory name lines up with what's already shown to the caller.
-		const worktreePath = input.worktreePath ?? resolveUnitWorktreePath(primaryRoot, id.slice(0, 6))
 		// Refuse the primary checkout BEFORE anything is created or opened. The post-hoc asserts below
 		// stay as a backstop against a backend returning a root other than the one asked for, but they
 		// fire too late to honor "no worktree is created / no session is opened": the atomic branch
 		// creates the worktree AND opens the session in one call, so a check after it has already
 		// stranded a pane. The frozen scenarios say nothing is opened, so nothing may be.
-		assertDistinctFromPrimary(resolve(worktreePath), primaryRoot)
+		if (input.worktreePath) assertDistinctFromPrimary(resolve(input.worktreePath), primaryRoot)
 		base = resolveSpawnBase(exec, primaryRoot, input.base)
-		if (at === 'workspace' && sessionAdapter.worktree) {
-			// The backend can create the worktree and open its new workspace in one atomic call —
-			// a real organizational improvement (herdr nests the worktree under its source workspace)
-			// over a separate worktree-add followed by a disconnected open().
-			const opened = sessionAdapter.worktree.createInWorkspace(exec, {
-				primaryRoot,
-				branch,
-				path: worktreePath,
-				base: base.ref,
-				launch: launchLine(),
-				...labelFor(at, input, brief, id),
-			})
-			assertDistinctFromPrimary(opened.worktree.root, primaryRoot)
-			ensureMarker(join(opened.worktree.root, '.agents', 'cyberlegion'))
-			cwd = opened.worktree.root
-			worktree = { ...opened.worktree, primaryRoot }
-			target = opened.target
+		const label = labelFor(at, input, brief, id)
+		// The backend can create the worktree and open its new workspace in one atomic call — a real
+		// organizational improvement (herdr nests the worktree under its source workspace) over a
+		// separate worktree-add followed by a disconnected open(). Handed to the library as its
+		// creator, so herdr still binds the worktrees it creates while the library picks their path.
+		const atomic = at === 'workspace' ? sessionAdapter.worktree : undefined
+		let opened: MuxTarget | undefined
+		const create: WorktreeCreator = atomic
+			? async (req) => {
+					const made = atomic.createInWorkspace(exec, {
+						primaryRoot,
+						branch,
+						path: req.path,
+						base: req.base,
+						launch: launchLine(),
+						...label,
+					})
+					assertDistinctFromPrimary(made.worktree.root, primaryRoot)
+					opened = made.target
+				}
+			: gitWorktreeCreator(asyncExec(exec))
+		let root: string
+		if (input.worktreePath) {
+			await create({ primaryRoot, path: input.worktreePath, base: base.ref, branch })
+			root = resolve(input.worktreePath)
+			worktree = { root, branch, primaryRoot }
 		} else {
-			const added = gitWorktreeAdapter.add(exec, { primaryRoot, path: worktreePath, branch, base: base.ref })
-			assertDistinctFromPrimary(added.root, primaryRoot)
-			// Stamp the new worktree-unit with its own tracked marker immediately — its state hasn't
-			// been committed yet, so without this the freshly spawned unit wouldn't detect itself
-			// until then.
-			ensureMarker(join(added.root, '.agents', 'cyberlegion'))
-			cwd = added.root
-			worktree = { ...added, primaryRoot }
-			target = sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
+			const holder = leaseHolder(id)
+			const lease = await libraryLeases.acquire({
+				primaryRoot,
+				holder,
+				branch,
+				base: base.ref,
+				exec: asyncExec(exec),
+				ignore: LEASE_IGNORE,
+				create,
+			})
+			root = lease.worktree
+			reused = lease.reused
+			worktree = { root, branch, primaryRoot, lease: { leaseId: lease.leaseId, holder } }
 		}
+		assertDistinctFromPrimary(root, primaryRoot)
+		// Stamp the worktree-unit with its own tracked marker immediately — its state hasn't been
+		// committed yet, so without this the freshly spawned unit wouldn't detect itself until then. A
+		// recycled worktree lost it to the recycle's clean, so it is stamped on every route.
+		ensureMarker(join(root, '.agents', 'cyberlegion'))
+		cwd = root
+		target =
+			opened ??
+			(atomic
+				? // A recycled worktree already exists, so the atomic route opens it in a bound workspace.
+					atomic.openInWorkspace(exec, { primaryRoot, path: root, launch: launchLine(), ...label }).target
+				: sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...label }))
 	}
 
 	const ts = new Date(ctx.now?.() ?? Date.now()).toISOString()
@@ -299,7 +337,13 @@ export function spawn(ctx: IdContext, input: SpawnInput): SpawnResult {
 	ctx.store.putPaneIndex(target.id, id)
 	ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions))
 
-	return { agent: rec, pane: target.id, launch, ...(base ? { base } : {}) }
+	return {
+		agent: rec,
+		pane: target.id,
+		launch,
+		...(base ? { base } : {}),
+		...(reused !== undefined ? { reused } : {}),
+	}
 }
 
 /**
@@ -327,7 +371,7 @@ export async function spawnAndWake(
 	input: SpawnInput,
 	options: { noWake?: boolean; nudgeOpts?: NudgeOptions; trustOpts?: TrustOptions } = {},
 ): Promise<SpawnResult & FirstTurn> {
-	const res = spawn(ctx, input)
+	const res = await spawn(ctx, input)
 	const trust = await settleSpawnTrust(ctx, res, options)
 	if (trust.trustBlocked) return { ...res, ...trust }
 	return { ...res, ...(await ringSpawnFirstTurn(ctx, res, trust, options)) }

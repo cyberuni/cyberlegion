@@ -238,13 +238,13 @@ describe('spec:cyberlegion/service/endpoint — lifecycle', () => {
 		expect(loadAgent(store, endpointId())?.status).toBe('active')
 	})
 
-	it('unit close refuses a service endpoint, leaving its record and pending mail intact', () => {
+	it('unit close refuses a service endpoint, leaving its record and pending mail intact', async () => {
 		unit('sender')
 		acquireService(ctx(), project.id, 'controller')
 		send({ store }, { fromId: 'sender', to: endpointId(), body: 'pending work' })
 		const before = loadAgent(store, endpointId())
 
-		expect(() => decommission({ store, exec: () => null, env: {} }, { id: endpointId(), force: true })).toThrow(
+		await expect(decommission({ store, exec: () => null, env: {} }, { id: endpointId(), force: true })).rejects.toThrow(
 			/service endpoint/,
 		)
 		expect(loadAgent(store, endpointId())).toEqual(before)

@@ -10,7 +10,6 @@ import {
 	paths,
 	resolveProjectLocalRoot,
 	resolveRoot,
-	resolveUnitWorktreePath,
 	sanitizePane,
 } from './paths.ts'
 
@@ -39,32 +38,6 @@ describe('resolveProjectLocalRoot', () => {
 		expect(resolveProjectLocalRoot({ cwd: '/tmp/not-a-repo', env: {}, exec })).toBe(
 			'/tmp/not-a-repo/.agents/cyberlegion',
 		)
-	})
-})
-
-describe('resolveUnitWorktreePath', () => {
-	it('places the worktree as a sibling of the primary checkout, never nested inside it', () => {
-		const path = resolveUnitWorktreePath('/home/user/code/cyberplace', 'unit-1')
-		expect(path).toBe('/home/user/code/cyberplace.worktrees/legion-unit-1')
-		expect(path.startsWith('/home/user/code/cyberplace/')).toBe(false)
-	})
-
-	it('is deterministic and distinct per id', () => {
-		const a = resolveUnitWorktreePath('/repo', 'unit-a')
-		const b = resolveUnitWorktreePath('/repo', 'unit-b')
-		expect(a).not.toBe(b)
-		expect(resolveUnitWorktreePath('/repo', 'unit-a')).toBe(a)
-	})
-
-	it('never collides across two different primary checkouts sharing a basename', () => {
-		const a = resolveUnitWorktreePath('/home/alice/code/cyberplace', 'unit-1')
-		const b = resolveUnitWorktreePath('/home/bob/code/cyberplace', 'unit-1')
-		expect(a).not.toBe(b)
-	})
-
-	it('never resolves onto the primary checkout itself', () => {
-		const primaryRoot = '/repo'
-		expect(resolveUnitWorktreePath(primaryRoot, 'unit-1')).not.toBe(primaryRoot)
 	})
 })
 

@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { type AcquireOptions, gitWorktreeCreator, slotPath } from '@cyberuni/agent-harness/worktrees'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { spawnCommandInput } from './cli-input.ts'
 import { DELIVERY_DOORBELL } from './console/doorbell.ts'
 import { type AgentRecord, type Exec, type Harness, type IdContext, loadAgent, saveAgent } from './identity.ts'
@@ -18,6 +19,49 @@ import {
 	spawnAndWake,
 } from './session.ts'
 import { FileStore } from './store/file-store.ts'
+
+/**
+ * The worktree library's `acquire`, stood in for: these tests fake git, so no real repository is
+ * behind them for the library to survey. The stand-in always creates slot 1 through the creator spawn
+ * hands it — the route under test — and records what spawn asked for. Recycling a released worktree
+ * and the lease itself are the library's, exercised against real git in `session.lease.test.ts`.
+ */
+const leases = vi.hoisted(() => ({ acquired: [] as AcquireOptions[], reuse: false }))
+vi.mock('./worktree-lease.ts', async (importOriginal) => {
+	const original = await importOriginal<typeof import('./worktree-lease.ts')>()
+	return {
+		...original,
+		libraryLeases: {
+			async acquire(options: AcquireOptions) {
+				leases.acquired.push(options)
+				const primary = options.primaryRoot as string
+				const path = slotPath(primary, 1)
+				// A recycled worktree already exists: the library creates nothing and hands it back.
+				if (leases.reuse) {
+					return {
+						worktree: path,
+						leaseId: 'lease-1',
+						holder: options.holder,
+						reused: true,
+						verified: true,
+						lingering: [],
+					}
+				}
+				const create = options.create ?? gitWorktreeCreator(options.exec)
+				await create({ primaryRoot: primary, path, base: options.base as string, branch: options.branch })
+				return {
+					worktree: path,
+					leaseId: 'lease-1',
+					holder: options.holder,
+					reused: false,
+					verified: true,
+					lingering: [],
+				}
+			},
+			release: original.libraryLeases.release,
+		},
+	}
+})
 
 // cyber-mux (>=0.8.0) prefixes every tmux call with `-u`; cyberlegion's own direct tmux calls do not.
 // Fakes answer by the tmux verb, wherever it sits.
@@ -81,6 +125,8 @@ beforeEach(() => {
 	sent = []
 	allCalls = []
 	worktreeAddCalls = []
+	leases.acquired.length = 0
+	leases.reuse = false
 })
 
 // tmux `open` asks for `#{pane_id}\t#{window_id}` (tab-separated — `OpenedPane.tab` is required).
@@ -130,8 +176,8 @@ function herdrExecFor(calls: string[][]): Exec {
  * watch runs its whole (instant) timeout and reports `unsettled`. */
 const NO_TRUST_WAIT = { sleep: async () => {} }
 
-const expectedWorktreePath = (id: string) =>
-	resolve(join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`, `legion-${id.slice(0, 6)}`))
+/** Where the `acquire` stand-in leases the worktree: the library's first slot of the repository. */
+const leasedPath = (primary = primaryRoot) => slotPath(primary, 1)
 
 /**
  * The frozen conjunct every ring-failure scenario carries: "the peer is still registered AND its
@@ -151,8 +197,8 @@ function expectSpawnEffectIntact(res: { agent: AgentRecord; pane: string }, work
 }
 
 describe('spawn opens a pane + pre-registers the peer', () => {
-	it('registers the peer (active, pane, spawnedBy) and writes its brief', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 'reply to alice', handle: 'bob', at: 'pane:right' })
+	it('registers the peer (active, pane, spawnedBy) and writes its brief', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 'reply to alice', handle: 'bob', at: 'pane:right' })
 		expect(res.pane).toBe('%9')
 		const rec = loadAgent(store, res.agent.id)
 		// `active` outright — there is no intermediate `spawning` status and nothing later flips it
@@ -320,38 +366,38 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		expect(store.readBrief(res.agent.id)).toBe(TASK)
 	})
 
-	it('records no spawnedBy at all when the caller is itself no registered unit', () => {
+	it('records no spawnedBy at all when the caller is itself no registered unit', async () => {
 		// No `$CYBERLEGION_AGENT_ID` and no pane pointer — the caller cannot name itself. The field must
 		// be ABSENT, not an empty string and not a fabricated parent: `spawnedBy` is what the owner-mail
 		// gate reads (mail/surface), so an empty-string parent would silently demote every unit spawned
 		// by an unregistered human into a "spawned unit" that never surfaces owner mail.
-		const res = spawn({ store, env: { TMUX: 't' }, exec: fakeExec, now: () => 1 }, { harness: 'claude', task: 't' })
+		const res = await spawn(
+			{ store, env: { TMUX: 't' }, exec: fakeExec, now: () => 1 },
+			{ harness: 'claude', task: 't' },
+		)
 		const rec = loadAgent(store, res.agent.id)
 		expect(rec?.status).toBe('active')
 		expect(Object.hasOwn(rec as object, 'spawnedBy')).toBe(false)
 	})
 
-	it('--handle names the unit on its own record', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', handle: 'vinekeeper', at: 'pane:right' })
+	it('--handle names the unit on its own record', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', handle: 'vinekeeper', at: 'pane:right' })
 		expect(loadAgent(store, res.agent.id)?.handle).toBe('vinekeeper')
 	})
 
-	it("with no --handle, the handle and the worktree dir share the unit's 6-character short id", () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
-		const short = res.agent.id.slice(0, 6)
-		expect(loadAgent(store, res.agent.id)?.handle).toBe(short)
-		// the SAME slice names the directory, so what the caller is shown lines up with what is on disk
-		expect(res.agent.worktree?.root.endsWith(`legion-${short}`)).toBe(true)
+	it("with no --handle, the handle defaults to the unit's 6-character short id", async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+		expect(loadAgent(store, res.agent.id)?.handle).toBe(res.agent.id.slice(0, 6))
 	})
 
-	it('takes the brief from a file too', () => {
+	it('takes the brief from a file too', async () => {
 		const bf = join(store.root, '..', 'brief.txt')
 		writeFileSync(bf, 'from file')
-		const res = spawn(ctx(), { harness: 'codex', briefFile: bf, at: 'pane:right' })
+		const res = await spawn(ctx(), { harness: 'codex', briefFile: bf, at: 'pane:right' })
 		expect(store.readBrief(res.agent.id)).toBe('from file')
 	})
 
-	it('resolveBrief reads --task - from stdin, and --task text / --brief-file too', () => {
+	it('resolveBrief reads --task - from stdin, and --task text / --brief-file too', async () => {
 		const bf = join(store.root, '..', 'b2.txt')
 		writeFileSync(bf, 'file brief')
 		expect(resolveBrief({ task: '-' }, () => 'stdin brief')).toBe('stdin brief')
@@ -369,31 +415,31 @@ describe('spec:cyberlegion/unit/lifecycle', () => {
 	const INSTRUCTIONS = 'Cite the source of every figure.'
 	const TASK = 'draft the quarterly summary'
 
-	function spawnDef(harness: string): { brief: string | undefined; launch: string } {
+	async function spawnDef(harness: string): Promise<{ brief: string | undefined; launch: string }> {
 		const dir = mkdtempSync(join(tmpdir(), 'cl-brief-def-'))
 		const file = join(dir, 'writer.md')
 		writeFileSync(file, `---\nname: writer\nharness: ${harness}\n---\n\n${INSTRUCTIONS}\n`)
 		const { input } = spawnCommandInput({ agentFile: file, task: TASK })
-		const res = spawn(ctx(), { ...input, at: 'pane:right' })
+		const res = await spawn(ctx(), { ...input, at: 'pane:right' })
 		return { brief: store.readBrief(res.agent.id), launch: res.launch }
 	}
 
-	it("a cursor --agent spawn writes the def's instructions in front of the brief under their own heading", () => {
-		const { brief, launch } = spawnDef('cursor')
+	it("a cursor --agent spawn writes the def's instructions in front of the brief under their own heading", async () => {
+		const { brief, launch } = await spawnDef('cursor')
 		expect(brief).toBe(`## Agent instructions\n\n${INSTRUCTIONS}\n\n## Brief\n\n${TASK}`)
 		expect(launch).not.toContain(INSTRUCTIONS)
 	})
 
-	it("a claude --agent spawn's brief file holds the task alone", () => {
-		expect(spawnDef('claude').brief).toBe(TASK)
+	it("a claude --agent spawn's brief file holds the task alone", async () => {
+		expect((await spawnDef('claude')).brief).toBe(TASK)
 	})
 })
 
 describe('per-harness launch', () => {
-	it("a spawn with no --agent launches the harness's own default binary, unadorned", () => {
+	it("a spawn with no --agent launches the harness's own default binary, unadorned", async () => {
 		// No def resolved, so no `input.command` is composed in: the reported launch is the bare
 		// mapped binary, carrying neither of the two flags a def would add.
-		const res = spawn(ctx(), { harness: 'claude', task: 'seal the north greenhouse vents', at: 'pane:right' })
+		const res = await spawn(ctx(), { harness: 'claude', task: 'seal the north greenhouse vents', at: 'pane:right' })
 		expect(res.launch).toBe('claude')
 		expect(res.launch).not.toContain('--model')
 		expect(res.launch).not.toContain('--append-system-prompt')
@@ -406,8 +452,8 @@ describe('per-harness launch', () => {
 		['claude', 'claude'],
 		['cursor', 'cursor-agent'],
 		['codex', 'codex'],
-	])('starts the %s pane with its own CLI', (harness, launch) => {
-		const res = spawn(ctx(), { harness, task: 't', at: 'pane:right' })
+	])('starts the %s pane with its own CLI', async (harness, launch) => {
+		const res = await spawn(ctx(), { harness, task: 't', at: 'pane:right' })
 		expect(res.launch).toBe(launch)
 		// The mux fast-path env is prefixed onto the typed launch command, so the spawned peer
 		// inherits it and never re-runs its own ancestry discovery. cyber-mux's `submit(text)` composes
@@ -429,9 +475,9 @@ describe('per-harness launch', () => {
 // nothing carried its `command` through spawn to the pane, so dropping `input.command ??` — which
 // launches a bare `claude` and silently discards the def's model and instructions — stayed green.
 describe('a caller-supplied launch command reaches the pane', () => {
-	it('types the composed command, not the harness default', () => {
+	it('types the composed command, not the harness default', async () => {
 		const composed = `claude --model 'sonnet' --append-system-prompt 'Look for correctness bugs first.'`
-		const res = spawn(ctx(), { harness: 'claude', command: composed, task: 't', at: 'pane:right' })
+		const res = await spawn(ctx(), { harness: 'claude', command: composed, task: 't', at: 'pane:right' })
 		expect(res.launch).toBe(composed)
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		expect(typed).toContain(composed) // the def's model and instructions actually reach the pane
@@ -440,60 +486,77 @@ describe('a caller-supplied launch command reaches the pane', () => {
 })
 
 describe("spawn records the launch command on the peer's record", () => {
-	it('records the launch the spawn reports, so restart can relaunch the unit the same way', () => {
+	it('records the launch the spawn reports, so restart can relaunch the unit the same way', async () => {
 		const composed = "claude --model 'opus'"
-		const res = spawn(ctx(), { harness: 'claude', command: composed, task: 't', at: 'pane:right' })
+		const res = await spawn(ctx(), { harness: 'claude', command: composed, task: 't', at: 'pane:right' })
 		expect(loadAgent(store, res.agent.id)?.launch).toBe(res.launch)
 		expect(res.launch).toBe(composed)
 	})
 })
 
 describe('spawn errors', () => {
-	it('errors on an unmapped harness without launching', () => {
-		expect(() => spawn(ctx(), { harness: 'grok', task: 't' })).toThrow(/launch map/)
+	it('errors on an unmapped harness without launching', async () => {
+		await expect(spawn(ctx(), { harness: 'grok', task: 't' })).rejects.toThrow(/launch map/)
 		// ...and it errors BEFORE anything is opened — no worktree created, no session launched, and
 		// no half-registered record left behind for `who`/`prune` to trip over
 		expect(worktreeAddCalls).toEqual([])
 		expect(sent).toEqual([])
 		expect(store.listAgents()).toEqual([])
 	})
-	it('errors when no brief source is supplied, creating and registering nothing', () => {
-		expect(() => spawn(ctx(), { harness: 'claude' })).toThrow(/brief/)
+	it('errors when no brief source is supplied, creating and registering nothing', async () => {
+		await expect(spawn(ctx(), { harness: 'claude' })).rejects.toThrow(/brief/)
 		expect(worktreeAddCalls).toEqual([])
 		expect(sent).toEqual([])
 		expect(store.listAgents()).toEqual([])
 	})
-	it('errors when neither tmux nor herdr is detected', () => {
+	it('errors when neither tmux nor herdr is detected', async () => {
 		const noBackend: IdContext = { store, env: {}, exec: fakeExec }
-		expect(() => spawn(noBackend, { harness: 'claude', task: 't' })).toThrow(/tmux/)
+		await expect(spawn(noBackend, { harness: 'claude', task: 't' })).rejects.toThrow(/tmux/)
 	})
 })
 
 describe('spawn creates a real worktree unit, sibling to the primary checkout (not the global hub)', () => {
-	it('creates a git worktree distinct from the primary checkout and opens the session there', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
-		const expectedPath = expectedWorktreePath(res.agent.id)
-		expect(res.agent.worktree?.root).toBe(expectedPath)
-		expect(res.agent.cwd).toBe(expectedPath)
+	it('creates a git worktree distinct from the primary checkout and opens the session there', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+		expect(res.agent.worktree?.root).toBe(leasedPath())
+		expect(res.agent.cwd).toBe(leasedPath())
 		// git worktree add ran against the primary root, not the unit path
 		const addCall = worktreeAddCalls[0]!
 		expect(addCall).toEqual(expect.arrayContaining(['-C', primaryRoot, 'worktree', 'add']))
 	})
 
-	it("never nests the default worktree inside the primary checkout's own tree", () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+	it("never nests the default worktree inside the primary checkout's own tree", async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.agent.worktree?.root.startsWith(`${resolve(primaryRoot)}/`)).toBe(false)
 	})
 
-	it('names the default worktree dir with the same 6-char id slice as the record handle', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', handle: 'bob', at: 'pane:right' })
-		expect(res.agent.worktree?.root).toBe(expectedWorktreePath(res.agent.id))
-		expect(res.agent.worktree?.root.endsWith(`legion-${res.agent.id.slice(0, 6)}`)).toBe(true)
-		// an explicit --handle doesn't rename the dir — only id-derived defaults do
+	it('leases the worktree from the library for the unit, on its branch and base', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', handle: 'bob', base: 'main', at: 'pane:right' })
+		expect(leases.acquired).toHaveLength(1)
+		expect(leases.acquired[0]).toMatchObject({
+			primaryRoot,
+			holder: `cyberlegion:${res.agent.id}`,
+			branch: `cyberlegion/unit-${res.agent.id}`,
+			base: 'main',
+			// The marker spawn stamps is not the unit's work, so it never keeps a released worktree from reuse.
+			ignore: ['.agents/cyberlegion/config.json'],
+		})
+		// The record carries the lease, so close can give it back.
+		expect(res.agent.worktree?.lease).toEqual({ leaseId: 'lease-1', holder: `cyberlegion:${res.agent.id}` })
+		expect(res.reused).toBe(false)
+		// The library names the worktree; a --handle does not.
 		expect(res.agent.worktree?.root.includes('bob')).toBe(false)
 	})
 
-	it('opens the tmux pane with -c set to the new worktree root, not the caller cwd', () => {
+	it('a --worktree-path spawn bypasses the library and holds no lease', async () => {
+		const custom = join(dirname(primaryRoot), `outside-${basename(primaryRoot)}`)
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', worktreePath: custom, at: 'pane:right' })
+		expect(leases.acquired).toHaveLength(0)
+		expect(res.agent.worktree?.lease).toBeUndefined()
+		expect(res.reused).toBeUndefined()
+	})
+
+	it('opens the tmux pane with -c set to the new worktree root, not the caller cwd', async () => {
 		const openCalls: string[][] = []
 		const exec: Exec = (cmd, args) => {
 			if (cmd === 'git') {
@@ -507,27 +570,23 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			}
 			return null
 		}
-		const res = spawn(
-			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
-			{ harness: 'claude', task: 't', at: 'pane:right' },
-		)
-		const expectedPath = expectedWorktreePath(res.agent.id)
+		await spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(openCalls[0]).toEqual([
 			'-u',
 			'split-window',
 			'-d',
 			'-h',
 			'-c',
-			expectedPath,
+			leasedPath(),
 			'-P',
 			'-F',
 			'#{pane_id}\t#{window_id}',
 		])
 	})
 
-	it('accepts an explicit --branch and --worktree-path', () => {
+	it('accepts an explicit --branch and --worktree-path', async () => {
 		const custom = join(store.root, '..', 'custom-unit')
-		const res = spawn(ctx(), {
+		const res = await spawn(ctx(), {
 			harness: 'claude',
 			task: 't',
 			branch: 'my-branch',
@@ -538,10 +597,10 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 		// still find where git registered it once its directory is gone.
 		expect(res.agent.worktree).toEqual({ root: resolve(custom), branch: 'my-branch', primaryRoot })
 		const addCall = worktreeAddCalls[0]!
-		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '-b', 'my-branch', custom, 'HEAD'])
+		expect(addCall).toEqual(['-C', primaryRoot, 'worktree', 'add', '--quiet', '-b', 'my-branch', custom, 'HEAD'])
 	})
 
-	it('opens the session in an explicit --worktree-path and records that root', () => {
+	it('opens the session in an explicit --worktree-path and records that root', async () => {
 		// The accepted half of the primary-checkout refusal: a path OUTSIDE the primary is created,
 		// the session's cwd follows it, and the record carries it — so the refusal below is a real
 		// gate rather than a path that never worked.
@@ -562,7 +621,7 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 			}
 			return null
 		}
-		const res = spawn(
+		const res = await spawn(
 			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
 			{ harness: 'claude', task: 't', worktreePath: custom, at: 'pane:right' },
 		)
@@ -571,8 +630,8 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 		expect(loadAgent(store, res.agent.id)?.worktree?.root).toBe(resolve(custom))
 	})
 
-	it('defaults the branch to cyberlegion/unit-<id>, and creates the worktree ON it', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+	it('defaults the branch to cyberlegion/unit-<id>, and creates the worktree ON it', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(res.agent.worktree?.branch).toBe(`cyberlegion/unit-${res.agent.id}`)
 		// ...and the default actually reaches `git worktree add -b`. The record's own branch field is
 		// written from the same local as the git call, but only on the plain route's success path: a
@@ -583,23 +642,23 @@ describe('spawn creates a real worktree unit, sibling to the primary checkout (n
 		)
 	})
 
-	it('stamps the new worktree-unit with its own tracked marker so it self-detects', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+	it('stamps the new worktree-unit with its own tracked marker so it self-detects', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		const marker = join(res.agent.worktree!.root, '.agents', 'cyberlegion', 'config.json')
 		expect(existsSync(marker)).toBe(true)
 	})
 })
 
 describe('refusing the primary checkout', () => {
-	it('throws a clear error rather than opening a session in the primary', () => {
+	it('throws a clear error rather than opening a session in the primary', async () => {
 		// Driven through the shared fakeExec so the refusal's second clause is checkable: it must
 		// throw AND open nothing. A local recording-nothing exec can only see that it threw.
-		expect(() =>
+		await expect(
 			spawn(
 				{ store, env: { TMUX: 't' }, exec: fakeExec, now: () => 1 },
 				{ harness: 'claude', task: 't', worktreePath: primaryRoot },
 			),
-		).toThrow(/primary checkout/)
+		).rejects.toThrow(/primary checkout/)
 		expect(sent).toHaveLength(0) // and no session is opened
 		// ...no worktree was added at that path, and nothing was registered. The refusal's whole point
 		// is WHEN it fires: an assert placed after `git worktree add` still throws while leaving a
@@ -638,7 +697,7 @@ describe('spawn picks its worktree-creation route from the backend AND the place
 		}
 	}
 
-	it('a workspace spawn on a backend with NO worktree creation takes the plain route', () => {
+	it('a workspace spawn on a backend with NO worktree creation takes the plain route', async () => {
 		// tmux offers no atomic worktree-and-workspace call, so the same `workspace` placement that
 		// takes the atomic route on herdr must fall back to `git worktree add` plus a separate open.
 		// Without this case an implementation keyed only on the placement passes every herdr test.
@@ -658,7 +717,7 @@ describe('spawn picks its worktree-creation route from the backend AND the place
 			}
 			return null
 		}
-		const res = spawn(
+		const res = await spawn(
 			{ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 },
 			{ harness: 'claude', task: 't', at: 'workspace' },
 		)
@@ -668,12 +727,12 @@ describe('spawn picks its worktree-creation route from the backend AND the place
 		expect(openCalls[0]).toContain(res.agent.worktree?.root)
 	})
 
-	it('a tab placement takes the plain route even on a backend that CAN create worktrees', () => {
+	it('a tab placement takes the plain route even on a backend that CAN create worktrees', async () => {
 		// The guard is compound — atomic route iff the backend offers creation AND the placement is
 		// `workspace`. This is the half the herdr-workspace case cannot see.
 		const gitCalls: string[][] = []
 		const herdrCalls: string[][] = []
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrRouteExec(gitCalls, herdrCalls, ''), now: () => 1 },
 			{ harness: 'claude', task: 't', at: 'tab' },
 		)
@@ -682,7 +741,7 @@ describe('spawn picks its worktree-creation route from the backend AND the place
 		expect(herdrCalls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
 	})
 
-	it('stamps the tracked cyberlegion marker on the worktree the ATOMIC route created too', () => {
+	it('stamps the tracked cyberlegion marker on the worktree the ATOMIC route created too', async () => {
 		// The plain route's marker is covered above. The atomic route writes the worktree through the
 		// backend, so it needs its own stamp — a spawned unit with no marker cannot self-detect the
 		// hub until its state is committed.
@@ -691,7 +750,7 @@ describe('spawn picks its worktree-creation route from the backend AND the place
 		// unique per test run: `dirname(primaryRoot)` is the shared tmp dir, so a fixed name here
 		// survives between runs and a marker left by an earlier run makes the assertion unfalsifiable
 		const worktreeRoot = join(dirname(primaryRoot), `atomic-marker-${basename(primaryRoot)}`)
-		const res = spawn(
+		const res = await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrRouteExec(gitCalls, herdrCalls, worktreeRoot), now: () => 1 },
 			{ harness: 'claude', task: 't', at: 'workspace' },
 		)
@@ -706,14 +765,14 @@ describe('the primary-checkout refusal opens nothing, on either worktree path', 
 	// opens — so it happens to honor it. The herdr path creates the worktree and opens its workspace
 	// in ONE atomic call, so a check placed after that call has already stranded a pane. Only a
 	// backend-with-worktree fixture can tell the two apart, and none existed.
-	it('refuses before the backend creates a worktree or opens a workspace', () => {
+	it('refuses before the backend creates a worktree or opens a workspace', async () => {
 		const calls: string[][] = []
-		expect(() =>
+		await expect(
 			spawn(
 				{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExecFor(calls), now: () => 1 },
 				{ harness: 'claude', task: 't', worktreePath: primaryRoot },
 			),
-		).toThrow(/primary checkout/)
+		).rejects.toThrow(/primary checkout/)
 		expect(calls.filter((c) => c[0] === 'worktree' && c[1] === 'create')).toEqual([])
 		expect(calls.filter((c) => c[0] === 'tab' || c[0] === 'workspace')).toEqual([])
 		expect(store.listAgents()).toEqual([]) // ...and no unit is registered on this route either
@@ -721,9 +780,9 @@ describe('the primary-checkout refusal opens nothing, on either worktree path', 
 })
 
 describe('--cwd spawns into an existing directory, creating no worktree', () => {
-	it('opens the session in that directory and registers it with no created worktree', () => {
+	it('opens the session in that directory and registers it with no created worktree', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
-		const res = spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' })
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' })
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(res.agent.cwd).toBe(resolve(existingDir))
 		expect(res.agent.worktree).toBeNull()
@@ -732,7 +791,7 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 		expect(rec?.worktree).toBeNull()
 	})
 
-	it('opens the tmux pane with -c set to the given directory', () => {
+	it('opens the tmux pane with -c set to the given directory', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
 		const openCalls: string[][] = []
 		const exec: Exec = (cmd, args) => {
@@ -746,7 +805,7 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 			}
 			return null
 		}
-		spawn(
+		await spawn(
 			{ store, env: { TMUX: 't' }, exec, now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' },
 		)
@@ -763,36 +822,36 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 		])
 	})
 
-	it('throws when the --cwd directory does not exist, opening nothing', () => {
+	it('throws when the --cwd directory does not exist, opening nothing', async () => {
 		const missing = join(primaryRoot, 'does-not-exist')
-		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: missing })).toThrow(/must already exist/)
+		await expect(spawn(ctx(), { harness: 'claude', task: 't', cwd: missing })).rejects.toThrow(/must already exist/)
 		expect(sent).toHaveLength(0)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(store.listAgents()).toEqual([]) // and no half-registered record survives the refusal
 	})
 
-	it('refuses the primary checkout the same as a created worktree', () => {
-		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: primaryRoot })).toThrow(/primary checkout/)
+	it('refuses the primary checkout the same as a created worktree', async () => {
+		await expect(spawn(ctx(), { harness: 'claude', task: 't', cwd: primaryRoot })).rejects.toThrow(/primary checkout/)
 		expect(sent).toHaveLength(0)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(store.listAgents()).toEqual([])
 	})
 
-	it('is mutually exclusive with --worktree-path', () => {
+	it('is mutually exclusive with --worktree-path', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
-		expect(() =>
+		await expect(
 			spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, worktreePath: join(existingDir, 'wt') }),
-		).toThrow(/cannot combine/)
+		).rejects.toThrow(/cannot combine/)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(sent).toHaveLength(0)
 		expect(store.listAgents()).toEqual([])
 	})
 
-	it('is mutually exclusive with --branch', () => {
+	it('is mutually exclusive with --branch', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
-		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, branch: 'some-branch' })).toThrow(
-			/cannot combine/,
-		)
+		await expect(
+			spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, branch: 'some-branch' }),
+		).rejects.toThrow(/cannot combine/)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(sent).toHaveLength(0)
 		expect(store.listAgents()).toEqual([])
@@ -823,40 +882,40 @@ describe('--repo creates the worktree from the named repository, not the caller 
 		}
 	}
 
-	it("adds the worktree against that repository's primary checkout, beside it by default", () => {
+	it("adds the worktree against that repository's primary checkout, beside it by default", async () => {
 		const otherRoot = mkdtempSync(join(tmpdir(), 'cl-other-'))
-		const res = spawn(
+		const res = await spawn(
 			{ store, env: { TMUX: 't' }, exec: repoExec(otherRoot), now: () => 1 },
 			{ harness: 'claude', task: 't', repo: join(otherRoot, 'sub'), at: 'pane:right' },
 		)
-		const expected = resolve(
-			join(dirname(otherRoot), `${basename(otherRoot)}.worktrees`, `legion-${res.agent.id.slice(0, 6)}`),
-		)
+		const expected = leasedPath(otherRoot)
+		expect(dirname(expected)).toBe(join(dirname(otherRoot), `${basename(otherRoot)}.worktrees`))
 		expect(worktreeAddCalls[0]).toEqual(expect.arrayContaining(['-C', otherRoot, 'worktree', 'add']))
 		expect(res.agent.worktree).toEqual({
 			root: expected,
 			branch: `cyberlegion/unit-${res.agent.id}`,
 			primaryRoot: otherRoot,
+			lease: { leaseId: 'lease-1', holder: `cyberlegion:${res.agent.id}` },
 		})
 		expect(res.agent.cwd).toBe(expected)
 	})
 
-	it('throws when the path is not inside a git repository, creating and registering nothing', () => {
+	it('throws when the path is not inside a git repository, creating and registering nothing', async () => {
 		const notRepo = mkdtempSync(join(tmpdir(), 'cl-not-repo-'))
-		expect(() =>
+		await expect(
 			spawn(
 				{ store, env: { TMUX: 't' }, exec: repoExec('/nowhere'), now: () => 1 },
 				{ harness: 'claude', task: 't', repo: notRepo, at: 'pane:right' },
 			),
-		).toThrow(/--repo .* not inside a git repository/)
+		).rejects.toThrow(/--repo .* not inside a git repository/)
 		expect(worktreeAddCalls).toHaveLength(0)
 		expect(sent).toHaveLength(0)
 		expect(store.listAgents()).toEqual([])
 	})
 
-	it('is mutually exclusive with --cwd', () => {
+	it('is mutually exclusive with --cwd', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
-		expect(() => spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, repo: primaryRoot })).toThrow(
+		await expect(spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, repo: primaryRoot })).rejects.toThrow(
 			/cannot combine/,
 		)
 		expect(worktreeAddCalls).toHaveLength(0)
@@ -875,7 +934,7 @@ describe('--repo creates the worktree from the named repository, not the caller 
 // claims coverage the node does not have.
 describe('spec:cyberlegion/mux', () => {
 	describe("a pane placement splits the caller's own pane, not whichever pane is active", () => {
-		it("tmux: --at pane:right passes the caller's own pane via -t, from $TMUX_PANE", () => {
+		it("tmux: --at pane:right passes the caller's own pane via -t, from $TMUX_PANE", async () => {
 			const openCalls: string[][] = []
 			const exec: Exec = (cmd, args) => {
 				if (cmd === 'git') {
@@ -891,7 +950,7 @@ describe('spec:cyberlegion/mux', () => {
 			}
 			// $TMUX_PANE is the caller's own fast-path pane — distinct from whatever tmux's own "active
 			// pane" default would resolve to, which this test never even fakes.
-			spawn(
+			await spawn(
 				{ store, env: { TMUX: 't', TMUX_PANE: '%caller' }, exec, now: () => 1 },
 				{ harness: 'claude', task: 't', at: 'pane:right' },
 			)
@@ -910,7 +969,7 @@ describe('spec:cyberlegion/mux', () => {
 			)
 		})
 
-		it("herdr: --at pane:down passes the caller's own pane explicitly, never --current", () => {
+		it("herdr: --at pane:down passes the caller's own pane explicitly, never --current", async () => {
 			const herdrCalls: string[][] = []
 			const exec: Exec = (cmd, args) => {
 				if (cmd === 'git') {
@@ -929,7 +988,7 @@ describe('spec:cyberlegion/mux', () => {
 				}
 				return null
 			}
-			spawn(
+			await spawn(
 				{ store, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:pCaller' }, exec, now: () => 1 },
 				{ harness: 'claude', task: 't', at: 'pane:down' },
 			)
@@ -946,7 +1005,7 @@ describe('spec:cyberlegion/mux', () => {
 			expect(herdrCalls[0]).not.toContain('--current')
 		})
 
-		it("tmux: without a known caller pane, falls back to the backend's own default (no -t)", () => {
+		it("tmux: without a known caller pane, falls back to the backend's own default (no -t)", async () => {
 			const openCalls: string[][] = []
 			const exec: Exec = (cmd, args) => {
 				if (cmd === 'git') {
@@ -962,13 +1021,13 @@ describe('spec:cyberlegion/mux', () => {
 			}
 			// $TMUX set but no $TMUX_PANE — the caller's own pane is unknown, so the conservative fallback
 			// is the backend's own default rather than a foreign/guessed pane id.
-			spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't', at: 'pane:right' })
+			await spawn({ store, env: { TMUX: 't' }, exec, now: () => 1 }, { harness: 'claude', task: 't', at: 'pane:right' })
 			expect(openCalls[0]).not.toContain('-t')
 		})
 	})
 
 	describe('backend selection: herdr', () => {
-		it('spawns via the herdr adapter when $HERDR_ENV is set and no $TMUX', () => {
+		it('spawns via the herdr adapter when $HERDR_ENV is set and no $TMUX', async () => {
 			const herdrCalls: string[][] = []
 			const exec: Exec = (cmd, args) => {
 				if (cmd === 'git') {
@@ -988,7 +1047,10 @@ describe('spec:cyberlegion/mux', () => {
 				}
 				return null
 			}
-			const res = spawn({ store, env: { HERDR_ENV: '1' }, exec }, { harness: 'claude', task: 't', at: 'pane:right' })
+			const res = await spawn(
+				{ store, env: { HERDR_ENV: '1' }, exec },
+				{ harness: 'claude', task: 't', at: 'pane:right' },
+			)
 			expect(res.pane).toBe('herdr-pane-1')
 			expect(herdrCalls[0]).toEqual([
 				'pane',
@@ -1006,7 +1068,7 @@ describe('spec:cyberlegion/mux', () => {
 			expect(loadAgent(store, res.agent.id)?.pane).toEqual({ mux: 'herdr', id: 'herdr-pane-1' })
 		})
 
-		it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", () => {
+		it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", async () => {
 			const gitWorktreeCalls: string[][] = []
 			const herdrCalls: string[][] = []
 			const worktreeRoot = join(dirname(primaryRoot), 'atomic-unit')
@@ -1033,20 +1095,53 @@ describe('spec:cyberlegion/mux', () => {
 				}
 				return null
 			}
-			const res = spawn(
+			const res = await spawn(
 				{ store, env: { CYBER_MUX: 'herdr' }, exec, now: () => 1 },
 				{ harness: 'claude', task: 't', at: 'workspace' },
 			)
 			expect(gitWorktreeCalls).toHaveLength(0)
 			expect(herdrCalls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
+			// herdr is asked to create the worktree at the library's slot, and the record carries that slot.
+			expect(herdrCalls[0]).toEqual(expect.arrayContaining(['--path', leasedPath()]))
 			expect(res.agent.worktree).toEqual({
-				root: resolve(worktreeRoot),
+				root: leasedPath(),
 				branch: `cyberlegion/unit-${res.agent.id}`,
 				primaryRoot,
+				lease: { leaseId: 'lease-1', holder: `cyberlegion:${res.agent.id}` },
 			})
-			expect(res.agent.cwd).toBe(resolve(worktreeRoot))
+			expect(res.agent.cwd).toBe(leasedPath())
 			expect(res.pane).toBe('w9:p1')
 		})
+	})
+
+	it('a recycled worktree on the atomic route opens in a bound workspace, creating nothing', async () => {
+		leases.reuse = true
+		const herdrCalls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') return args.includes('--git-common-dir') ? `${primaryRoot}/.git` : null
+			herdrCalls.push(args)
+			if (args[0] === 'worktree' && args[1] === 'open') {
+				return JSON.stringify({
+					id: 'cli:worktree:open',
+					result: {
+						root_pane: { pane_id: 'w7:p1', tab_id: 'w7:tT' },
+						worktree: { branch: 'b', path: leasedPath() },
+						workspace: { workspace_id: 'w7' },
+					},
+				})
+			}
+			return null
+		}
+		const res = await spawn(
+			{ store, env: { CYBER_MUX: 'herdr' }, exec, now: () => 1 },
+			{ harness: 'claude', task: 't', at: 'workspace' },
+		)
+		expect(herdrCalls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
+		expect(herdrCalls[0]?.slice(0, 2)).toEqual(['worktree', 'open'])
+		expect(herdrCalls[0]).toEqual(expect.arrayContaining(['--path', leasedPath()]))
+		expect(res.pane).toBe('w7:p1')
+		expect(res.reused).toBe(true)
+		expect(existsSync(join(leasedPath(), '.agents', 'cyberlegion', 'config.json'))).toBe(true)
 	})
 
 	// ── spec:cyberlegion/unit/lifecycle — spawn resolves the default placement by mode ──────────────
@@ -1093,7 +1188,7 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 
 	// Bound directly, not only through a backend's arguments: cyber-mux names whatever tier `at`
 	// opens, so this gate is what keeps a tab spawn from renaming the caller's own tab.
-	it('labelFor resolves a label for a workspace placement and nothing at all for any other', () => {
+	it('labelFor resolves a label for a workspace placement and nothing at all for any other', async () => {
 		const input = { harness: 'claude' as const, task: 'audit the governance provenance check' }
 		expect(labelFor('workspace', input, input.task, 'abc123def')).toEqual({
 			label: '9S-governance-provenance-check',
@@ -1103,26 +1198,26 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		}
 	})
 
-	it('a new-worktree spawn with no --at defaults to its own visible workspace (herdr nested worktree)', () => {
+	it('a new-worktree spawn with no --at defaults to its own visible workspace (herdr nested worktree)', async () => {
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'default-ws-unit')
-		const res = spawn(
+		const res = await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
 			{ harness: 'claude', task: 't' },
 		)
 		// No mux placement passed by the caller, yet it lands in its own nested workspace — deterministic.
 		expect(calls[0]!.slice(0, 2)).toEqual(['worktree', 'create'])
 		expect(calls.some((c) => c[0] === 'tab' && c[1] === 'create')).toBe(false)
-		expect(res.agent.cwd).toBe(resolve(worktreeRoot))
+		expect(res.agent.cwd).toBe(leasedPath())
 	})
 
-	it('the new-worktree workspace default does not depend on whichever workspace is focused', () => {
+	it('the new-worktree workspace default does not depend on whichever workspace is focused', async () => {
 		// Same spawn, but the caller now sits in a live pane of its own — the deterministic clause
 		// says the placement must not vary with that. Without a fixture that VARIES the caller's
 		// pane, nothing forbids the default keying off it.
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'focused-ws-unit')
-		spawn(
+		await spawn(
 			{
 				store,
 				env: { CYBER_MUX: 'herdr', HERDR_ENV: '1', HERDR_PANE_ID: 'w9:p9' },
@@ -1135,7 +1230,7 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		expect(calls.some((c) => c[0] === 'tab' && c[1] === 'create')).toBe(false)
 	})
 
-	it('a new-worktree spawn with no --at lands a VISIBLE tmux window, never a detached session', () => {
+	it('a new-worktree spawn with no --at lands a VISIBLE tmux window, never a detached session', async () => {
 		const calls: string[][] = []
 		const exec: Exec = (cmd, args) => {
 			if (cmd === 'git') {
@@ -1147,7 +1242,7 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 			if (tmuxVerb(args) === 'new-window') return '%42\t@2'
 			return null
 		}
-		const res = spawn({ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
+		const res = await spawn({ store, env: { CYBER_MUX: 'tmux' }, exec, now: () => 1 }, { harness: 'claude', task: 't' })
 		// `-d` (background, visible) is asserted by presence, not position: a workspace spawn also
 		// carries a label now, and where the backend orders `-n <label>` against `-d` is its own affair.
 		expect(tmuxVerb(calls[0]!)).toBe('new-window')
@@ -1156,10 +1251,10 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		expect(res.pane).toBe('%42')
 	})
 
-	it("a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace", () => {
+	it("a --cwd spawn with no --at defaults to a tab in the caller's current space, not its own workspace", async () => {
 		const calls: string[][] = []
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-cwd-'))
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir },
 		)
@@ -1167,10 +1262,10 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
 	})
 
-	it('an explicit --at overrides the new-worktree default (new-worktree spawn honoring --at tab)', () => {
+	it('an explicit --at overrides the new-worktree default (new-worktree spawn honoring --at tab)', async () => {
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'override-unit')
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, worktreeRoot), now: () => 1 },
 			{ harness: 'claude', task: 't', at: 'tab' },
 		)
@@ -1179,10 +1274,10 @@ describe('spawn resolves the default --at by spawn mode (own visible space vs cu
 		expect(calls.some((c) => c[0] === 'worktree' && c[1] === 'create')).toBe(false)
 	})
 
-	it('an explicit --at overrides the --cwd default (--cwd spawn honoring --at workspace)', () => {
+	it('an explicit --at overrides the --cwd default (--cwd spawn honoring --at workspace)', async () => {
 		const calls: string[][] = []
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-cwd-'))
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrExec(calls, ''), now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir, at: 'workspace' },
 		)
@@ -1224,12 +1319,12 @@ describe('resetCommandFor — the per-harness reset map', () => {
 		expect(resetCommandFor(harness)).toBe(command)
 	})
 
-	it('throws naming gemini and its missing honest reset, for the known false-friend harness', () => {
+	it('throws naming gemini and its missing honest reset, for the known false-friend harness', async () => {
 		expect(() => resetCommandFor('gemini')).toThrow(/gemini/)
 		expect(() => resetCommandFor('gemini')).toThrow(/context/)
 	})
 
-	it('throws naming the reset map for a truly unmapped harness', () => {
+	it('throws naming the reset map for a truly unmapped harness', async () => {
 		expect(() => resetCommandFor('grok')).toThrow(/grok/)
 		expect(() => resetCommandFor('grok')).toThrow(/reset map/)
 	})
@@ -1389,10 +1484,10 @@ describe('spec:cyberlegion/mux', () => {
 		}
 	}
 
-	it('a workspace placement opens under the label the legion resolved', () => {
+	it('a workspace placement opens under the label the legion resolved', async () => {
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'labeled-unit')
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrLabelExec(calls, worktreeRoot), now: () => 1 },
 			{ harness: 'claude', task: 'audit the governance provenance check', at: 'workspace' },
 		)
@@ -1402,10 +1497,10 @@ describe('spec:cyberlegion/mux', () => {
 		expect(calls[0]).toContain('9S-governance-provenance-check')
 	})
 
-	it('a pane or tab placement carries no name at all', () => {
+	it('a pane or tab placement carries no name at all', async () => {
 		const calls: string[][] = []
 		const worktreeRoot = join(dirname(primaryRoot), 'tabbed-unit')
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: herdrLabelExec(calls, worktreeRoot), now: () => 1 },
 			// The same brief that names a workspace above — so what differs is the placement, not the brief.
 			{ harness: 'claude', task: 'audit the governance provenance check', at: 'tab' },
@@ -1462,13 +1557,13 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	/** The pane an argv is aimed at — read by name, since -t sits at a different index per verb. */
 	const targetOf = (argv: string[] | undefined) => (argv ? argv[argv.indexOf('-t') + 1] : undefined)
 
-	it('focus moves input focus to a peer pane', () => {
+	it('focus moves input focus to a peer pane', async () => {
 		const { calls, ctx } = peerCtx()
 		expect(focusUnit(ctx, 'peer').pane).toBe(PANE)
 		expect(tmuxArgs(calls, 'select-pane').at(-1)).toEqual(['tmux', '-u', 'select-pane', '-t', PANE])
 	})
 
-	it('focus beams the attached client across workspace and tab, in that order, to the peer pane', () => {
+	it('focus beams the attached client across workspace and tab, in that order, to the peer pane', async () => {
 		const { calls, ctx } = peerCtx()
 		focusUnit(ctx, 'peer')
 		// it resolves the pane's OWN workspace and tab from the backend...
@@ -1488,7 +1583,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		])
 	})
 
-	it('focus surfaces an error instead of a false success when the recorded pane no longer resolves', () => {
+	it('focus surfaces an error instead of a false success when the recorded pane no longer resolves', async () => {
 		// the backend no longer knows this pane — distinct from an unresolvable ref or no recorded pane
 		const { calls, ctx } = peerCtx({ locations: '%1 callersession @1' })
 		// it says the pane could not be RESOLVED — a bare toThrow() passes on any error at all,
@@ -1520,7 +1615,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(ring?.at(-1)).toBe(DELIVERY_DOORBELL)
 	})
 
-	it('a peer whose record carries no pane locator is reached through the pane index', () => {
+	it('a peer whose record carries no pane locator is reached through the pane index', async () => {
 		// The herdr route: the record holds no pane, so the only way to the live target is the index.
 		// A resolution that read only `agent.pane` throws "no known session pane" here.
 		const herdrCalls: string[][] = []
@@ -1731,7 +1826,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(paneActs(calls)).toEqual([]) // nothing was focused, delivered or scraped
 	})
 
-	it('read scrapes the peer trailing session output and honors --lines', () => {
+	it('read scrapes the peer trailing session output and honors --lines', async () => {
 		const { calls, ctx } = peerCtx({ captures: ['line one\nline two\nline three'] })
 		const res = readUnit(ctx, 'peer', { lines: 20 })
 		expect(res.output).toBe('line one\nline two\nline three') // the captured output is what is returned
@@ -1741,7 +1836,7 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 		expect(capture).toContain('-20')
 	})
 
-	it("read with no --lines asks the adapter for the backend's own default capture", () => {
+	it("read with no --lines asks the adapter for the backend's own default capture", async () => {
 		// A default filled in here (say 100) would silently cap every unbounded read. The bound must
 		// be ABSENT from the capture call, not merely different from 20.
 		const { calls, ctx } = peerCtx({ captures: ['line one\nline two'] })
@@ -1758,8 +1853,8 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 	// CLI records it from its own process (`selfInvocation`).
 	const self = ['/opt/node/bin/node', '--import', 'file:///opt/tsx/loader.mjs', '/opt/cyberlegion/bin/cyberlegion.mjs']
 
-	it('writes a cyberlegion shim into the unit data dir that re-invokes the caller, passing its arguments on', () => {
-		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+	it('writes a cyberlegion shim into the unit data dir that re-invokes the caller, passing its arguments on', async () => {
+		const res = await spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
 		expect(readFileSync(shim, 'utf8')).toBe(
 			"#!/bin/sh\nexec '/opt/node/bin/node' '--import' 'file:///opt/tsx/loader.mjs' '/opt/cyberlegion/bin/cyberlegion.mjs' \"$@\"\n",
@@ -1767,15 +1862,15 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		expect(statSync(shim).mode & 0o111).toBe(0o111)
 	})
 
-	it("puts the shim's directory first on the launched session's PATH", () => {
-		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+	it("puts the shim's directory first on the launched session's PATH", async () => {
+		const res = await spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		const bin = join(store.root, 'data', res.agent.id, 'bin')
 		expect(typed.startsWith(`PATH='${bin}':"$PATH" `)).toBe(true)
 	})
 
-	it("names the shim in CYBERLEGION_CLI, so a plugin hook runs the spawner's CLI rather than one found on PATH", () => {
-		const res = spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
+	it("names the shim in CYBERLEGION_CLI, so a plugin hook runs the spawner's CLI rather than one found on PATH", async () => {
+		const res = await spawn({ ...ctx(), self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
 		expect(typed).toBe(
@@ -1783,7 +1878,7 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		)
 	})
 
-	it('writes the shim before the session opens, so the harness never boots without it', () => {
+	it('writes the shim before the session opens, so the harness never boots without it', async () => {
 		let shimAtOpen: boolean | undefined
 		const exec: Exec = (cmd, args) => {
 			if (cmd === 'tmux' && tmuxVerb(args) === 'send-keys' && shimAtOpen === undefined) {
@@ -1793,12 +1888,12 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 			}
 			return fakeExec(cmd, args)
 		}
-		spawn({ ...ctx(), exec, self }, { harness: 'claude', task: 't', at: 'pane:right' })
+		await spawn({ ...ctx(), exec, self }, { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(shimAtOpen).toBe(true)
 	})
 
-	it('quotes a single quote inside a path so the shim still names it exactly', () => {
-		const res = spawn(
+	it('quotes a single quote inside a path so the shim still names it exactly', async () => {
+		const res = await spawn(
 			{ ...ctx(), self: ['/opt/node', "/it's/cli.mjs"] },
 			{ harness: 'claude', task: 't', at: 'pane:right' },
 		)
@@ -1806,24 +1901,27 @@ describe('the spawned session can invoke the CLI that spawned it', () => {
 		expect(readFileSync(shim, 'utf8')).toContain(`'/it'\\''s/cli.mjs' "$@"`)
 	})
 
-	it('a shim run with arguments hands them to the recorded entry unchanged', () => {
+	it('a shim run with arguments hands them to the recorded entry unchanged', async () => {
 		const entry = join(mkdtempSync(join(tmpdir(), 'cl-entry-')), 'echo.mjs')
 		writeFileSync(entry, 'process.stdout.write(JSON.stringify(process.argv.slice(2)))')
-		const res = spawn({ ...ctx(), self: [process.execPath, entry] }, { harness: 'claude', task: 't', at: 'pane:right' })
+		const res = await spawn(
+			{ ...ctx(), self: [process.execPath, entry] },
+			{ harness: 'claude', task: 't', at: 'pane:right' },
+		)
 		const shim = join(store.root, 'data', res.agent.id, 'bin', 'cyberlegion')
 		const out = execFileSync(shim, ['mail', 'send', '--body', 'two words'], { encoding: 'utf8' })
 		expect(JSON.parse(out)).toEqual(['mail', 'send', '--body', 'two words'])
 	})
 
-	it('a spawn refused at a guard writes no shim', () => {
-		expect(() =>
+	it('a spawn refused at a guard writes no shim', async () => {
+		await expect(
 			spawn({ ...ctx(), self }, { harness: 'claude', task: 't', cwd: join(primaryRoot, 'missing'), at: 'tab' }),
-		).toThrow(/must already exist/)
+		).rejects.toThrow(/must already exist/)
 		expect(existsSync(join(store.root, 'data'))).toBe(false)
 	})
 
-	it('a context with no recorded invocation writes no shim and leaves PATH alone', () => {
-		const res = spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
+	it('a context with no recorded invocation writes no shim and leaves PATH alone', async () => {
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', at: 'pane:right' })
 		expect(existsSync(join(store.root, 'data', res.agent.id, 'bin'))).toBe(false)
 		const typed = sent.find((a) => a.includes('-l'))?.at(-1) ?? ''
 		expect(typed).not.toContain('PATH=')
@@ -2005,9 +2103,9 @@ describe('spec:cyberlegion/unit/lifecycle spawn cuts the worktree from the fresh
 		)
 	}
 
-	it('a spawn with no --base fetches origin and cuts the worktree from its default branch', () => {
+	it('a spawn with no --base fetches origin and cuts the worktree from its default branch', async () => {
 		const gitCalls: string[][] = []
-		const res = spawnWith({}, gitCalls)
+		const res = await spawnWith({}, gitCalls)
 		const fetchAt = gitCalls.findIndex((c) => c.includes('fetch'))
 		const addAt = gitCalls.findIndex((c) => c.includes('worktree') && c.includes('add'))
 		expect(fetchAt).toBeGreaterThanOrEqual(0)
@@ -2017,43 +2115,43 @@ describe('spec:cyberlegion/unit/lifecycle spawn cuts the worktree from the fresh
 		expect(res.base).toEqual({ ref: 'origin/main' })
 	})
 
-	it('--base cuts the worktree from the ref it names, without fetching', () => {
+	it('--base cuts the worktree from the ref it names, without fetching', async () => {
 		const gitCalls: string[][] = []
-		const res = spawnWith({}, gitCalls, { base: 'feature/stack-on-me' })
+		const res = await spawnWith({}, gitCalls, { base: 'feature/stack-on-me' })
 		expect(addCall(gitCalls)?.at(-1)).toBe('feature/stack-on-me')
 		expect(fetched(gitCalls)).toBe(false)
 		expect(res.base).toEqual({ ref: 'feature/stack-on-me' })
 	})
 
-	it('a spawn whose fetch of origin fails falls back to local HEAD and says so', () => {
+	it('a spawn whose fetch of origin fails falls back to local HEAD and says so', async () => {
 		const gitCalls: string[][] = []
-		const res = spawnWith({ fetchFails: true }, gitCalls)
+		const res = await spawnWith({ fetchFails: true }, gitCalls)
 		expect(addCall(gitCalls)?.at(-1)).toBe('HEAD')
 		expect(res.base?.ref).toBe('HEAD')
 		expect(res.base?.fallback).toMatch(/fetch.*origin.*failed/i)
 	})
 
-	it('a spawn in a repository with no origin remote falls back to local HEAD and says so', () => {
+	it('a spawn in a repository with no origin remote falls back to local HEAD and says so', async () => {
 		const gitCalls: string[][] = []
-		const res = spawnWith({ none: true }, gitCalls)
+		const res = await spawnWith({ none: true }, gitCalls)
 		expect(fetched(gitCalls)).toBe(false)
 		expect(addCall(gitCalls)?.at(-1)).toBe('HEAD')
 		expect(res.base?.ref).toBe('HEAD')
 		expect(res.base?.fallback).toMatch(/no origin remote/i)
 	})
 
-	it('a spawn whose origin has no default branch recorded falls back to local HEAD and says so', () => {
+	it('a spawn whose origin has no default branch recorded falls back to local HEAD and says so', async () => {
 		const gitCalls: string[][] = []
-		const res = spawnWith({ head: null }, gitCalls)
+		const res = await spawnWith({ head: null }, gitCalls)
 		expect(addCall(gitCalls)?.at(-1)).toBe('HEAD')
 		expect(res.base?.ref).toBe('HEAD')
 		expect(res.base?.fallback).toMatch(/default branch.*unknown/i)
 	})
 
-	it('the atomic route cuts the worktree from the same base as the plain route', () => {
+	it('the atomic route cuts the worktree from the same base as the plain route', async () => {
 		const gitCalls: string[][] = []
 		const herdrCalls: string[][] = []
-		spawn(
+		await spawn(
 			{ store, env: { CYBER_MUX: 'herdr' }, exec: originExec({}, gitCalls, herdrCalls), now: () => 1 },
 			{ harness: 'claude', task: 't', at: 'workspace' },
 		)
@@ -2061,23 +2159,23 @@ describe('spec:cyberlegion/unit/lifecycle spawn cuts the worktree from the fresh
 		expect(create?.[(create?.indexOf('--base') ?? -2) + 1]).toBe('origin/main')
 	})
 
-	it('--base is mutually exclusive with --cwd', () => {
+	it('--base is mutually exclusive with --cwd', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
 		const gitCalls: string[][] = []
-		expect(() =>
+		await expect(
 			spawn(
 				{ store, env: { TMUX: 't' }, exec: originExec({}, gitCalls), now: () => 1 },
 				{ harness: 'claude', task: 't', cwd: existingDir, base: 'main' },
 			),
-		).toThrow(/cannot combine/)
+		).rejects.toThrow(/cannot combine/)
 		expect(addCall(gitCalls)).toBeUndefined()
 		expect(store.listAgents()).toEqual([])
 	})
 
-	it('a --cwd spawn creates no worktree and so reports no base', () => {
+	it('a --cwd spawn creates no worktree and so reports no base', async () => {
 		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
 		const gitCalls: string[][] = []
-		const res = spawn(
+		const res = await spawn(
 			{ store, env: { TMUX: 't' }, exec: originExec({}, gitCalls), now: () => 1 },
 			{ harness: 'claude', task: 't', cwd: existingDir },
 		)

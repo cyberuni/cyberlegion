@@ -110,8 +110,8 @@ with `--cwd`. Also available as the top-level alias `cyberlegion spawn`.
 | `--brief-file <path>` | read the brief from a file |
 | `--handle <name>` | handle for the new peer |
 | `--branch <name>` | branch for the new worktree (default `cyberlegion/unit-<id>`) |
-| `--worktree-path <path>` | where to check out the new worktree |
-| `-C, --repo <path>` | create the worktree from the git repository containing `<path>`, not the current directory's — spawn for another repository without `cd`; the default `--worktree-path` sits beside that repository's primary checkout |
+| `--worktree-path <path>` | check out the new worktree at `<path>` instead of leasing one; see [Worktree](#worktree) |
+| `-C, --repo <path>` | create the worktree from the git repository containing `<path>`, not the current directory's — spawn for another repository without `cd`; the leased worktree sits beside that repository's primary checkout |
 | `--base <ref>` | start the new worktree's branch from `<ref>` (default: fetch `origin` and use its default branch, else local `HEAD`); see [Base](#base) |
 | `--cwd <path>` | spawn the session in an existing directory; create no worktree (mutually exclusive with `--branch`/`--worktree-path`/`--repo`/`--base`) |
 | `--at <placement>` | where to open the new session: `pane:right` \| `pane:down` \| `tab` \| `workspace` (default: new-worktree → `workspace`, `--cwd` → `tab`); see [Placement](/cyberlegion/concepts/architecture/#placement-is-a-concept-not-a-backend-command) |
@@ -155,6 +155,24 @@ On cursor, spawn writes the instructions in front of the task in the peer's brie
 therefore gets them as its first user turn, not as a system prompt. With `--no-wake`, a cursor peer
 sees its instructions only once something makes it read the brief.
 
+### Worktree
+
+With no `--worktree-path`, spawn leases its worktree from the worktree library
+([`@cyberuni/agent-harness/worktrees`](https://github.com/cyberuni/agent-harness)) instead of making a
+fresh checkout per unit. When a closed unit released a worktree that is idle, clean, and whose branch
+has landed, spawn recycles it onto the new unit's branch. Otherwise it creates the next slot beside
+the primary checkout, `<parent>/<repo>.worktrees/<repo>-<n>`. The library picks the name, so the
+directory no longer carries the unit's id: find a unit's worktree in its record or in the `worktree`
+field of the spawn output.
+
+The lease is git's own lock on the worktree. Its reason names the holder `cyberlegion:<id>`, so
+`git worktree list` shows which unit holds it, and git refuses to remove a leased worktree. A
+worktree a live unit holds is never handed to another spawn. The spawn output's `reused` field says
+whether the worktree was recycled.
+
+`--worktree-path <path>` names a path outside the library's naming, so that spawn bypasses the
+library. It creates the worktree at `<path>`, holds no lease, and `close` removes it.
+
 ### Base
 
 A new worktree's branch starts from the upstream, not from the caller's checkout. The caller's local
@@ -173,7 +191,7 @@ worktree, so it has no base.
 
 Spawn also delivers the first turn: it writes the brief and wakes the new peer's pane in the same
 act, unless `--no-wake` is passed. Output: `spawned` (id), `handle`, `harness`, `model`, `effort`,
-`worktree`, `base`, `pane`, `rung`, `trust`. The `model` and `effort` fields report what the session launched with,
+`worktree`, `reused`, `base`, `pane`, `rung`, `trust`. The `model` and `effort` fields report what the session launched with,
 from whichever source won, and read `(harness default)` when no source set one. Suggests
 `unit read <id>` as a next step.
 
@@ -200,17 +218,27 @@ The peer is still registered. The `trust` field reads `none` (no prompt), `accep
 npx cyberlegion unit close <id> [--force] [--keep-worktree]
 ```
 
-Tear down a unit's worktree and session and reap its state, the inverse of `spawn`. `<id>` may be
-a unit id, handle, or worktree branch/CR ref. The reap deletes the unit's record, pane pointer,
-brief, and mailbox. `close` is the only destructive way to end a unit: to end just its session and
-keep the work, use [`stop`](#stop).
+Give back a unit's worktree, tear down its session, and reap its state, the inverse of `spawn`.
+`<id>` may be a unit id, handle, or worktree branch/CR ref. The reap deletes the unit's record, pane
+pointer, brief, and mailbox. `close` is the only destructive way to end a unit: to end just its
+session and keep the work, use [`stop`](#stop).
+
+A unit whose worktree spawn leased (see [Worktree](#worktree)) has its lease released, and the
+worktree stays on disk for the next spawn to recycle. Release removes nothing, so it needs no
+`--force` and does not refuse uncommitted changes: the next spawn skips a dirty worktree, so the
+work stays where it is. If someone took the lease away first (for example, with
+`git worktree unlock`), `close` reports the lease as `lost` and still reaps the unit.
+
+A unit that holds no lease, spawned with `--worktree-path` or by an older cyberlegion, has its
+worktree removed. The options below apply to that removal.
 
 | Option | Meaning |
 |---|---|
-| `--force` | discard uncommitted changes in the worktree (never overrides refusing the primary checkout) |
+| `--force` | discard uncommitted changes in a worktree `close` removes (never overrides refusing the primary checkout) |
 | `--keep-worktree` | leave the worktree on disk and reap everything else — record, mailbox, pane, brief (never overrides refusing the primary checkout) |
 
-Output: `closed` (id), `worktree`, `retained`, `pane`.
+Output: `closed` (id), `worktree`, `retained`, `lease` (`released`, `lost`, or `-` when the unit
+held none), `pane`.
 
 `--keep-worktree` is for **worktree pools**: after a unit's work merges, keep its checkout, detach
 it back to `main`, and spawn the next unit into it with `--cwd` — much cheaper than a fresh checkout
