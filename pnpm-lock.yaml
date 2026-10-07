@@ -182,8 +182,8 @@ importers:
         specifier: ^2.3.1
         version: 2.3.1(@biomejs/biome@2.5.9)
       cyber-sdd:
-        specifier: 0.4.2
-        version: 0.4.2
+        specifier: 0.5.0
+        version: 0.5.0
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -2097,8 +2097,8 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  cyber-sdd@0.4.2:
-    resolution: {integrity: sha512-z11dQShLfPjnnDb67sI2I7u44RPhyJrTt7H/BmNm+QA3eGEV2CjdEGYnsfFUVH9NOnWJe/AFQF/O4EwacwQm2Q==}
+  cyber-sdd@0.5.0:
+    resolution: {integrity: sha512-ExJME3/v7F/xSpq9xlpM5Silx2H/W64ywneT5DaI754hEMCmD0mlJUJC8iJrSEeo6G05b7UKLh0BhxjYu/l0yA==}
     engines: {node: '>=22.11'}
     hasBin: true
 
@@ -4965,7 +4965,7 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
-  cyber-sdd@0.4.2:
+  cyber-sdd@0.5.0:
     dependencies:
       gherkin-cli: 0.2.1
 
