@@ -1,7 +1,7 @@
 @frozen
 Feature: session-adapter-governance — verify observable effect or fail loud
 
-  The ratified SessionAdapter design rule (doctrine entry 2, CR #162): a mutating
+  The ratified SessionAdapter design rule: a mutating
   operation — one that drives the multiplexer to change session state — must verify
   its observable effect actually landed before reporting success, and fail loud
   rather than report false success when it cannot. Effects come in two classes and
@@ -21,7 +21,7 @@ Feature: session-adapter-governance — verify observable effect or fail loud
     Given a mutating operation implemented as a single send with no read-back
     When that operation is audited against the governance
     Then it is non-conformant, because it reports success regardless of whether the effect landed
-    And the cited precedent is the cr150 nudge boot-race, where a swallowed Enter left the peer idle while the caller believed it started
+    And the cited precedent is the nudge boot-race, where a swallowed Enter left the peer idle while the caller believed it started
 
   Scenario: read-only operations are out of scope
     Given the adapter operations read, paneExists, and listPanes

@@ -1,7 +1,6 @@
 # session-adapter-governance
 
-Internal cyberlegion governance. The **SessionAdapter conformance rule**, ratified from doctrine
-entry 2 (ADR-0025): a mutating op — one that drives the mux to change session state — **verifies
+Internal cyberlegion governance. The **SessionAdapter conformance rule**, a mutating op — one that drives the mux to change session state — **verifies
 its observable effect landed or fails loud**; never false success on a fire-and-forget send.
 
 The rule is applied per **effect class**, never mechanically copied across ops:
