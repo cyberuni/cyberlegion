@@ -8,13 +8,12 @@ user-invocable: false
 
 The ratified design rule for every `SessionAdapter` **mutating operation** — a call that drives the
 multiplexer to change peer/session state (`send`, `submit`, `focus`, the `nudge` composite, the
-`clear` injection, the mail-delivery doorbell). Ratified from doctrine entry 2 (drafted off the
-cr150 nudge boot-race; ADR-0025 records the promotion):
+`clear` injection, the mail-delivery doorbell). The rule:
 
 > A mutating operation must **verify its observable effect actually took hold** before reporting
 > success, and **fail loud** rather than report false success when it cannot. Never fire-and-forget.
 
-Precedent: the cr150 boot-race — `unit nudge` was one atomic text+Enter send that reported success
+Precedent: the nudge boot-race — `unit nudge` was one atomic text+Enter send that reported success
 regardless of whether the booting harness consumed the Enter, so the peer sat idle while the caller
 believed it started. The fix (submit-then-verify-then-retry, throw on the cap) is the reference
 pattern below. A mutating op implemented as a single send with no read-back is **non-conformant**:
@@ -66,9 +65,9 @@ the rule binds by being loaded, not by being asserted in a peer relay.
 
 | Op | Where | Effect class | Status |
 |---|---|---|---|
-| `nudge` | `src/console/nudge.ts` | unconditional (input consumed as a taken turn) | **Conformant — the reference pattern.** Submit-then-verify-then-retry: send once, read back the pane tail for staged text, flush with bare-Enter `submit` up to the cap, **throw** when the turn is never taken (#150 / PR #153). |
-| `focus` | `src/console/session.tmux.ts`, `session.herdr.ts` | attach-relative (the attached client's view moved) | **Partial.** Verify-before shipped (resolve-or-throw on an unresolvable pane, PR #160). The land-verify (did the view move) and the no-attached-client clean no-op are **authorized follow-up** — the land-verify must gate on an attached client or it false-fails headless spawns. |
-| `clear` | `src/session.ts` `clearUnit` | unconditional (reset command taken as a turn) | **Non-conformant on verify-after — authorized follow-up.** The reset command is resolved fail-loud *before* anything is sent (false-friend/unmapped harness throws with nothing injected), but the injection itself is a raw `adapter.send` fire-and-forget — the same boot-race swallow class nudge fixed. Fix: route the injection through the nudge verify path. |
-| mail-delivery doorbell | `src/console/doorbell.ts` `wakeRecipient` | unconditional (doorbell delivered as a taken turn) | **Conformant under the best-effort contract.** Rings via `nudge`'s verify path; a ring that never completes surfaces as an explicit `warning` (never a throw, never a failed send); `--no-nudge`, an absent recipient pane, an unbound main pane, and a self-addressed send are legitimate no-ops. |
-| raw `send` / `submit` | `src/console/session.*.ts` | primitives | Not individually bound — the duty sits on the composite that reports success. |
-| `open` / `openInNewWorktree` / `teardown` | `src/console/session.*.ts` | unconditional (pane created / destroyed) | Backend-verified: the mux command itself fails loud and the returned pane id is the observable effect (`paneExists` / `listPanes` observe it). Classify explicitly at any CR that reshapes them. |
+| `nudge` | `nudge` composite | unconditional (input consumed as a taken turn) | **Conformant — the reference pattern.** Submit-then-verify-then-retry: send once, read back the pane tail for staged text, flush with bare-Enter `submit` up to the cap, **throw** when the turn is never taken. |
+| `focus` | tmux and herdr backends | attach-relative (the attached client's view moved) | **Partial.** Verify-before shipped (resolve-or-throw on an unresolvable pane). The land-verify (did the view move) and the no-attached-client clean no-op are **authorized follow-up** — the land-verify must gate on an attached client or it false-fails headless spawns. |
+| `clear` | `clearUnit` | unconditional (reset command taken as a turn) | **Non-conformant on verify-after — authorized follow-up.** The reset command is resolved fail-loud *before* anything is sent (false-friend/unmapped harness throws with nothing injected), but the injection itself is a raw `adapter.send` fire-and-forget — the same boot-race swallow class nudge fixed. Fix: route the injection through the nudge verify path. |
+| mail-delivery doorbell | `wakeRecipient` | unconditional (doorbell delivered as a taken turn) | **Conformant under the best-effort contract.** Rings via `nudge`'s verify path; a ring that never completes surfaces as an explicit `warning` (never a throw, never a failed send); `--no-nudge`, an absent recipient pane, an unbound main pane, and a self-addressed send are legitimate no-ops. |
+| raw `send` / `submit` | session backends | primitives | Not individually bound — the duty sits on the composite that reports success. |
+| `open` / `openInNewWorktree` / `teardown` | session backends | unconditional (pane created / destroyed) | Backend-verified: the mux command itself fails loud and the returned pane id is the observable effect (`paneExists` / `listPanes` observe it). Classify explicitly at any CR that reshapes them. |

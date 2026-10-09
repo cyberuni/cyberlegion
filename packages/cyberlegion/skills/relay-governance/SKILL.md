@@ -209,7 +209,7 @@ message proved anything about who sent it.
 
 ## Boundaries
 
-- Relay is the **single home** of the relayed-decision rule (what makes a turn a decision, where its
+- Relay is the **home within cyberlegion** of the relayed-decision rule (what makes a turn a decision, where its
   scope comes from, and how a relayer sends it), the attenuation and spending clauses, and the two
   limits. `subagent-backend-governance` owns only *which role has an order channel at all* and
   **references** this section for what a decision carried on that channel must have — an owner's
@@ -219,9 +219,6 @@ message proved anything about who sent it.
   **ownership-chain** exception to it; `dispatch-governance` still owns **strategy** choice
   (channel / run-inline / subagent). A dispatch picks a strategy; relay decides how the result or an
   unanswerable question gets home — and what a receiver may act on when a steer arrives.
-- This governance supersedes the ad-hoc "batch `needsInput` and relay up" prose formerly inlined in
-  `headless-legate` and in `dispatch-governance`'s result section — those load this contract now
-  rather than restating it.
 - The frameless→owner branch depends on the standing owner identity and owner-mail surfacing shipped
   in the `cyberlegion` CLI (`unit register --standing`, `mail send/--owner`, the surfacing hook). It states the
   *transport*; the CLI carries the mechanism.

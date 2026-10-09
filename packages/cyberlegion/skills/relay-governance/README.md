@@ -28,7 +28,7 @@ audit. Answering a request is checkable in the moment, so it gates adoption; it 
 of truth. Spent once acted on, attenuating at every hop. Not forgery-proof: `unit nudge --message`
 records no caller identity, so position is a structural fact, not a proof.
 
-This is the **single home** of that rule. `subagent-backend-governance` references it for the
+This is cyberlegion's home for that rule (cyberfleet's `authority-governance` restates it for its own personas). `subagent-backend-governance` references it for the
 owner's mid-turn channel rather than restating it.
 
 The frameless→owner branch composes the `cyberlegion` CLI's standing owner identity (`identity
