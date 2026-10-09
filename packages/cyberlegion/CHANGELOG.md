@@ -1,5 +1,22 @@
 # cyberlegion
 
+## 1.5.0
+
+### Minor Changes
+
+- eb9140e: When [cynapse](https://github.com/cyberuni/cynapse) is installed beside it, cyberlegion registers its units as cynapse participants (stage 1 of #153). Each unit is `live` while it exists and `retired` once it is exited or closed, a new handle renames it, and every sync reconciles the whole hub, so a crash is corrected by the next run. `project register` and `project show` resolve the repository's GitHub node id, pass it to cynapse, and report the channel cynapse keys by it. cynapse is an optional peer dependency: without it, nothing changes and nothing extra runs. Mail still goes through the hub.
+- 4ab794a: Update runtime dependencies.
+- 4d8fa38: `unit spawn` now leases its worktree from the worktree library (`@cyberuni/agent-harness/worktrees`) instead of making a fresh checkout per unit. An idle worktree a closed unit released is recycled onto the new unit's branch, and a new one is created only when none is idle, at the library's slot path `<parent>/<repo>.worktrees/<repo>-<n>` (it was `legion-<id6>`). The lease is git's own lock on the worktree, and the spawn output reports whether the worktree was `reused`.
+  
+  `unit close` releases a leased worktree instead of removing it, so the next spawn can recycle it. Release removes nothing, so it does not refuse uncommitted changes, and a dirty worktree is not recycled. A lease someone took away is reported as `lost`, and the close still completes. The output gains a `lease` field.
+  
+  A spawn with `--worktree-path` bypasses the library: it holds no lease, and `close` removes its worktree as before. So does a unit spawned by an earlier version.
+- ebd47ce: `unit spawn` (and `service start`) now cut a new worktree's branch from freshly fetched `origin/HEAD` instead of the caller's local HEAD, so a unit no longer starts behind its upstream. `--base <ref>` names the start point instead. When there is no origin, the fetch fails, or `origin/HEAD` is not recorded, spawn falls back to local HEAD and says why on stderr. The spawn output reports the `base` it used.
+
+### Patch Changes
+
+- 7b7efd2: Governance skills no longer carry incident IDs, unshipped source paths or a migration-relative bullet, and `relay-governance` no longer claims to be the single home of the relayed-decision rule.
+
 ## 1.4.1
 
 ### Patch Changes
