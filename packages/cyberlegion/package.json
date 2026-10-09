@@ -50,7 +50,7 @@
 	"dependencies": {
 		"@cyberuni/agent-harness": "^0.6.0",
 		"commander": "^15.0.0",
-		"cyber-mux": "0.8.0"
+		"cyber-mux": "0.9.1"
 	},
 	"peerDependencies": {
 		"cynapse": "^0.1.0"

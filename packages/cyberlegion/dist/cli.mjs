@@ -5,9 +5,9 @@ import { EventEmitter } from "node:events";
 import childProcess, { execFile, execFileSync } from "node:child_process";
 import process$1 from "node:process";
 import { stripVTControlCharacters } from "node:util";
+import { lstat, readFile, readdir, readlink, realpath, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { lstat, readFile, readdir, readlink, realpath, unlink, writeFile } from "node:fs/promises";
 //#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/error.js
 /**
 * CommanderError class
@@ -2963,8 +2963,1033 @@ function useColor() {
 }
 new Command();
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.8.0_typescript@7.0.2/node_modules/cyber-mux/dist/worktree-Bj6IgHv7.mjs
-const nodeExec$1 = (cmd, args) => {
+//#region ../../node_modules/.pnpm/@cyberuni+agent-harness@0.6.0_typescript@7.0.2/node_modules/@cyberuni/agent-harness/dist/worktrees.js
+/**
+* Whether a checkout has uncommitted changes, tracked or untracked, or `undefined` when git could not
+* say. `undefined` is not `false`: a caller deciding whether a worktree is safe to reuse must not read
+* an unanswered question as a clean tree.
+*
+* `--untracked-files=all` is explicit because a repo's `status.showUntrackedFiles=no` would otherwise
+* hide untracked work.
+*/
+async function readDirty(worktreeRoot, options) {
+	const args = [
+		"-C",
+		worktreeRoot,
+		"status",
+		"--porcelain",
+		"--untracked-files=all"
+	];
+	if (options.ignore?.length) args.push("--", ".", ...options.ignore.map((path) => `:(exclude)${path}`));
+	const out = await options.exec("git", args);
+	return out === null ? void 0 : out.length > 0;
+}
+/** The default `Exec`: `execFile` with stderr captured, never inherited, because routine failures
+* (no `origin/HEAD`, a branch with no upstream) would otherwise spam the caller's terminal. */
+const nodeExec$1 = (cmd, args) => new Promise((resolve) => {
+	execFile(cmd, [...args], {
+		encoding: "utf8",
+		maxBuffer: 67108864
+	}, (error, stdout) => {
+		resolve(error ? null : stdout.trim());
+	});
+});
+/**
+* The ref "landed" is measured against: `origin/HEAD` first, because landed means landed upstream,
+* then the branch checked out in the primary checkout. Undefined when neither answers.
+*/
+async function defaultBranchRef(exec, primaryRoot, primaryBranch) {
+	return await exec("git", [
+		"-C",
+		primaryRoot,
+		"symbolic-ref",
+		"--short",
+		"refs/remotes/origin/HEAD"
+	]) || primaryBranch;
+}
+async function readLandedContext(exec, primaryRoot, target, forge) {
+	const [merged, goneUpstream] = await Promise.all([readMergedBranches(exec, primaryRoot, target), readGoneUpstreamBranches(exec, primaryRoot)]);
+	return {
+		exec,
+		primaryRoot,
+		target,
+		merged,
+		goneUpstream,
+		forge
+	};
+}
+/**
+* Runs the signals for one branch in cost order and stops at the first positive. Only `ancestor` may
+* seed a `false`; no later signal can turn a `true` into a `false`.
+*/
+async function resolveLanded(branch, context) {
+	if (!branch) return {};
+	if (context.merged?.has(branch)) return {
+		merged: true,
+		signal: "ancestor"
+	};
+	const seed = context.merged ? { merged: false } : {};
+	if (context.goneUpstream?.has(branch)) return {
+		merged: true,
+		signal: "upstream-gone"
+	};
+	if (context.target && await isSquashApplied(context.exec, context.primaryRoot, context.target, branch)) return {
+		merged: true,
+		signal: "squash-patch"
+	};
+	if (await context.forge?.(branch) === true) return {
+		merged: true,
+		signal: "forge"
+	};
+	return seed;
+}
+async function readMergedBranches(exec, primaryRoot, target) {
+	if (!target) return void 0;
+	const out = await exec("git", [
+		"-C",
+		primaryRoot,
+		"branch",
+		"--format=%(refname:short)",
+		"--merged",
+		target
+	]);
+	if (out === null) return void 0;
+	return new Set(out.split("\n").map((line) => line.trim()).filter(Boolean));
+}
+async function readGoneUpstreamBranches(exec, primaryRoot) {
+	const out = await exec("git", [
+		"-C",
+		primaryRoot,
+		"for-each-ref",
+		"--format=%(refname:short)	%(upstream:track)",
+		"refs/heads/"
+	]);
+	if (out === null) return void 0;
+	const gone = /* @__PURE__ */ new Set();
+	for (const line of out.split("\n")) {
+		const tab = line.indexOf("	");
+		if (tab !== -1 && line.slice(tab + 1).trim() === "[gone]") gone.add(line.slice(0, tab));
+	}
+	return gone;
+}
+/**
+* Whether the branch, collapsed to one synthetic commit (`commit-tree <branch>^{tree} -p <merge-base>`),
+* is already applied on `target` by patch id (`git cherry`). Writes one unreferenced commit object that
+* ordinary gc collects. The identity is inline because `commit-tree` refuses on a machine with no git
+* identity configured, such as a CI runner.
+*/
+async function isSquashApplied(exec, primaryRoot, target, branch) {
+	const base = await exec("git", [
+		"-C",
+		primaryRoot,
+		"merge-base",
+		target,
+		branch
+	]);
+	if (!base) return false;
+	const synthetic = await exec("git", [
+		"-c",
+		"user.name=agent-harness",
+		"-c",
+		"user.email=probe@agent-harness.invalid",
+		"-C",
+		primaryRoot,
+		"commit-tree",
+		`${branch}^{tree}`,
+		"-p",
+		base,
+		"-m",
+		"agent-harness squash probe"
+	]);
+	if (!synthetic) return false;
+	return (await exec("git", [
+		"-C",
+		primaryRoot,
+		"cherry",
+		target,
+		synthetic
+	]))?.split("\n").some((line) => line.startsWith("-")) ?? false;
+}
+/**
+* Where the library puts a repo's worktrees: `<parent>/<repo>.worktrees`, a sibling of the primary
+* checkout (E-MUX-2, E-LEG-1). Every worktree the library creates is a slot in this folder.
+*/
+function worktreesDir(primaryRoot) {
+	return join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`);
+}
+/**
+* The path of slot `n`: `<parent>/<repo>.worktrees/<repo>-<n>`. The library assigns `n` and the
+* caller cannot, so the name stays meaningless and true for the worktree's whole life; what it is
+* for lives in its branch and lease holder, which change on reuse (decision 2026-10-05, E-TH-7).
+*/
+function slotPath(primaryRoot, n) {
+	return join(worktreesDir(primaryRoot), `${basename(primaryRoot)}-${n}`);
+}
+/**
+* The slot number of a worktree root, or `undefined` when the root is not one of the library's slots.
+* Both paths are normalized (`normalizeWorktreePath`). `n` is a positive integer with no leading
+* zero, so `repo-01` is not slot 1.
+*/
+function slotNumber(primaryRoot, worktreeRoot) {
+	if (dirname(worktreeRoot) !== worktreesDir(primaryRoot)) return void 0;
+	const prefix = `${basename(primaryRoot)}-`;
+	const name = basename(worktreeRoot);
+	if (!name.startsWith(prefix)) return void 0;
+	const digits = name.slice(prefix.length);
+	return /^[1-9]\d*$/.test(digits) ? Number(digits) : void 0;
+}
+/** The `library` value a lease reason carries. */
+const LEASE_LIBRARY = "@cyberuni/agent-harness";
+/** The lease a lock reason records, or `undefined` when the lock is not this library's. */
+function parseLeaseReason(reason) {
+	if (!reason) return void 0;
+	let value;
+	try {
+		value = JSON.parse(reason);
+	} catch {
+		return;
+	}
+	if (typeof value !== "object" || value === null) return void 0;
+	const { library, leaseId, holder } = value;
+	if (library !== "@cyberuni/agent-harness" || typeof leaseId !== "string" || typeof holder !== "string") return void 0;
+	return {
+		library,
+		leaseId,
+		holder
+	};
+}
+/** Classify a worktree's owner from its lock reason and path. Pure: reads nothing from disk. */
+function classifyOwner(entry, options) {
+	if (parseLeaseReason(entry.locked)) return {
+		owner: "self",
+		research: ["E-GIT-L1", "E-GIT-L2"]
+	};
+	if (entry.locked?.startsWith("claude session ")) return {
+		owner: "claude-code",
+		research: ["E-CC-W4", "E-PROC-CC5"]
+	};
+	if (!entry.linked) return {
+		owner: "user",
+		research: []
+	};
+	if (entry.locked === void 0 && slotNumber(options.primaryRoot, entry.root) !== void 0) return {
+		owner: "self",
+		research: []
+	};
+	if (isInside(entry.root, `${options.primaryRoot}${sep}.claude${sep}worktrees`)) return {
+		owner: "claude-code",
+		research: ["E-CC-W1"]
+	};
+	if (options.codexHome && isInside(entry.root, `${options.codexHome}${sep}worktrees`)) return {
+		owner: "codex",
+		research: ["E-CODEX-W1"]
+	};
+	return {
+		owner: "unknown",
+		research: []
+	};
+}
+function isInside(path, dir) {
+	return path.startsWith(`${dir}${sep}`);
+}
+/** The default `LeaseFs`, on `node:fs/promises`. */
+const nodeLeaseFs = {
+	async createExclusive(path, text) {
+		try {
+			await writeFile(path, text, { flag: "wx" });
+			return true;
+		} catch (error) {
+			if (error.code === "EEXIST") return false;
+			throw error;
+		}
+	},
+	async readText(path) {
+		try {
+			return await readFile(path, "utf8");
+		} catch (error) {
+			if (error.code === "ENOENT") return void 0;
+			throw error;
+		}
+	},
+	async remove(path) {
+		try {
+			await unlink(path);
+		} catch (error) {
+			if (error.code !== "ENOENT") throw error;
+		}
+	}
+};
+/**
+* `$GIT_COMMON_DIR/worktrees/<id>/locked` for a linked worktree, or `undefined` when git cannot say
+* (the checkout is gone). The `<id>` is git's admin folder name, which need not match the basename,
+* so it is read from `--git-dir` rather than built.
+*/
+async function leaseFile(worktreeRoot, exec = nodeExec$1) {
+	const gitDir = await exec("git", [
+		"-C",
+		worktreeRoot,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-dir"
+	]);
+	return gitDir ? join(gitDir, "locked") : void 0;
+}
+/**
+* Claim a worktree: exclusive-create its `locked` file with the lease as a one-line JSON reason, which
+* git then honours as a lock (E-GIT-L1, E-GIT-L2, E-GIT-L3), and read it back. `git worktree lock`
+* checks then truncates, so it can overwrite a lease created inside its window (E-GIT-L5); the read
+* back catches that. `undefined` when the worktree is already locked or the claim was lost.
+*/
+async function claimLease(worktreeRoot, holder, options = {}) {
+	const exec = options.exec ?? nodeExec$1;
+	const fs = options.fs ?? nodeLeaseFs;
+	const path = await leaseFile(worktreeRoot, exec);
+	if (!path) return void 0;
+	const lease = {
+		worktree: worktreeRoot,
+		leaseId: options.leaseId ?? randomUUID(),
+		holder
+	};
+	const reason = {
+		library: LEASE_LIBRARY,
+		leaseId: lease.leaseId,
+		holder
+	};
+	if (!await fs.createExclusive(path, JSON.stringify(reason))) return void 0;
+	return await holdsLease(lease, {
+		exec,
+		fs
+	}) ? lease : void 0;
+}
+/** Whether the worktree's `locked` file still records this lease. Checked again before a destructive
+* step, since a manual `git worktree unlock` or a racing `lock` can take it away (E-GIT-L4, E-GIT-L5). */
+async function holdsLease(lease, options = {}) {
+	const path = await leaseFile(lease.worktree, options.exec ?? nodeExec$1);
+	if (!path) return false;
+	return parseLeaseReason(await (options.fs ?? nodeLeaseFs).readText(path))?.leaseId === lease.leaseId;
+}
+/**
+* Give a lease back by deleting the `locked` file, only when it still records this `leaseId`. It does
+* not recycle: an occupant such as a judge may still be working there, so the next `acquire` recycles
+* after probing.
+*/
+async function release(lease, options = {}) {
+	const exec = options.exec ?? nodeExec$1;
+	const fs = options.fs ?? nodeLeaseFs;
+	const path = await leaseFile(lease.worktree, exec);
+	if (!path || parseLeaseReason(await fs.readText(path))?.leaseId !== lease.leaseId) return {
+		released: false,
+		reason: "lost"
+	};
+	await fs.remove(path);
+	return { released: true };
+}
+/**
+* The primary checkout's root, from the primary checkout or any linked worktree:
+* `--git-common-dir` always points at the primary's `.git`.
+*/
+async function primaryRoot(options = {}) {
+	const commonDir = await (options.exec ?? nodeExec$1)("git", [
+		"-C",
+		options.from ?? ".",
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir"
+	]);
+	if (!commonDir) throw new Error(`not inside a git repository: ${resolve(options.from ?? ".")}`);
+	return dirname(commonDir);
+}
+/**
+* The single normalization for every path matched against another, so a symlinked repo or macOS's
+* `/tmp` → `/private/tmp` still matches. Falls back to `resolve` for a path not on disk.
+*/
+async function normalizeWorktreePath$1(path) {
+	try {
+		return await realpath(path);
+	} catch {
+		return resolve(path);
+	}
+}
+/** Every worktree of the repo, from `git worktree list --porcelain`, with landed and dirty facts. */
+async function listWorktrees(options) {
+	const exec = options.exec ?? nodeExec$1;
+	const out = await exec("git", [
+		"-C",
+		options.primaryRoot,
+		"worktree",
+		"list",
+		"--porcelain"
+	]);
+	if (!out) return [];
+	const primary = await normalizeWorktreePath$1(options.primaryRoot);
+	const entries = await Promise.all(out.split("\n\n").map((record) => record.trim()).filter((record) => record.startsWith("worktree ")).map((record) => parseRecord(record, primary)));
+	const target = await defaultBranchRef(exec, options.primaryRoot, entries.find((entry) => !entry.linked)?.branch);
+	const context = await readLandedContext(exec, options.primaryRoot, target, options.forge);
+	for (const entry of entries) {
+		const landed = await resolveLanded(entry.branch, context);
+		if (landed.merged !== void 0) entry.merged = landed.merged;
+		if (landed.signal !== void 0) entry.mergedSignal = landed.signal;
+		if (!entry.prunable) {
+			const dirty = await readDirty(entry.root, {
+				exec,
+				ignore: options.ignore
+			});
+			if (dirty !== void 0) entry.dirty = dirty;
+		}
+	}
+	return entries;
+}
+async function parseRecord(record, primary) {
+	const lines = record.split("\n");
+	const root = await normalizeWorktreePath$1(unquote$1(lines[0].slice(9)));
+	const value = (key) => {
+		const line = lines.find((line) => line === key || line.startsWith(`${key} `));
+		return line === void 0 ? void 0 : unquote$1(line.slice(key.length + 1));
+	};
+	const entry = {
+		root,
+		detached: lines.includes("detached"),
+		linked: root !== primary,
+		prunable: value("prunable") !== void 0
+	};
+	const head = value("HEAD");
+	if (head) entry.head = head;
+	const branch = value("branch")?.replace(/^refs\/heads\//, "");
+	if (branch) entry.branch = branch;
+	const locked = value("locked");
+	if (locked !== void 0) entry.locked = locked;
+	return entry;
+}
+const escapes = {
+	a: "\x07",
+	b: "\b",
+	f: "\f",
+	n: "\n",
+	r: "\r",
+	t: "	",
+	v: "\v"
+};
+/**
+* Undo git's C-style quoting, which porcelain applies to a path or lock reason holding a quote,
+* backslash, or control character: `"a\"b\n"` → `a"b` plus a newline. Octal escapes are bytes, so a
+* quoted UTF-8 name decodes back to its characters.
+*/
+function unquote$1(text) {
+	if (text.length < 2 || !text.startsWith("\"") || !text.endsWith("\"")) return text;
+	const bytes = [];
+	const body = text.slice(1, -1);
+	for (let i = 0; i < body.length; i++) {
+		const char = body[i];
+		if (char !== "\\") {
+			bytes.push(...Buffer.from(char));
+			continue;
+		}
+		const next = body[++i] ?? "";
+		const octal = /^[0-7]{3}/.exec(body.slice(i));
+		if (octal) {
+			bytes.push(Number.parseInt(octal[0], 8));
+			i += 2;
+		} else bytes.push(...Buffer.from(escapes[next] ?? next));
+	}
+	return Buffer.from(bytes).toString("utf8");
+}
+/**
+* Reads processes from a Linux `/proc` (or a mounted copy at `procRoot`). On any other platform the
+* default root returns `null`: macOS would need `proc_pidinfo` (E-PROC-OS2), and Windows has no
+* documented way to read another process's cwd (E-PROC-OS3).
+*/
+function procfsProcessSource(procRoot = "/proc") {
+	return async () => {
+		if (procRoot === "/proc" && process.platform !== "linux") return null;
+		let names;
+		try {
+			names = await readdir(procRoot);
+		} catch {
+			return null;
+		}
+		return (await Promise.all(names.filter((name) => /^\d+$/.test(name)).map((name) => readProcess(join(procRoot, name), Number(name))))).filter((info) => info !== void 0);
+	};
+}
+async function readProcess(dir, pid) {
+	const [stat, cmdline, exe, cwd, environ] = await Promise.all([
+		readText(join(dir, "stat")),
+		readText(join(dir, "cmdline")),
+		readLink(join(dir, "exe")),
+		readLink(join(dir, "cwd")),
+		readText(join(dir, "environ"))
+	]);
+	if (stat === void 0) return void 0;
+	const info = {
+		pid,
+		argv: cmdline ? splitNul(cmdline) : []
+	};
+	const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+	if (Number.isInteger(ppid)) info.ppid = ppid;
+	if (exe !== void 0) info.exe = exe;
+	if (cwd !== void 0) info.cwd = cwd;
+	if (environ !== void 0) {
+		const env = {};
+		for (const entry of splitNul(environ)) {
+			const eq = entry.indexOf("=");
+			if (eq > 0) env[entry.slice(0, eq)] = entry.slice(eq + 1);
+		}
+		info.env = env;
+	}
+	return info;
+}
+const splitNul = (text) => text.split("\0").filter((part) => part.length > 0);
+async function readText(path) {
+	try {
+		return await readFile(path, "utf8");
+	} catch {
+		return;
+	}
+}
+/** The kernel appends ` (deleted)` to a link whose target is gone, as after an in-place
+* auto-update of the Copilot CLI (E-PROC-COP1). */
+async function readLink(path) {
+	try {
+		return (await readlink(path)).replace(/ \(deleted\)$/, "");
+	} catch {
+		return;
+	}
+}
+const base = (path) => path?.slice(path.lastIndexOf("/") + 1);
+const exeIs = (info, name) => base(info.exe) === name;
+const exeMatches = (info, pattern) => info.exe !== void 0 && pattern.test(info.exe);
+const isNode = (info) => exeIs(info, "node") || base(info.argv[0]) === "node";
+const argMatches = (info, pattern) => info.argv.some((arg) => pattern.test(arg));
+const sessionSignatures = [
+	{
+		harness: "claude-code",
+		research: [
+			"E-PROC-CC1",
+			"E-PROC-CC2",
+			"E-PROC-CC3"
+		],
+		isSession: (info) => exeMatches(info, /\/claude\/versions\/[^/]+$/),
+		link: {
+			pid: "CLAUDE_PID",
+			id: "CLAUDE_CODE_SESSION_ID"
+		}
+	},
+	{
+		harness: "codex",
+		research: ["E-PROC-CX1", "E-PROC-CX2"],
+		isSession: (info) => exeIs(info, "codex") && !isCodexHelper(info),
+		helper: (info) => isCodexHelper(info) ? "session" : void 0,
+		link: { id: "CODEX_SESSION_ID" }
+	},
+	{
+		harness: "copilot-cli",
+		research: ["E-PROC-COP1", "E-PROC-COP2"],
+		isSession: (info) => exeIs(info, "copilot"),
+		link: { id: "COPILOT_AGENT_SESSION_ID" }
+	},
+	{
+		harness: "cursor",
+		research: [
+			"E-PROC-CUR1",
+			"E-PROC-CUR3",
+			"E-PROC-CUR4"
+		],
+		isSession: (info) => isCursorAgent(info) && info.env?.AGENT_CLI_SOCKET_PATH === void 0,
+		helper: (info) => isCursorAgent(info) && info.env?.AGENT_CLI_SOCKET_PATH !== void 0 ? "session" : void 0,
+		link: { id: "CURSOR_CONVERSATION_ID" }
+	},
+	{
+		harness: "opencode",
+		research: ["E-PROC-OC1"],
+		isSession: (info) => exeIs(info, "opencode"),
+		link: { pid: "OPENCODE_PID" }
+	},
+	{
+		harness: "kilo",
+		research: ["E-PROC-KILO1"],
+		isSession: (info) => exeMatches(info, /\/cli-linux-x64\/bin\/kilo$/) || isNode(info) && argMatches(info, /\/@kilocode\/cli\/bin\/kilo$/),
+		link: {
+			pid: "KILO_PID",
+			id: "KILO_RUN_ID"
+		}
+	},
+	{
+		harness: "qwen-code",
+		research: ["E-PROC-QWEN1"],
+		isSession: (info) => isNode(info) && argMatches(info, /\/qwen-code\/cli-entry\.js$/),
+		link: { id: "QWEN_CODE_SESSION_ID" }
+	},
+	{
+		harness: "crush",
+		research: ["E-PROC-CRUSH1"],
+		isSession: (info) => exeMatches(info, /\/crush\/bin\/crush$/) || isNode(info) && argMatches(info, /\/@charmland\/crush(\/|$)/)
+	},
+	{
+		harness: "gemini-cli",
+		research: ["E-PROC-GEM1"],
+		isSession: (info) => isNode(info) && argMatches(info, /\/gemini-cli\/bundle\/gemini\.js$/)
+	},
+	{
+		harness: "goose",
+		research: ["E-PROC-GOOSE1"],
+		isSession: (info) => exeIs(info, "goose") && (info.argv[1] === "run" || info.argv[1] === "session"),
+		link: { id: "AGENT_SESSION_ID" }
+	},
+	{
+		harness: "openhands",
+		research: ["E-PROC-OH1"],
+		isSession: (info) => /^python[\d.]*$/.test(base(info.exe) ?? "") && argMatches(info, /\/openhands$/),
+		helper: (info) => exeIs(info, "tmux") && (info.argv.includes("-Lopenhands") || /-L openhands( |$)/.test(info.argv.join(" "))) ? "shared" : void 0
+	},
+	{
+		harness: "cline",
+		research: ["E-PROC-CLINE1"],
+		isSession: (info) => isClineProcess(info) && !info.argv.includes("--cline-hub-daemon"),
+		helper: (info) => isClineProcess(info) && info.argv.includes("--cline-hub-daemon") ? "shared" : void 0
+	},
+	{
+		harness: "augment",
+		research: ["E-PROC-AUG1"],
+		isSession: (info) => isNode(info) && argMatches(info, /\/@augmentcode\/auggie\/augment\.mjs$/)
+	},
+	{
+		harness: "antigravity-cli",
+		research: ["E-PROC-AGY1"],
+		isSession: (info) => exeIs(info, "agy"),
+		link: { id: "ANTIGRAVITY_CONVERSATION_ID" }
+	}
+];
+function isCodexHelper(info) {
+	return base(info.exe) === "codex-code-mode-host" || info.argv.some((arg) => base(arg) === "codex-code-mode-host");
+}
+function isCursorAgent(info) {
+	return isNode(info) && argMatches(info, /(^|\/)cursor-agent$/);
+}
+function isClineProcess(info) {
+	return exeMatches(info, /\/cli-linux-x64\/bin\/cline$/) || isNode(info) && argMatches(info, /\/cline\/bin\/cline$/);
+}
+/**
+* Snapshots processes once and classifies each against the session signature table. Read-only: the
+* probe never signals or kills a process. A harness missing from the table is invisible to it.
+*/
+async function probeProcesses(options = {}) {
+	const processes = await (options.source ?? procfsProcessSource())();
+	if (processes === null) return {
+		verified: false,
+		occupancy: (_root, occupancyOptions) => ({
+			busy: occupancyOptions?.strict === true,
+			verified: false,
+			occupants: [],
+			lingering: [],
+			unlinked: []
+		})
+	};
+	return classify(processes);
+}
+function classify(processes) {
+	const byPid = new Map(processes.map((info) => [info.pid, info]));
+	const sessionOf = /* @__PURE__ */ new Map();
+	const helperOf = /* @__PURE__ */ new Map();
+	for (const info of processes) for (const signature of sessionSignatures) {
+		const scope = signature.helper?.(info);
+		if (scope) {
+			helperOf.set(info.pid, {
+				signature,
+				scope
+			});
+			break;
+		}
+		if (signature.isSession(info)) {
+			sessionOf.set(info.pid, signature);
+			break;
+		}
+	}
+	const parentOf = (info) => info.ppid === void 0 || info.ppid === info.pid ? void 0 : byPid.get(info.ppid);
+	const groupOf = /* @__PURE__ */ new Map();
+	const groupRoot = (info) => {
+		const parent = parentOf(info);
+		return parent && sessionOf.get(parent.pid) === sessionOf.get(info.pid) ? groupRoot(parent) : info;
+	};
+	for (const [pid, signature] of sessionOf) {
+		const root = groupRoot(byPid.get(pid));
+		let group = groupOf.get(root.pid);
+		if (!group) {
+			group = {
+				signature,
+				members: [],
+				ids: /* @__PURE__ */ new Set()
+			};
+			groupOf.set(root.pid, group);
+		}
+		group.members.push(byPid.get(pid));
+		groupOf.set(pid, group);
+	}
+	const groups = [...new Set(groupOf.values())];
+	const nearestSession = (info) => {
+		const seen = /* @__PURE__ */ new Set();
+		for (let parent = parentOf(info); parent && !seen.has(parent.pid); parent = parentOf(parent)) {
+			seen.add(parent.pid);
+			const group = groupOf.get(parent.pid);
+			if (group) return group;
+		}
+	};
+	for (const info of processes) {
+		if (sessionOf.has(info.pid)) continue;
+		const group = nearestSession(info);
+		const idVar = group?.signature.link?.id;
+		const id = idVar && info.env?.[idVar];
+		if (group && id) group.ids.add(id);
+	}
+	const liveGroups = (harness) => groups.filter((group) => group.signature.harness === harness);
+	const resolveLink = (signature, env) => {
+		const live = liveGroups(signature.harness);
+		const pidVar = signature.link?.pid;
+		if (pidVar && env[pidVar]) {
+			const pid = Number(env[pidVar]);
+			return live.some((group) => group.members.some((member) => member.pid === pid)) ? "live" : "dead";
+		}
+		const idVar = signature.link?.id;
+		const id = idVar && env[idVar];
+		if (!id) return void 0;
+		if (live.some((group) => group.ids.has(id))) return "live";
+		return live.every((group) => group.ids.size > 0) ? "dead" : "unknown";
+	};
+	const leftover = (info) => {
+		const helper = helperOf.get(info.pid);
+		if (helper?.scope === "shared") {
+			if (liveGroups(helper.signature.harness).length > 0) return void 0;
+			return {
+				pid: info.pid,
+				argv: info.argv,
+				harness: helper.signature.harness,
+				reason: "harness-idle"
+			};
+		}
+		if (nearestSession(info)) return void 0;
+		if (helper) return {
+			pid: info.pid,
+			argv: info.argv,
+			harness: helper.signature.harness,
+			reason: "helper-orphaned"
+		};
+		if (!info.env) return {
+			pid: info.pid,
+			argv: info.argv,
+			reason: "env-unreadable"
+		};
+		const links = sessionSignatures.map((signature) => ({
+			signature,
+			link: resolveLink(signature, info.env)
+		})).filter((entry) => entry.link !== void 0);
+		if (links.some((entry) => entry.link === "live")) return void 0;
+		if (links.length === 0) return {
+			pid: info.pid,
+			argv: info.argv,
+			reason: "no-link"
+		};
+		const reason = links.every((entry) => entry.link === "dead") ? "session-gone" : "unresolved-link";
+		return {
+			pid: info.pid,
+			argv: info.argv,
+			harness: links[0].signature.harness,
+			reason
+		};
+	};
+	return {
+		verified: true,
+		occupancy(worktreeRoot, options = {}) {
+			const within = (cwd, root) => cwd !== void 0 && (cwd === root || cwd.startsWith(root.endsWith(sep) ? root : root + sep));
+			const inside = (cwd) => within(cwd, worktreeRoot) && !(options.nested ?? []).some((root) => within(cwd, root));
+			const found = [];
+			for (const group of groups) {
+				if (!group.members.some((member) => inside(member.cwd))) continue;
+				const session = {
+					harness: group.signature.harness,
+					pid: (group.members.find((member) => groupRoot(member) === member) ?? group.members[0]).pid,
+					pids: group.members.map((member) => member.pid).sort((a, b) => a - b),
+					research: group.signature.research
+				};
+				if (group.ids.size === 1) session.sessionId = [...group.ids][0];
+				found.push(session);
+			}
+			const lingering = [];
+			const unlinked = [];
+			for (const info of processes) {
+				if (sessionOf.has(info.pid) || !inside(info.cwd)) continue;
+				const entry = leftover(info);
+				if (!entry) continue;
+				const report = {
+					...entry,
+					cwd: info.cwd
+				};
+				if (info.ppid !== void 0) report.ppid = info.ppid;
+				(entry.reason === "session-gone" || entry.reason === "helper-orphaned" || entry.reason === "harness-idle" ? lingering : unlinked).push(report);
+			}
+			return {
+				busy: found.length > 0,
+				verified: true,
+				occupants: found,
+				lingering,
+				unlinked
+			};
+		}
+	};
+}
+async function survey(options) {
+	const exec = options.exec ?? nodeExec$1;
+	const primary = await normalizeWorktreePath$1(options.primaryRoot ?? await primaryRoot({
+		from: options.from,
+		exec
+	}));
+	const entries = await listWorktrees({
+		primaryRoot: primary,
+		exec,
+		ignore: options.ignore,
+		forge: options.forge
+	});
+	const base = options.base ?? await defaultBranchRef(exec, primary, entries.find((entry) => !entry.linked)?.branch);
+	const codexHome = options.codexHome && await normalizeWorktreePath$1(options.codexHome);
+	let probe = options.probe;
+	const verdicts = [];
+	for (const entry of entries) {
+		const owner = classifyOwner(entry, {
+			primaryRoot: primary,
+			codexHome
+		});
+		const verdict = {
+			worktree: entry,
+			owner,
+			verified: true
+		};
+		verdicts.push(verdict);
+		if (!entry.linked) {
+			verdict.skip = "primary";
+			continue;
+		}
+		if (owner.owner !== "self") {
+			verdict.skip = "foreign";
+			continue;
+		}
+		const lease = parseLeaseReason(entry.locked);
+		if (lease) {
+			verdict.skip = "leased";
+			verdict.holder = lease.holder;
+			continue;
+		}
+		if (entry.prunable) {
+			verdict.skip = "prunable";
+			continue;
+		}
+		probe ??= await probeProcesses();
+		const nested = entries.map((other) => other.root).filter((root) => root !== entry.root && root.startsWith(entry.root + sep));
+		const occupancy = probe.occupancy(entry.root, {
+			strict: options.strict,
+			nested
+		});
+		verdict.occupancy = occupancy;
+		verdict.verified = occupancy.verified;
+		if (occupancy.busy) {
+			verdict.skip = occupancy.verified ? "busy" : "unverified";
+			continue;
+		}
+		if (entry.dirty !== false) {
+			verdict.skip = "dirty";
+			continue;
+		}
+		if (!await hasLanded(exec, primary, entry, base)) {
+			verdict.skip = "unmerged";
+			continue;
+		}
+		if (options.available && !await options.available(entry)) verdict.skip = "rejected";
+	}
+	return {
+		primary,
+		exec,
+		base,
+		entries,
+		verdicts
+	};
+}
+/** The branch has landed on the default branch, or HEAD (detached after a recycle) is in `base`. */
+async function hasLanded(exec, primary, entry, base) {
+	if (entry.merged === true) return true;
+	if (!entry.head || !base) return false;
+	return await exec("git", [
+		"-C",
+		primary,
+		"merge-base",
+		"--is-ancestor",
+		entry.head,
+		base
+	]) !== null;
+}
+/** The default `WorktreeCreator`: `git worktree add`. */
+function gitWorktreeCreator(exec = nodeExec$1) {
+	return async ({ primaryRoot, path, base, branch }) => {
+		const args = [
+			"-C",
+			primaryRoot,
+			"worktree",
+			"add",
+			"--quiet"
+		];
+		if (!branch) args.push("--detach", path, base);
+		else if (await branchExists(exec, primaryRoot, branch)) args.push(path, branch);
+		else args.push("-b", branch, path, base);
+		if (await exec("git", args) === null) throw new Error(`git worktree add failed: ${path}`);
+	};
+}
+var AcquireError = class extends Error {
+	code;
+	verdicts;
+	constructor(code, message, verdicts) {
+		super(message);
+		this.code = code;
+		this.verdicts = verdicts;
+		this.name = "AcquireError";
+	}
+};
+const ATTEMPTS = 3;
+/**
+* Lease a worktree: recycle an idle one of ours when there is one, otherwise create one at the next
+* free slot if under `max`. Never fetches and never kills a process.
+*/
+async function acquire(options) {
+	let verdicts = [];
+	for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+		const found = await survey(options);
+		verdicts = found.verdicts;
+		const { primary, exec, entries } = found;
+		if (!found.base) throw new AcquireError("no-base", "no base ref: pass `base` or set origin/HEAD", verdicts);
+		const base = await exec("git", [
+			"-C",
+			primary,
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			`${found.base}^{commit}`
+		]);
+		if (!base) throw new AcquireError("no-base", `base does not resolve to a commit: ${found.base}`, verdicts);
+		const idle = verdicts.filter((verdict) => verdict.skip === void 0).sort((a, b) => slotOf(primary, a) - slotOf(primary, b));
+		for (const verdict of idle) {
+			const result = await recycle(verdict, base, options, exec, primary);
+			if (result) return result;
+		}
+		const slots = entries.filter((entry) => entry.linked && slotNumber(primary, entry.root) !== void 0);
+		if (options.max !== void 0 && slots.length >= options.max) throw new AcquireError("pool-full", `all ${options.max} worktrees are in use`, verdicts);
+		const lease = await createSlot(primary, base, options, exec, slots);
+		if (lease) return {
+			...lease,
+			reused: false,
+			branch: options.branch,
+			verified: true,
+			lingering: []
+		};
+	}
+	throw new AcquireError("contended", "another caller took every worktree this one tried", verdicts);
+}
+function slotOf(primary, verdict) {
+	return slotNumber(primary, verdict.worktree.root) ?? Number.POSITIVE_INFINITY;
+}
+async function recycle(verdict, base, options, exec, primary) {
+	const entry = verdict.worktree;
+	const store = {
+		exec,
+		fs: options.fs
+	};
+	const lease = await claimLease(entry.root, options.holder, {
+		...store,
+		leaseId: options.newLeaseId?.()
+	});
+	if (!lease) return void 0;
+	const head = await exec("git", [
+		"-C",
+		entry.root,
+		"rev-parse",
+		"HEAD"
+	]);
+	const dirty = await readDirty(entry.root, {
+		exec,
+		ignore: options.ignore
+	});
+	if (head !== entry.head || dirty !== false || !await holdsLease(lease, store)) {
+		await release(lease, store);
+		return;
+	}
+	const git = (...args) => exec("git", [
+		"-C",
+		entry.root,
+		...args
+	]);
+	const fail = async (message) => {
+		await release(lease, store);
+		throw new Error(`${message}: ${entry.root}`);
+	};
+	if (await git("read-tree", "--reset", "-u", base) === null || await git("clean", "-fd") === null) return fail("recycle failed");
+	if ((options.branch ? await branchExists(exec, primary, options.branch) ? await git("switch", "--quiet", "--discard-changes", options.branch) : await git("switch", "--quiet", "--discard-changes", "-c", options.branch, base) : await git("switch", "--quiet", "--discard-changes", "--detach", base)) === null) return fail(`recycle could not switch to ${options.branch ?? base}`);
+	const result = {
+		...lease,
+		reused: true,
+		branch: options.branch,
+		verified: verdict.verified,
+		lingering: verdict.occupancy?.lingering ?? []
+	};
+	const previous = entry.branch;
+	if (previous) {
+		result.previousBranch = previous;
+		if (entry.merged === true && previous !== options.branch) result.previousBranchDeleted = await exec("git", [
+			"-C",
+			primary,
+			"branch",
+			"-D",
+			previous
+		]) !== null;
+	}
+	return result;
+}
+async function createSlot(primary, base, options, exec, slots) {
+	const used = new Set(slots.map((entry) => slotNumber(primary, entry.root)));
+	let n = 1;
+	while (used.has(n) || await exists(slotPath(primary, n))) n++;
+	const path = slotPath(primary, n);
+	const create = options.create ?? gitWorktreeCreator(exec);
+	try {
+		await create({
+			primaryRoot: primary,
+			path,
+			base,
+			branch: options.branch
+		});
+	} catch (error) {
+		if (await exists(path)) return void 0;
+		throw error;
+	}
+	return claimLease(await normalizeWorktreePath$1(path), options.holder, {
+		exec,
+		fs: options.fs,
+		leaseId: options.newLeaseId?.()
+	});
+}
+async function branchExists(exec, primary, branch) {
+	return await exec("git", [
+		"-C",
+		primary,
+		"rev-parse",
+		"--verify",
+		"--quiet",
+		`refs/heads/${branch}`
+	]) !== null;
+}
+async function exists(path) {
+	try {
+		await lstat(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+//#endregion
+//#region ../../node_modules/.pnpm/cyber-mux@0.9.1_typescript@7.0.2/node_modules/cyber-mux/dist/worktree-08MMRO3P.mjs
+const nodeExec = (cmd, args) => {
 	try {
 		const out = execFileSync(cmd, args, {
 			encoding: "utf8",
@@ -2974,11 +3999,11 @@ const nodeExec$1 = (cmd, args) => {
 				"pipe"
 			]
 		}).trim();
-		nodeExec$1.lastError = void 0;
+		nodeExec.lastError = void 0;
 		return out;
 	} catch (err) {
 		const stderr = err.stderr;
-		nodeExec$1.lastError = String(stderr ?? "").trim() || void 0;
+		nodeExec.lastError = String(stderr ?? "").trim() || void 0;
 		return null;
 	}
 };
@@ -3033,6 +4058,8 @@ const gitWorktreeAdapter = {
 	}
 };
 /**
+* @deprecated Use `primaryRoot({ exec })` from `@cyberuni/agent-harness/worktrees` (re-exported here).
+*
 * Resolve the primary checkout's root regardless of whether the caller's cwd is the primary
 * checkout or a linked worktree — `--git-common-dir` always points at the main repo's `.git`.
 */
@@ -3046,12 +4073,14 @@ function resolvePrimaryRoot(exec) {
 	return dirname(commonDir);
 }
 /**
+* @deprecated Use `normalizeWorktreePath` from `@cyberuni/agent-harness/worktrees` (async).
+*
 * The single normalization point for every path that gets MATCHED against another — a multiplexer
 * reports its own checkout paths, and those only line up with git's if both sides are resolved the
 * same way (a symlinked repo, or macOS's `/tmp` → `/private/tmp`, otherwise silently fails to
 * match). Falls back to `resolve` for a path that isn't on disk, where there is no link to follow.
 */
-function normalizeWorktreePath$1(path, fs = nodeWorktreeFs) {
+function normalizeWorktreePath(path, fs = nodeWorktreeFs) {
 	try {
 		return fs.realpath(path);
 	} catch {
@@ -3066,7 +4095,7 @@ function assertDistinctFromPrimary(worktreeRoot, primaryRoot) {
 	if (resolve(worktreeRoot) === resolve(primaryRoot)) throw new WorktreeGitError("refusing to run in the primary checkout — spawn a worktree distinct from the primary checkout");
 }
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.8.0_typescript@7.0.2/node_modules/cyber-mux/dist/backend-Dg5JGbd3.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.9.1_typescript@7.0.2/node_modules/cyber-mux/dist/backend-26cY2q8x.mjs
 /**
 * The launch-line fallbacks — the compensations for what a creating route could not set natively.
 *
@@ -4530,7 +5559,7 @@ function parseWorktreeBindings(out) {
 	for (const entry of worktrees) {
 		const path = entry?.path;
 		const workspace = entry?.open_workspace_id;
-		if (typeof path === "string" && path !== "" && typeof workspace === "string" && workspace !== "") bindings.set(normalizeWorktreePath$1(path), workspace);
+		if (typeof path === "string" && path !== "" && typeof workspace === "string" && workspace !== "") bindings.set(normalizeWorktreePath(path), workspace);
 	}
 	return bindings;
 }
@@ -5693,1031 +6722,6 @@ function sanitizePane(pane) {
 	return pane.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 //#endregion
-//#region ../../node_modules/.pnpm/@cyberuni+agent-harness@0.6.0_typescript@7.0.2/node_modules/@cyberuni/agent-harness/dist/worktrees.js
-/**
-* Whether a checkout has uncommitted changes, tracked or untracked, or `undefined` when git could not
-* say. `undefined` is not `false`: a caller deciding whether a worktree is safe to reuse must not read
-* an unanswered question as a clean tree.
-*
-* `--untracked-files=all` is explicit because a repo's `status.showUntrackedFiles=no` would otherwise
-* hide untracked work.
-*/
-async function readDirty(worktreeRoot, options) {
-	const args = [
-		"-C",
-		worktreeRoot,
-		"status",
-		"--porcelain",
-		"--untracked-files=all"
-	];
-	if (options.ignore?.length) args.push("--", ".", ...options.ignore.map((path) => `:(exclude)${path}`));
-	const out = await options.exec("git", args);
-	return out === null ? void 0 : out.length > 0;
-}
-/** The default `Exec`: `execFile` with stderr captured, never inherited, because routine failures
-* (no `origin/HEAD`, a branch with no upstream) would otherwise spam the caller's terminal. */
-const nodeExec = (cmd, args) => new Promise((resolve) => {
-	execFile(cmd, [...args], {
-		encoding: "utf8",
-		maxBuffer: 67108864
-	}, (error, stdout) => {
-		resolve(error ? null : stdout.trim());
-	});
-});
-/**
-* The ref "landed" is measured against: `origin/HEAD` first, because landed means landed upstream,
-* then the branch checked out in the primary checkout. Undefined when neither answers.
-*/
-async function defaultBranchRef(exec, primaryRoot, primaryBranch) {
-	return await exec("git", [
-		"-C",
-		primaryRoot,
-		"symbolic-ref",
-		"--short",
-		"refs/remotes/origin/HEAD"
-	]) || primaryBranch;
-}
-async function readLandedContext(exec, primaryRoot, target, forge) {
-	const [merged, goneUpstream] = await Promise.all([readMergedBranches(exec, primaryRoot, target), readGoneUpstreamBranches(exec, primaryRoot)]);
-	return {
-		exec,
-		primaryRoot,
-		target,
-		merged,
-		goneUpstream,
-		forge
-	};
-}
-/**
-* Runs the signals for one branch in cost order and stops at the first positive. Only `ancestor` may
-* seed a `false`; no later signal can turn a `true` into a `false`.
-*/
-async function resolveLanded(branch, context) {
-	if (!branch) return {};
-	if (context.merged?.has(branch)) return {
-		merged: true,
-		signal: "ancestor"
-	};
-	const seed = context.merged ? { merged: false } : {};
-	if (context.goneUpstream?.has(branch)) return {
-		merged: true,
-		signal: "upstream-gone"
-	};
-	if (context.target && await isSquashApplied(context.exec, context.primaryRoot, context.target, branch)) return {
-		merged: true,
-		signal: "squash-patch"
-	};
-	if (await context.forge?.(branch) === true) return {
-		merged: true,
-		signal: "forge"
-	};
-	return seed;
-}
-async function readMergedBranches(exec, primaryRoot, target) {
-	if (!target) return void 0;
-	const out = await exec("git", [
-		"-C",
-		primaryRoot,
-		"branch",
-		"--format=%(refname:short)",
-		"--merged",
-		target
-	]);
-	if (out === null) return void 0;
-	return new Set(out.split("\n").map((line) => line.trim()).filter(Boolean));
-}
-async function readGoneUpstreamBranches(exec, primaryRoot) {
-	const out = await exec("git", [
-		"-C",
-		primaryRoot,
-		"for-each-ref",
-		"--format=%(refname:short)	%(upstream:track)",
-		"refs/heads/"
-	]);
-	if (out === null) return void 0;
-	const gone = /* @__PURE__ */ new Set();
-	for (const line of out.split("\n")) {
-		const tab = line.indexOf("	");
-		if (tab !== -1 && line.slice(tab + 1).trim() === "[gone]") gone.add(line.slice(0, tab));
-	}
-	return gone;
-}
-/**
-* Whether the branch, collapsed to one synthetic commit (`commit-tree <branch>^{tree} -p <merge-base>`),
-* is already applied on `target` by patch id (`git cherry`). Writes one unreferenced commit object that
-* ordinary gc collects. The identity is inline because `commit-tree` refuses on a machine with no git
-* identity configured, such as a CI runner.
-*/
-async function isSquashApplied(exec, primaryRoot, target, branch) {
-	const base = await exec("git", [
-		"-C",
-		primaryRoot,
-		"merge-base",
-		target,
-		branch
-	]);
-	if (!base) return false;
-	const synthetic = await exec("git", [
-		"-c",
-		"user.name=agent-harness",
-		"-c",
-		"user.email=probe@agent-harness.invalid",
-		"-C",
-		primaryRoot,
-		"commit-tree",
-		`${branch}^{tree}`,
-		"-p",
-		base,
-		"-m",
-		"agent-harness squash probe"
-	]);
-	if (!synthetic) return false;
-	return (await exec("git", [
-		"-C",
-		primaryRoot,
-		"cherry",
-		target,
-		synthetic
-	]))?.split("\n").some((line) => line.startsWith("-")) ?? false;
-}
-/**
-* Where the library puts a repo's worktrees: `<parent>/<repo>.worktrees`, a sibling of the primary
-* checkout (E-MUX-2, E-LEG-1). Every worktree the library creates is a slot in this folder.
-*/
-function worktreesDir(primaryRoot) {
-	return join(dirname(primaryRoot), `${basename(primaryRoot)}.worktrees`);
-}
-/**
-* The path of slot `n`: `<parent>/<repo>.worktrees/<repo>-<n>`. The library assigns `n` and the
-* caller cannot, so the name stays meaningless and true for the worktree's whole life; what it is
-* for lives in its branch and lease holder, which change on reuse (decision 2026-10-05, E-TH-7).
-*/
-function slotPath(primaryRoot, n) {
-	return join(worktreesDir(primaryRoot), `${basename(primaryRoot)}-${n}`);
-}
-/**
-* The slot number of a worktree root, or `undefined` when the root is not one of the library's slots.
-* Both paths are normalized (`normalizeWorktreePath`). `n` is a positive integer with no leading
-* zero, so `repo-01` is not slot 1.
-*/
-function slotNumber(primaryRoot, worktreeRoot) {
-	if (dirname(worktreeRoot) !== worktreesDir(primaryRoot)) return void 0;
-	const prefix = `${basename(primaryRoot)}-`;
-	const name = basename(worktreeRoot);
-	if (!name.startsWith(prefix)) return void 0;
-	const digits = name.slice(prefix.length);
-	return /^[1-9]\d*$/.test(digits) ? Number(digits) : void 0;
-}
-/** The `library` value a lease reason carries. */
-const LEASE_LIBRARY = "@cyberuni/agent-harness";
-/** The lease a lock reason records, or `undefined` when the lock is not this library's. */
-function parseLeaseReason(reason) {
-	if (!reason) return void 0;
-	let value;
-	try {
-		value = JSON.parse(reason);
-	} catch {
-		return;
-	}
-	if (typeof value !== "object" || value === null) return void 0;
-	const { library, leaseId, holder } = value;
-	if (library !== "@cyberuni/agent-harness" || typeof leaseId !== "string" || typeof holder !== "string") return void 0;
-	return {
-		library,
-		leaseId,
-		holder
-	};
-}
-/** Classify a worktree's owner from its lock reason and path. Pure: reads nothing from disk. */
-function classifyOwner(entry, options) {
-	if (parseLeaseReason(entry.locked)) return {
-		owner: "self",
-		research: ["E-GIT-L1", "E-GIT-L2"]
-	};
-	if (entry.locked?.startsWith("claude session ")) return {
-		owner: "claude-code",
-		research: ["E-CC-W4", "E-PROC-CC5"]
-	};
-	if (!entry.linked) return {
-		owner: "user",
-		research: []
-	};
-	if (entry.locked === void 0 && slotNumber(options.primaryRoot, entry.root) !== void 0) return {
-		owner: "self",
-		research: []
-	};
-	if (isInside(entry.root, `${options.primaryRoot}${sep}.claude${sep}worktrees`)) return {
-		owner: "claude-code",
-		research: ["E-CC-W1"]
-	};
-	if (options.codexHome && isInside(entry.root, `${options.codexHome}${sep}worktrees`)) return {
-		owner: "codex",
-		research: ["E-CODEX-W1"]
-	};
-	return {
-		owner: "unknown",
-		research: []
-	};
-}
-function isInside(path, dir) {
-	return path.startsWith(`${dir}${sep}`);
-}
-/** The default `LeaseFs`, on `node:fs/promises`. */
-const nodeLeaseFs = {
-	async createExclusive(path, text) {
-		try {
-			await writeFile(path, text, { flag: "wx" });
-			return true;
-		} catch (error) {
-			if (error.code === "EEXIST") return false;
-			throw error;
-		}
-	},
-	async readText(path) {
-		try {
-			return await readFile(path, "utf8");
-		} catch (error) {
-			if (error.code === "ENOENT") return void 0;
-			throw error;
-		}
-	},
-	async remove(path) {
-		try {
-			await unlink(path);
-		} catch (error) {
-			if (error.code !== "ENOENT") throw error;
-		}
-	}
-};
-/**
-* `$GIT_COMMON_DIR/worktrees/<id>/locked` for a linked worktree, or `undefined` when git cannot say
-* (the checkout is gone). The `<id>` is git's admin folder name, which need not match the basename,
-* so it is read from `--git-dir` rather than built.
-*/
-async function leaseFile(worktreeRoot, exec = nodeExec) {
-	const gitDir = await exec("git", [
-		"-C",
-		worktreeRoot,
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-dir"
-	]);
-	return gitDir ? join(gitDir, "locked") : void 0;
-}
-/**
-* Claim a worktree: exclusive-create its `locked` file with the lease as a one-line JSON reason, which
-* git then honours as a lock (E-GIT-L1, E-GIT-L2, E-GIT-L3), and read it back. `git worktree lock`
-* checks then truncates, so it can overwrite a lease created inside its window (E-GIT-L5); the read
-* back catches that. `undefined` when the worktree is already locked or the claim was lost.
-*/
-async function claimLease(worktreeRoot, holder, options = {}) {
-	const exec = options.exec ?? nodeExec;
-	const fs = options.fs ?? nodeLeaseFs;
-	const path = await leaseFile(worktreeRoot, exec);
-	if (!path) return void 0;
-	const lease = {
-		worktree: worktreeRoot,
-		leaseId: options.leaseId ?? randomUUID(),
-		holder
-	};
-	const reason = {
-		library: LEASE_LIBRARY,
-		leaseId: lease.leaseId,
-		holder
-	};
-	if (!await fs.createExclusive(path, JSON.stringify(reason))) return void 0;
-	return await holdsLease(lease, {
-		exec,
-		fs
-	}) ? lease : void 0;
-}
-/** Whether the worktree's `locked` file still records this lease. Checked again before a destructive
-* step, since a manual `git worktree unlock` or a racing `lock` can take it away (E-GIT-L4, E-GIT-L5). */
-async function holdsLease(lease, options = {}) {
-	const path = await leaseFile(lease.worktree, options.exec ?? nodeExec);
-	if (!path) return false;
-	return parseLeaseReason(await (options.fs ?? nodeLeaseFs).readText(path))?.leaseId === lease.leaseId;
-}
-/**
-* Give a lease back by deleting the `locked` file, only when it still records this `leaseId`. It does
-* not recycle: an occupant such as a judge may still be working there, so the next `acquire` recycles
-* after probing.
-*/
-async function release(lease, options = {}) {
-	const exec = options.exec ?? nodeExec;
-	const fs = options.fs ?? nodeLeaseFs;
-	const path = await leaseFile(lease.worktree, exec);
-	if (!path || parseLeaseReason(await fs.readText(path))?.leaseId !== lease.leaseId) return {
-		released: false,
-		reason: "lost"
-	};
-	await fs.remove(path);
-	return { released: true };
-}
-/**
-* The primary checkout's root, from the primary checkout or any linked worktree:
-* `--git-common-dir` always points at the primary's `.git`.
-*/
-async function primaryRoot(options = {}) {
-	const commonDir = await (options.exec ?? nodeExec)("git", [
-		"-C",
-		options.from ?? ".",
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-common-dir"
-	]);
-	if (!commonDir) throw new Error(`not inside a git repository: ${resolve(options.from ?? ".")}`);
-	return dirname(commonDir);
-}
-/**
-* The single normalization for every path matched against another, so a symlinked repo or macOS's
-* `/tmp` → `/private/tmp` still matches. Falls back to `resolve` for a path not on disk.
-*/
-async function normalizeWorktreePath(path) {
-	try {
-		return await realpath(path);
-	} catch {
-		return resolve(path);
-	}
-}
-/** Every worktree of the repo, from `git worktree list --porcelain`, with landed and dirty facts. */
-async function listWorktrees(options) {
-	const exec = options.exec ?? nodeExec;
-	const out = await exec("git", [
-		"-C",
-		options.primaryRoot,
-		"worktree",
-		"list",
-		"--porcelain"
-	]);
-	if (!out) return [];
-	const primary = await normalizeWorktreePath(options.primaryRoot);
-	const entries = await Promise.all(out.split("\n\n").map((record) => record.trim()).filter((record) => record.startsWith("worktree ")).map((record) => parseRecord(record, primary)));
-	const target = await defaultBranchRef(exec, options.primaryRoot, entries.find((entry) => !entry.linked)?.branch);
-	const context = await readLandedContext(exec, options.primaryRoot, target, options.forge);
-	for (const entry of entries) {
-		const landed = await resolveLanded(entry.branch, context);
-		if (landed.merged !== void 0) entry.merged = landed.merged;
-		if (landed.signal !== void 0) entry.mergedSignal = landed.signal;
-		if (!entry.prunable) {
-			const dirty = await readDirty(entry.root, {
-				exec,
-				ignore: options.ignore
-			});
-			if (dirty !== void 0) entry.dirty = dirty;
-		}
-	}
-	return entries;
-}
-async function parseRecord(record, primary) {
-	const lines = record.split("\n");
-	const root = await normalizeWorktreePath(unquote$1(lines[0].slice(9)));
-	const value = (key) => {
-		const line = lines.find((line) => line === key || line.startsWith(`${key} `));
-		return line === void 0 ? void 0 : unquote$1(line.slice(key.length + 1));
-	};
-	const entry = {
-		root,
-		detached: lines.includes("detached"),
-		linked: root !== primary,
-		prunable: value("prunable") !== void 0
-	};
-	const head = value("HEAD");
-	if (head) entry.head = head;
-	const branch = value("branch")?.replace(/^refs\/heads\//, "");
-	if (branch) entry.branch = branch;
-	const locked = value("locked");
-	if (locked !== void 0) entry.locked = locked;
-	return entry;
-}
-const escapes = {
-	a: "\x07",
-	b: "\b",
-	f: "\f",
-	n: "\n",
-	r: "\r",
-	t: "	",
-	v: "\v"
-};
-/**
-* Undo git's C-style quoting, which porcelain applies to a path or lock reason holding a quote,
-* backslash, or control character: `"a\"b\n"` → `a"b` plus a newline. Octal escapes are bytes, so a
-* quoted UTF-8 name decodes back to its characters.
-*/
-function unquote$1(text) {
-	if (text.length < 2 || !text.startsWith("\"") || !text.endsWith("\"")) return text;
-	const bytes = [];
-	const body = text.slice(1, -1);
-	for (let i = 0; i < body.length; i++) {
-		const char = body[i];
-		if (char !== "\\") {
-			bytes.push(...Buffer.from(char));
-			continue;
-		}
-		const next = body[++i] ?? "";
-		const octal = /^[0-7]{3}/.exec(body.slice(i));
-		if (octal) {
-			bytes.push(Number.parseInt(octal[0], 8));
-			i += 2;
-		} else bytes.push(...Buffer.from(escapes[next] ?? next));
-	}
-	return Buffer.from(bytes).toString("utf8");
-}
-/**
-* Reads processes from a Linux `/proc` (or a mounted copy at `procRoot`). On any other platform the
-* default root returns `null`: macOS would need `proc_pidinfo` (E-PROC-OS2), and Windows has no
-* documented way to read another process's cwd (E-PROC-OS3).
-*/
-function procfsProcessSource(procRoot = "/proc") {
-	return async () => {
-		if (procRoot === "/proc" && process.platform !== "linux") return null;
-		let names;
-		try {
-			names = await readdir(procRoot);
-		} catch {
-			return null;
-		}
-		return (await Promise.all(names.filter((name) => /^\d+$/.test(name)).map((name) => readProcess(join(procRoot, name), Number(name))))).filter((info) => info !== void 0);
-	};
-}
-async function readProcess(dir, pid) {
-	const [stat, cmdline, exe, cwd, environ] = await Promise.all([
-		readText(join(dir, "stat")),
-		readText(join(dir, "cmdline")),
-		readLink(join(dir, "exe")),
-		readLink(join(dir, "cwd")),
-		readText(join(dir, "environ"))
-	]);
-	if (stat === void 0) return void 0;
-	const info = {
-		pid,
-		argv: cmdline ? splitNul(cmdline) : []
-	};
-	const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-	if (Number.isInteger(ppid)) info.ppid = ppid;
-	if (exe !== void 0) info.exe = exe;
-	if (cwd !== void 0) info.cwd = cwd;
-	if (environ !== void 0) {
-		const env = {};
-		for (const entry of splitNul(environ)) {
-			const eq = entry.indexOf("=");
-			if (eq > 0) env[entry.slice(0, eq)] = entry.slice(eq + 1);
-		}
-		info.env = env;
-	}
-	return info;
-}
-const splitNul = (text) => text.split("\0").filter((part) => part.length > 0);
-async function readText(path) {
-	try {
-		return await readFile(path, "utf8");
-	} catch {
-		return;
-	}
-}
-/** The kernel appends ` (deleted)` to a link whose target is gone, as after an in-place
-* auto-update of the Copilot CLI (E-PROC-COP1). */
-async function readLink(path) {
-	try {
-		return (await readlink(path)).replace(/ \(deleted\)$/, "");
-	} catch {
-		return;
-	}
-}
-const base = (path) => path?.slice(path.lastIndexOf("/") + 1);
-const exeIs = (info, name) => base(info.exe) === name;
-const exeMatches = (info, pattern) => info.exe !== void 0 && pattern.test(info.exe);
-const isNode = (info) => exeIs(info, "node") || base(info.argv[0]) === "node";
-const argMatches = (info, pattern) => info.argv.some((arg) => pattern.test(arg));
-const sessionSignatures = [
-	{
-		harness: "claude-code",
-		research: [
-			"E-PROC-CC1",
-			"E-PROC-CC2",
-			"E-PROC-CC3"
-		],
-		isSession: (info) => exeMatches(info, /\/claude\/versions\/[^/]+$/),
-		link: {
-			pid: "CLAUDE_PID",
-			id: "CLAUDE_CODE_SESSION_ID"
-		}
-	},
-	{
-		harness: "codex",
-		research: ["E-PROC-CX1", "E-PROC-CX2"],
-		isSession: (info) => exeIs(info, "codex") && !isCodexHelper(info),
-		helper: (info) => isCodexHelper(info) ? "session" : void 0,
-		link: { id: "CODEX_SESSION_ID" }
-	},
-	{
-		harness: "copilot-cli",
-		research: ["E-PROC-COP1", "E-PROC-COP2"],
-		isSession: (info) => exeIs(info, "copilot"),
-		link: { id: "COPILOT_AGENT_SESSION_ID" }
-	},
-	{
-		harness: "cursor",
-		research: [
-			"E-PROC-CUR1",
-			"E-PROC-CUR3",
-			"E-PROC-CUR4"
-		],
-		isSession: (info) => isCursorAgent(info) && info.env?.AGENT_CLI_SOCKET_PATH === void 0,
-		helper: (info) => isCursorAgent(info) && info.env?.AGENT_CLI_SOCKET_PATH !== void 0 ? "session" : void 0,
-		link: { id: "CURSOR_CONVERSATION_ID" }
-	},
-	{
-		harness: "opencode",
-		research: ["E-PROC-OC1"],
-		isSession: (info) => exeIs(info, "opencode"),
-		link: { pid: "OPENCODE_PID" }
-	},
-	{
-		harness: "kilo",
-		research: ["E-PROC-KILO1"],
-		isSession: (info) => exeMatches(info, /\/cli-linux-x64\/bin\/kilo$/) || isNode(info) && argMatches(info, /\/@kilocode\/cli\/bin\/kilo$/),
-		link: {
-			pid: "KILO_PID",
-			id: "KILO_RUN_ID"
-		}
-	},
-	{
-		harness: "qwen-code",
-		research: ["E-PROC-QWEN1"],
-		isSession: (info) => isNode(info) && argMatches(info, /\/qwen-code\/cli-entry\.js$/),
-		link: { id: "QWEN_CODE_SESSION_ID" }
-	},
-	{
-		harness: "crush",
-		research: ["E-PROC-CRUSH1"],
-		isSession: (info) => exeMatches(info, /\/crush\/bin\/crush$/) || isNode(info) && argMatches(info, /\/@charmland\/crush(\/|$)/)
-	},
-	{
-		harness: "gemini-cli",
-		research: ["E-PROC-GEM1"],
-		isSession: (info) => isNode(info) && argMatches(info, /\/gemini-cli\/bundle\/gemini\.js$/)
-	},
-	{
-		harness: "goose",
-		research: ["E-PROC-GOOSE1"],
-		isSession: (info) => exeIs(info, "goose") && (info.argv[1] === "run" || info.argv[1] === "session"),
-		link: { id: "AGENT_SESSION_ID" }
-	},
-	{
-		harness: "openhands",
-		research: ["E-PROC-OH1"],
-		isSession: (info) => /^python[\d.]*$/.test(base(info.exe) ?? "") && argMatches(info, /\/openhands$/),
-		helper: (info) => exeIs(info, "tmux") && (info.argv.includes("-Lopenhands") || /-L openhands( |$)/.test(info.argv.join(" "))) ? "shared" : void 0
-	},
-	{
-		harness: "cline",
-		research: ["E-PROC-CLINE1"],
-		isSession: (info) => isClineProcess(info) && !info.argv.includes("--cline-hub-daemon"),
-		helper: (info) => isClineProcess(info) && info.argv.includes("--cline-hub-daemon") ? "shared" : void 0
-	},
-	{
-		harness: "augment",
-		research: ["E-PROC-AUG1"],
-		isSession: (info) => isNode(info) && argMatches(info, /\/@augmentcode\/auggie\/augment\.mjs$/)
-	},
-	{
-		harness: "antigravity-cli",
-		research: ["E-PROC-AGY1"],
-		isSession: (info) => exeIs(info, "agy"),
-		link: { id: "ANTIGRAVITY_CONVERSATION_ID" }
-	}
-];
-function isCodexHelper(info) {
-	return base(info.exe) === "codex-code-mode-host" || info.argv.some((arg) => base(arg) === "codex-code-mode-host");
-}
-function isCursorAgent(info) {
-	return isNode(info) && argMatches(info, /(^|\/)cursor-agent$/);
-}
-function isClineProcess(info) {
-	return exeMatches(info, /\/cli-linux-x64\/bin\/cline$/) || isNode(info) && argMatches(info, /\/cline\/bin\/cline$/);
-}
-/**
-* Snapshots processes once and classifies each against the session signature table. Read-only: the
-* probe never signals or kills a process. A harness missing from the table is invisible to it.
-*/
-async function probeProcesses(options = {}) {
-	const processes = await (options.source ?? procfsProcessSource())();
-	if (processes === null) return {
-		verified: false,
-		occupancy: (_root, occupancyOptions) => ({
-			busy: occupancyOptions?.strict === true,
-			verified: false,
-			occupants: [],
-			lingering: [],
-			unlinked: []
-		})
-	};
-	return classify(processes);
-}
-function classify(processes) {
-	const byPid = new Map(processes.map((info) => [info.pid, info]));
-	const sessionOf = /* @__PURE__ */ new Map();
-	const helperOf = /* @__PURE__ */ new Map();
-	for (const info of processes) for (const signature of sessionSignatures) {
-		const scope = signature.helper?.(info);
-		if (scope) {
-			helperOf.set(info.pid, {
-				signature,
-				scope
-			});
-			break;
-		}
-		if (signature.isSession(info)) {
-			sessionOf.set(info.pid, signature);
-			break;
-		}
-	}
-	const parentOf = (info) => info.ppid === void 0 || info.ppid === info.pid ? void 0 : byPid.get(info.ppid);
-	const groupOf = /* @__PURE__ */ new Map();
-	const groupRoot = (info) => {
-		const parent = parentOf(info);
-		return parent && sessionOf.get(parent.pid) === sessionOf.get(info.pid) ? groupRoot(parent) : info;
-	};
-	for (const [pid, signature] of sessionOf) {
-		const root = groupRoot(byPid.get(pid));
-		let group = groupOf.get(root.pid);
-		if (!group) {
-			group = {
-				signature,
-				members: [],
-				ids: /* @__PURE__ */ new Set()
-			};
-			groupOf.set(root.pid, group);
-		}
-		group.members.push(byPid.get(pid));
-		groupOf.set(pid, group);
-	}
-	const groups = [...new Set(groupOf.values())];
-	const nearestSession = (info) => {
-		const seen = /* @__PURE__ */ new Set();
-		for (let parent = parentOf(info); parent && !seen.has(parent.pid); parent = parentOf(parent)) {
-			seen.add(parent.pid);
-			const group = groupOf.get(parent.pid);
-			if (group) return group;
-		}
-	};
-	for (const info of processes) {
-		if (sessionOf.has(info.pid)) continue;
-		const group = nearestSession(info);
-		const idVar = group?.signature.link?.id;
-		const id = idVar && info.env?.[idVar];
-		if (group && id) group.ids.add(id);
-	}
-	const liveGroups = (harness) => groups.filter((group) => group.signature.harness === harness);
-	const resolveLink = (signature, env) => {
-		const live = liveGroups(signature.harness);
-		const pidVar = signature.link?.pid;
-		if (pidVar && env[pidVar]) {
-			const pid = Number(env[pidVar]);
-			return live.some((group) => group.members.some((member) => member.pid === pid)) ? "live" : "dead";
-		}
-		const idVar = signature.link?.id;
-		const id = idVar && env[idVar];
-		if (!id) return void 0;
-		if (live.some((group) => group.ids.has(id))) return "live";
-		return live.every((group) => group.ids.size > 0) ? "dead" : "unknown";
-	};
-	const leftover = (info) => {
-		const helper = helperOf.get(info.pid);
-		if (helper?.scope === "shared") {
-			if (liveGroups(helper.signature.harness).length > 0) return void 0;
-			return {
-				pid: info.pid,
-				argv: info.argv,
-				harness: helper.signature.harness,
-				reason: "harness-idle"
-			};
-		}
-		if (nearestSession(info)) return void 0;
-		if (helper) return {
-			pid: info.pid,
-			argv: info.argv,
-			harness: helper.signature.harness,
-			reason: "helper-orphaned"
-		};
-		if (!info.env) return {
-			pid: info.pid,
-			argv: info.argv,
-			reason: "env-unreadable"
-		};
-		const links = sessionSignatures.map((signature) => ({
-			signature,
-			link: resolveLink(signature, info.env)
-		})).filter((entry) => entry.link !== void 0);
-		if (links.some((entry) => entry.link === "live")) return void 0;
-		if (links.length === 0) return {
-			pid: info.pid,
-			argv: info.argv,
-			reason: "no-link"
-		};
-		const reason = links.every((entry) => entry.link === "dead") ? "session-gone" : "unresolved-link";
-		return {
-			pid: info.pid,
-			argv: info.argv,
-			harness: links[0].signature.harness,
-			reason
-		};
-	};
-	return {
-		verified: true,
-		occupancy(worktreeRoot, options = {}) {
-			const within = (cwd, root) => cwd !== void 0 && (cwd === root || cwd.startsWith(root.endsWith(sep) ? root : root + sep));
-			const inside = (cwd) => within(cwd, worktreeRoot) && !(options.nested ?? []).some((root) => within(cwd, root));
-			const found = [];
-			for (const group of groups) {
-				if (!group.members.some((member) => inside(member.cwd))) continue;
-				const session = {
-					harness: group.signature.harness,
-					pid: (group.members.find((member) => groupRoot(member) === member) ?? group.members[0]).pid,
-					pids: group.members.map((member) => member.pid).sort((a, b) => a - b),
-					research: group.signature.research
-				};
-				if (group.ids.size === 1) session.sessionId = [...group.ids][0];
-				found.push(session);
-			}
-			const lingering = [];
-			const unlinked = [];
-			for (const info of processes) {
-				if (sessionOf.has(info.pid) || !inside(info.cwd)) continue;
-				const entry = leftover(info);
-				if (!entry) continue;
-				const report = {
-					...entry,
-					cwd: info.cwd
-				};
-				if (info.ppid !== void 0) report.ppid = info.ppid;
-				(entry.reason === "session-gone" || entry.reason === "helper-orphaned" || entry.reason === "harness-idle" ? lingering : unlinked).push(report);
-			}
-			return {
-				busy: found.length > 0,
-				verified: true,
-				occupants: found,
-				lingering,
-				unlinked
-			};
-		}
-	};
-}
-async function survey(options) {
-	const exec = options.exec ?? nodeExec;
-	const primary = await normalizeWorktreePath(options.primaryRoot ?? await primaryRoot({
-		from: options.from,
-		exec
-	}));
-	const entries = await listWorktrees({
-		primaryRoot: primary,
-		exec,
-		ignore: options.ignore,
-		forge: options.forge
-	});
-	const base = options.base ?? await defaultBranchRef(exec, primary, entries.find((entry) => !entry.linked)?.branch);
-	const codexHome = options.codexHome && await normalizeWorktreePath(options.codexHome);
-	let probe = options.probe;
-	const verdicts = [];
-	for (const entry of entries) {
-		const owner = classifyOwner(entry, {
-			primaryRoot: primary,
-			codexHome
-		});
-		const verdict = {
-			worktree: entry,
-			owner,
-			verified: true
-		};
-		verdicts.push(verdict);
-		if (!entry.linked) {
-			verdict.skip = "primary";
-			continue;
-		}
-		if (owner.owner !== "self") {
-			verdict.skip = "foreign";
-			continue;
-		}
-		const lease = parseLeaseReason(entry.locked);
-		if (lease) {
-			verdict.skip = "leased";
-			verdict.holder = lease.holder;
-			continue;
-		}
-		if (entry.prunable) {
-			verdict.skip = "prunable";
-			continue;
-		}
-		probe ??= await probeProcesses();
-		const nested = entries.map((other) => other.root).filter((root) => root !== entry.root && root.startsWith(entry.root + sep));
-		const occupancy = probe.occupancy(entry.root, {
-			strict: options.strict,
-			nested
-		});
-		verdict.occupancy = occupancy;
-		verdict.verified = occupancy.verified;
-		if (occupancy.busy) {
-			verdict.skip = occupancy.verified ? "busy" : "unverified";
-			continue;
-		}
-		if (entry.dirty !== false) {
-			verdict.skip = "dirty";
-			continue;
-		}
-		if (!await hasLanded(exec, primary, entry, base)) {
-			verdict.skip = "unmerged";
-			continue;
-		}
-		if (options.available && !await options.available(entry)) verdict.skip = "rejected";
-	}
-	return {
-		primary,
-		exec,
-		base,
-		entries,
-		verdicts
-	};
-}
-/** The branch has landed on the default branch, or HEAD (detached after a recycle) is in `base`. */
-async function hasLanded(exec, primary, entry, base) {
-	if (entry.merged === true) return true;
-	if (!entry.head || !base) return false;
-	return await exec("git", [
-		"-C",
-		primary,
-		"merge-base",
-		"--is-ancestor",
-		entry.head,
-		base
-	]) !== null;
-}
-/** The default `WorktreeCreator`: `git worktree add`. */
-function gitWorktreeCreator(exec = nodeExec) {
-	return async ({ primaryRoot, path, base, branch }) => {
-		const args = [
-			"-C",
-			primaryRoot,
-			"worktree",
-			"add",
-			"--quiet"
-		];
-		if (!branch) args.push("--detach", path, base);
-		else if (await branchExists(exec, primaryRoot, branch)) args.push(path, branch);
-		else args.push("-b", branch, path, base);
-		if (await exec("git", args) === null) throw new Error(`git worktree add failed: ${path}`);
-	};
-}
-var AcquireError = class extends Error {
-	code;
-	verdicts;
-	constructor(code, message, verdicts) {
-		super(message);
-		this.code = code;
-		this.verdicts = verdicts;
-		this.name = "AcquireError";
-	}
-};
-const ATTEMPTS = 3;
-/**
-* Lease a worktree: recycle an idle one of ours when there is one, otherwise create one at the next
-* free slot if under `max`. Never fetches and never kills a process.
-*/
-async function acquire(options) {
-	let verdicts = [];
-	for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-		const found = await survey(options);
-		verdicts = found.verdicts;
-		const { primary, exec, entries } = found;
-		if (!found.base) throw new AcquireError("no-base", "no base ref: pass `base` or set origin/HEAD", verdicts);
-		const base = await exec("git", [
-			"-C",
-			primary,
-			"rev-parse",
-			"--verify",
-			"--quiet",
-			`${found.base}^{commit}`
-		]);
-		if (!base) throw new AcquireError("no-base", `base does not resolve to a commit: ${found.base}`, verdicts);
-		const idle = verdicts.filter((verdict) => verdict.skip === void 0).sort((a, b) => slotOf(primary, a) - slotOf(primary, b));
-		for (const verdict of idle) {
-			const result = await recycle(verdict, base, options, exec, primary);
-			if (result) return result;
-		}
-		const slots = entries.filter((entry) => entry.linked && slotNumber(primary, entry.root) !== void 0);
-		if (options.max !== void 0 && slots.length >= options.max) throw new AcquireError("pool-full", `all ${options.max} worktrees are in use`, verdicts);
-		const lease = await createSlot(primary, base, options, exec, slots);
-		if (lease) return {
-			...lease,
-			reused: false,
-			branch: options.branch,
-			verified: true,
-			lingering: []
-		};
-	}
-	throw new AcquireError("contended", "another caller took every worktree this one tried", verdicts);
-}
-function slotOf(primary, verdict) {
-	return slotNumber(primary, verdict.worktree.root) ?? Number.POSITIVE_INFINITY;
-}
-async function recycle(verdict, base, options, exec, primary) {
-	const entry = verdict.worktree;
-	const store = {
-		exec,
-		fs: options.fs
-	};
-	const lease = await claimLease(entry.root, options.holder, {
-		...store,
-		leaseId: options.newLeaseId?.()
-	});
-	if (!lease) return void 0;
-	const head = await exec("git", [
-		"-C",
-		entry.root,
-		"rev-parse",
-		"HEAD"
-	]);
-	const dirty = await readDirty(entry.root, {
-		exec,
-		ignore: options.ignore
-	});
-	if (head !== entry.head || dirty !== false || !await holdsLease(lease, store)) {
-		await release(lease, store);
-		return;
-	}
-	const git = (...args) => exec("git", [
-		"-C",
-		entry.root,
-		...args
-	]);
-	const fail = async (message) => {
-		await release(lease, store);
-		throw new Error(`${message}: ${entry.root}`);
-	};
-	if (await git("read-tree", "--reset", "-u", base) === null || await git("clean", "-fd") === null) return fail("recycle failed");
-	if ((options.branch ? await branchExists(exec, primary, options.branch) ? await git("switch", "--quiet", "--discard-changes", options.branch) : await git("switch", "--quiet", "--discard-changes", "-c", options.branch, base) : await git("switch", "--quiet", "--discard-changes", "--detach", base)) === null) return fail(`recycle could not switch to ${options.branch ?? base}`);
-	const result = {
-		...lease,
-		reused: true,
-		branch: options.branch,
-		verified: verdict.verified,
-		lingering: verdict.occupancy?.lingering ?? []
-	};
-	const previous = entry.branch;
-	if (previous) {
-		result.previousBranch = previous;
-		if (entry.merged === true && previous !== options.branch) result.previousBranchDeleted = await exec("git", [
-			"-C",
-			primary,
-			"branch",
-			"-D",
-			previous
-		]) !== null;
-	}
-	return result;
-}
-async function createSlot(primary, base, options, exec, slots) {
-	const used = new Set(slots.map((entry) => slotNumber(primary, entry.root)));
-	let n = 1;
-	while (used.has(n) || await exists(slotPath(primary, n))) n++;
-	const path = slotPath(primary, n);
-	const create = options.create ?? gitWorktreeCreator(exec);
-	try {
-		await create({
-			primaryRoot: primary,
-			path,
-			base,
-			branch: options.branch
-		});
-	} catch (error) {
-		if (await exists(path)) return void 0;
-		throw error;
-	}
-	return claimLease(await normalizeWorktreePath(path), options.holder, {
-		exec,
-		fs: options.fs,
-		leaseId: options.newLeaseId?.()
-	});
-}
-async function branchExists(exec, primary, branch) {
-	return await exec("git", [
-		"-C",
-		primary,
-		"rev-parse",
-		"--verify",
-		"--quiet",
-		`refs/heads/${branch}`
-	]) !== null;
-}
-async function exists(path) {
-	try {
-		await lstat(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-//#endregion
 //#region src/mux-env.ts
 /**
 * Transitional env-normalization seam (mux.feature: "a pane carrying only the legacy fast-path vars
@@ -6749,7 +6753,7 @@ function normalizeMuxEnv(env) {
 }
 //#endregion
 //#region src/identity.ts
-const realExec = nodeExec$1;
+const realExec = nodeExec;
 /** `currentPane`, narrowed to a backend the registry can actually store a locator under. A caller
 * inside a pane-carrying-but-unstorable multiplexer (wezterm/zellij) is simply unpaned here — it can
 * still resolve an identity via the `$CYBERLEGION_AGENT_ID` env fallback, it just cannot bind a pane
