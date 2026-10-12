@@ -19,6 +19,14 @@
 			"harnesses": {
 				"claude-code": {},
 				"codex": {}
+			},
+			"scripts": {
+				"skills/dispatch-governance/scripts/cyberlegion.mjs": "src/skill-script.ts",
+				"skills/init-cyberlegion/scripts/cyberlegion.mjs": "src/skill-script.ts",
+				"skills/legate/scripts/cyberlegion.mjs": "src/skill-script.ts",
+				"skills/manage-inbox/scripts/cyberlegion.mjs": "src/skill-script.ts",
+				"skills/relay-governance/scripts/cyberlegion.mjs": "src/skill-script.ts",
+				"skills/subagent-backend-governance/scripts/cyberlegion.mjs": "src/skill-script.ts"
 			}
 		}
 	}

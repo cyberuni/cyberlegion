@@ -9290,10 +9290,12 @@ async function projectAddress(hub, project, exec, env = process.env, load = impo
 		cyn?.close();
 	}
 }
+const CYNAPSE = "cynapse";
+const CYNAPSE_SQLITE_WARNING = "cynapse/sqlite-warning";
 const importCynapse = async () => {
-	const { silenceSqliteWarning } = await import("cynapse/sqlite-warning");
+	const { silenceSqliteWarning } = await import(CYNAPSE_SQLITE_WARNING);
 	silenceSqliteWarning();
-	return import("cynapse");
+	return await import(CYNAPSE);
 };
 /**
 * Open the cynapse store this session shares with the agents it launches (`$CYNAPSE_HOME`), or
@@ -10748,7 +10750,7 @@ async function watchMail(ctx, input, onMessage, opts = {}) {
 }
 //#endregion
 //#region src/cli.ts
-const VERSION = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+const VERSION = globalThis.__SKILL_SCRIPT__?.version ?? JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 function ctxOf(opts) {
 	return {
 		store: new FileStore(resolveRoot({ space: opts.space })),

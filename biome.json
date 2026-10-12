@@ -12,6 +12,7 @@
 			"!.cyberfleet",
 			"!packages/cyberlegion/.claude-plugin/plugin.json",
 			"!packages/cyberlegion/.codex-plugin/plugin.json",
+			"!packages/cyberlegion/skills/*/scripts/cyberlegion.mjs",
 			"!.claude-plugin/marketplace.json",
 			"!.github/scripts/min-release-age.mjs"
 		]

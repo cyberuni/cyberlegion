@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
@@ -56,8 +56,10 @@ describe('cli-launcher: a skill runs the CLI it ships with', () => {
 		}
 	})
 
-	it.each(cliSkills)("%s's launcher runs the shipped CLI from an installed-shape plugin directory", (name) => {
-		const root = installShape([...launcherFiles, 'bin/cyberlegion.mjs', 'dist/cli.mjs', 'package.json'])
+	it.each(cliSkills)("%s's script runs from a skill folder copied on its own", (name) => {
+		// The script is a compiled, self-contained file: nothing beside it (no bin/, no dist/, no
+		// package.json, no node_modules) is needed, because a skill can be linked or copied alone.
+		const root = installShape([join('skills', name, LAUNCHER)])
 		const elsewhere = mkdtempSync(join(tmpdir(), 'cyberlegion-cwd-'))
 
 		const res = run(join(root, 'skills', name, LAUNCHER), ['--version'], elsewhere)
@@ -67,17 +69,18 @@ describe('cli-launcher: a skill runs the CLI it ships with', () => {
 		expect(res.stdout.trim()).toBe(VERSION)
 	})
 
-	it('finds the CLI from its own location, not the working directory', () => {
-		const root = installShape([...launcherFiles, 'bin/cyberlegion.mjs', 'dist/cli.mjs', 'package.json'])
-		// A working directory that is itself a cyberlegion package of another version: a launcher that
-		// looked there would report 9.9.9.
-		const decoy = installShape(['bin/cyberlegion.mjs', 'dist/cli.mjs'])
-		writeFileSync(join(decoy, 'package.json'), JSON.stringify({ name: 'cyberlegion', version: '9.9.9' }))
-		expect(run(join(decoy, 'bin', 'cyberlegion.mjs'), ['--version'], decoy).stdout.trim()).toBe('9.9.9')
+	it.each(cliSkills)('%s reaches nothing outside its skill folder and carries no TypeScript', (name) => {
+		const code = readFileSync(join(PKG_DIR, 'skills', name, LAUNCHER), 'utf8')
+		expect(code).not.toMatch(/\.\.\/\.\.\//)
+		expect(code).not.toMatch(/bin\/cyberlegion\.mjs/)
+		expect(code).not.toMatch(/from\s+['"][^'"]+\.tsx?['"]/)
+	})
 
-		const res = run(join(root, 'skills', cliSkills[0], LAUNCHER), ['--version'], decoy)
-
-		expect(res.stdout.trim()).toBe(VERSION)
+	it('declares every launcher as a script entry built from src', () => {
+		const manifest = JSON.parse(readFileSync(join(PKG_DIR, 'plugin.json'), 'utf8'))
+		const scripts: Record<string, string> = manifest.extensions['org.cyberuni.universal-plugin'].scripts
+		expect(Object.keys(scripts).sort()).toEqual(launcherFiles.map((f) => f.split('\\').join('/')).sort())
+		for (const source of Object.values(scripts)) expect(existsSync(join(PKG_DIR, source))).toBe(true)
 	})
 
 	it('passes arguments, output, and the exit code through unchanged', () => {
@@ -93,35 +96,5 @@ describe('cli-launcher: a skill runs the CLI it ships with', () => {
 			stderr: viaBin.stderr,
 			status: viaBin.status,
 		})
-	})
-
-	it.each(cliSkills)("%s's launcher runs the pinned published CLI from a standalone skill folder", (name) => {
-		// The skill folder alone, as a skills installer copies one; a stub npx on PATH records how it
-		// was called, so the case needs no network and proves the exit code is passed through.
-		const root = installShape([join('skills', name, LAUNCHER)])
-		const standalone = join(root, 'skills', name)
-		const stubs = mkdtempSync(join(tmpdir(), 'cyberlegion-npx-'))
-		writeFileSync(join(stubs, 'npx'), '#!/bin/sh\necho "npx $*"\nexit 7\n', { mode: 0o755 })
-
-		const res = spawnSync('node', [join(standalone, LAUNCHER), 'unit', 'who', '--all'], {
-			cwd: standalone,
-			encoding: 'utf8',
-			env: { ...process.env, PATH: `${stubs}${delimiter}${process.env.PATH}` },
-		})
-
-		expect(res.stdout.trim()).toBe(`npx -y cyberlegion@${VERSION} unit who --all`)
-		expect(res.status).toBe(7)
-		expect(res.stderr).toContain(`npx -y cyberlegion@${VERSION}`)
-	})
-
-	it('names the missing built CLI and the pinned fallback at a checkout without dist', () => {
-		const root = installShape([...launcherFiles, 'bin/cyberlegion.mjs', 'package.json'])
-
-		const res = run(join(root, 'skills', cliSkills[0], LAUNCHER), ['--version'], root)
-
-		expect(res.status).not.toBe(0)
-		expect(res.stderr).not.toContain('ERR_MODULE_NOT_FOUND')
-		expect(res.stderr).toContain(join(root, 'dist', 'cli.mjs'))
-		expect(res.stderr).toContain(`npx -y cyberlegion@${VERSION}`)
 	})
 })
