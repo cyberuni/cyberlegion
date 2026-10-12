@@ -3,6 +3,7 @@
 	"ignoreBinaries": ["cursor-agent", "cyberlegion"],
 	"workspaces": {
 		"packages/cyberlegion": {
+			"entry": ["src/skill-script.ts"],
 			"project": ["src/**/*.ts"]
 		},
 		"apps/web": {
