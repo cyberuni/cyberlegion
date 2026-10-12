@@ -73,7 +73,11 @@ import { watchMail } from './wake/watch.ts'
 // Read from the package manifest at runtime rather than a literal: a hardcoded constant silently
 // reports the wrong version to every `--version` caller for as long as nobody re-edits it by hand.
 // `../package.json` resolves identically from `src/` and from the bundled `dist/`, so one URL serves both.
-const VERSION: string = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+// A compiled skill script has no package.json beside it; `plugin build` embeds the plugin version in
+// the script's header as `globalThis.__SKILL_SCRIPT__`, which wins when present.
+const VERSION: string =
+	(globalThis as { __SKILL_SCRIPT__?: { version?: string | null } }).__SKILL_SCRIPT__?.version ??
+	JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 interface GlobalOpts {
 	space?: string

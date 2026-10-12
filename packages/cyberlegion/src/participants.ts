@@ -141,12 +141,18 @@ export type CynapseImporter = () => Promise<{
 	resolveDbPath: typeof import('cynapse').resolveDbPath
 }>
 
+// The specifiers are variables so a bundler leaves them as runtime imports: cynapse is an optional
+// peer (ADR 0001), so a compiled skill script must not inline it. Absent, the import rejects and
+// `openCynapse` treats that as the runtime-only install.
+const CYNAPSE = 'cynapse'
+const CYNAPSE_SQLITE_WARNING = 'cynapse/sqlite-warning'
+
 const importCynapse: CynapseImporter = async () => {
 	// node:sqlite prints an ExperimentalWarning on Node 22 when first loaded; agents read stderr, so
 	// cynapse ships a filter that has to be in place before its index loads node:sqlite.
-	const { silenceSqliteWarning } = await import('cynapse/sqlite-warning')
+	const { silenceSqliteWarning } = (await import(CYNAPSE_SQLITE_WARNING)) as typeof import('cynapse/sqlite-warning')
 	silenceSqliteWarning()
-	return import('cynapse')
+	return (await import(CYNAPSE)) as Awaited<ReturnType<CynapseImporter>>
 }
 
 /**

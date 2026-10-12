@@ -197,8 +197,8 @@ importers:
         specifier: ^2.10.8
         version: 2.10.11
       universal-plugin:
-        specifier: ^0.12.0
-        version: 0.12.0
+        specifier: ^0.14.0
+        version: 0.14.0(typescript@7.0.2)
 
   apps/web:
     dependencies:
@@ -574,6 +574,7 @@ packages:
   '@clibuilder/axi@0.1.0':
     resolution: {integrity: sha512-axduLxgCRP33iEPv8AGeFY9xDo0z6LH5JwhqpF/JqNmKo99UNI5rmSLduEjCfgIBc7TRwM1jiV0mBFNPKuLabA==}
     engines: {node: '>= 20.19'}
+    deprecated: Folded into clibuilder 12. Import the value helpers from "clibuilder/axi" and use the output, error and format support built into clibuilder. See https://clibuilder.github.io/clibuilder/guides/upgrade-to-12/
     peerDependencies:
       clibuilder: ^11.0.0
 
@@ -674,10 +675,6 @@ packages:
 
   '@cucumber/messages@34.2.1':
     resolution: {integrity: sha512-aj2iCAG9ZOpMVcMxcgShifv5fbR96b7SMgdWcPXXh2QbFp7OEcAnQ5MC5YfWUDSDasmw7FU5NJEsOrXdTQOU1A==}
-
-  '@cyberuni/agent-harness@0.3.0':
-    resolution: {integrity: sha512-o1q19ZWll8IMpIdUwOZy0ETxryOQvCI3R56lAPOxrBKx/iabxrmZkhRdooDAlnYcny243GR/mkfrqm5e4DrpRg==}
-    engines: {node: '>=22'}
 
   '@cyberuni/agent-harness@0.6.0':
     resolution: {integrity: sha512-ELy0pcHiRb9vjaVymBIvCQTDaQTOyliVKEx3MdpiDLeaGAYkhBwgCfoIa/ov/hPFxed4gQdYLBv6O3UTNgr78A==}
@@ -3149,8 +3146,8 @@ packages:
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
 
-  universal-plugin@0.12.0:
-    resolution: {integrity: sha512-wOkRhfVBF5QKLE3gdNUgxmixpfhgbZKp84z+4XTefI9RNsUUAFZ+YmhzV7yjnAevYn07d6TtT2RdGReJhi9k0Q==}
+  universal-plugin@0.14.0:
+    resolution: {integrity: sha512-+2kSU4mpWFyiFdNTz7TYX1Nj+Y9mOZzxpwSxPNX0QFblRKw6VmAUCx3RNSzfxe+tj8t9o74rc8RDLWx4nDS2+g==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -3893,8 +3890,6 @@ snapshots:
   '@cucumber/messages@33.0.4': {}
 
   '@cucumber/messages@34.2.1': {}
-
-  '@cyberuni/agent-harness@0.3.0': {}
 
   '@cyberuni/agent-harness@0.6.0(typescript@7.0.2)':
     dependencies:
@@ -6242,13 +6237,16 @@ snapshots:
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
 
-  universal-plugin@0.12.0:
+  universal-plugin@0.14.0(typescript@7.0.2):
     dependencies:
-      '@cyberuni/agent-harness': 0.3.0
+      '@cyberuni/agent-harness': 0.6.0(typescript@7.0.2)
       '@repobuddy/upx': 0.2.0
       '@toon-format/toon': 4.1.1
       commander: 15.0.0
+      rolldown: 1.2.11
       semver: 7.8.5
+    transitivePeerDependencies:
+      - typescript
 
   unpartial@1.0.8: {}
 

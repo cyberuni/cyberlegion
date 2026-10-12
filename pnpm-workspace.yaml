@@ -23,3 +23,5 @@ minimumReleaseAgeExclude:
   - astro@7.2.8
   # min-release-age: lift @cyberuni/agent-harness@0.6.0 until 2026-10-07T09:00:00Z
   - '@cyberuni/agent-harness@0.6.0'
+  # min-release-age: lift universal-plugin@0.14.0 until 2026-10-13T02:00:00Z
+  - universal-plugin@0.14.0
