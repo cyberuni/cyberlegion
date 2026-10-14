@@ -48,7 +48,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@cyberuni/agent-harness": "^0.6.0",
+		"@cyberuni/agent-harness": "^0.7.0",
 		"commander": "^15.0.0",
 		"cyber-mux": "0.9.1"
 	},
