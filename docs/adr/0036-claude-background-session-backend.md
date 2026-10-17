@@ -18,7 +18,7 @@ Claude Code runs its own background sessions. `claude --bg` starts a session and
 |---|---|
 | First turn | The prompt argument to `claude --bg` is the first turn. There is no boot race to recover from. |
 | Environment | The session inherits the launcher's environment, `PATH`, and working directory. |
-| States | `state` is `working` during a turn, `done` after one, `blocked` while waiting for input, and `stopped` after `claude stop` (a stopped session stays listed). A session started with no prompt also reads `blocked`, the same as one stuck at a permission prompt. |
+| States | Each entry has a `status` (`busy` during a turn, `idle` between turns, absent with no process) and a `state` (Claude Code's read of the task: `working`, `done`, `blocked` while waiting on a person, `failed`, `stopped` after `claude stop`). They are independent: a live run showed an idle session whose task was unfinished reading `idle` + `working` indefinitely. A session started with no prompt reads `blocked`, the same as one stuck at a permission prompt. A stopped session stays listed. |
 | Ids | The short id is the first 8 characters of the full session id. The listing carries both. |
 | Ringing a live session | Not possible from outside. `claude --bg --resume` on a running session starts a copy. |
 | Ringing a stopped session | `claude stop <id>`, then `claude --bg --resume <full session id> "<text>"`, resumes the same session id with the new prompt and its saved options. |
@@ -65,8 +65,8 @@ that interface. cyberlegion owns it, and dispatches on the record's locator for 
 | spawn | Runs `claude --bg --name <handle>` with the unit's launch flags and the spawn wake as the prompt, in the unit's folder, with `CYBERLEGION_AGENT_ID` and the CLI shim in its environment. `--at` is ignored: there is no space to place. |
 | `--no-wake` | Refused before anything opens. A session started with no prompt reads `blocked`, which the ring cannot tell from a permission prompt, so it could never be rung. |
 | an untrusted folder | Refused. The worktree spawn made is released, and the error names the folder to trust. |
-| a launch that is not `claude` | Refused before anything opens: a custom `--command` may not take `--bg`. |
-| ring (`unit nudge`, `mail send`) | `done`: stop, then resume by full session id with the ring text; rung once the resume reports it woke the same short id. `working`: not rung, reported busy. `blocked`: not rung, reported as waiting on a person, with `claude attach <id>` as the next step. A `stopped` record is not rung: its mail waits. |
+| a launch that is not `claude` | Refused before anything opens: a custom launch command (passed through the library `spawn`; the CLI has no flag for it) may not take `--bg`. |
+| ring (`unit nudge`, `mail send`) | State `blocked`: not rung, reported as waiting on a person, with `claude attach <id>` as the next step. Status `busy`: not rung, reported busy. Status `idle`: stop, then resume by full session id with the ring text; rung once the resume reports it woke the same short id. Neither busy nor idle: not rung. A `stopped` record is not rung: its mail waits. The first freeze keyed idleness on `state: done`; the live run disproved it and the owner approved re-keying it on `status`. |
 | read | `claude logs <id>`, stripped of terminal control sequences, then bounded by `--lines`. |
 | focus | Refused with `claude attach <id>` as the next step. There is no attached view to move. |
 | show | Liveness from the listing (`live` unless `stopped`; `gone` when absent; `unknown` when the listing cannot be read). Controls: `nudge`, `read`, `stop`, `close` when live; `close` alone otherwise. |

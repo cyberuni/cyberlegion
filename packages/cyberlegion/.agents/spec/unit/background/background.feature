@@ -51,15 +51,15 @@ Feature: unit background — a unit hosted in a Claude background session
 
   Scenario: a background spawn refuses a launch that is not the claude command before creating anything
     Given a caller in no multiplexer
-    When the caller runs unit spawn --harness claude --command "my-claude-wrapper --profile ops"
+    When the caller spawns a claude unit through the library's spawn with the launch command "my-claude-wrapper --profile ops"
     Then it throws naming the launch as not the claude command
     And no worktree was leased or created
     And no claude --bg command was run
     And no unit record was written
 
-  Scenario: a background spawn accepts a --command that runs claude with its own flags
+  Scenario: a background spawn accepts a launch command that runs claude with its own flags
     Given a caller in no multiplexer
-    When the caller runs unit spawn --harness claude --command "claude --model opus"
+    When the caller spawns a claude unit through the library's spawn with the launch command "claude --model opus"
     Then a claude --bg command was run carrying --model opus
     And the unit's record carries a locator tagged claude-bg
 
@@ -98,7 +98,7 @@ Feature: unit background — a unit hosted in a Claude background session
   # ── unit nudge ──
 
   Scenario: nudge on an idle background unit resumes it with the message as its next prompt
-    Given a background unit whose session the listing shows as done, with session id 9f8e7d6c-1111-4222-8333-444455556666
+    Given a background unit whose session the listing shows with status idle and state working, with session id 9f8e7d6c-1111-4222-8333-444455556666
     And the resume exits 0 saying it woke session 9f8e7d6c
     When a caller runs unit nudge <ref> --message "rebase onto main"
     Then claude stop was run with the short id 9f8e7d6c
@@ -106,36 +106,42 @@ Feature: unit background — a unit hosted in a Claude background session
     And the nudge reports success
 
   Scenario: nudge with no message rings an idle background unit with the default check-mail message
-    Given a background unit whose session the listing shows as done
+    Given a background unit whose session the listing shows with status idle
     And the resume exits 0 saying it woke the unit's short id
     When a caller runs unit nudge <ref>
     Then claude --bg --resume was run with the unit's session id and the default check-mail message as its prompt
     And the nudge reports success
 
   Scenario: nudge fails loud when the resume starts a copy instead of waking the unit
-    Given a background unit whose session the listing shows as done
+    Given a background unit whose session the listing shows with status idle
     And the resume exits 0 saying it started a copy under another short id
     When a caller runs unit nudge <ref>
     Then it throws that the unit was not woken
     And it does not report success
 
   Scenario: nudge fails loud and resumes nothing when the stop fails
-    Given a background unit whose session the listing shows as done
+    Given a background unit whose session the listing shows with status idle
     And claude stop exits non-zero for that short id
     When a caller runs unit nudge <ref>
     Then it throws carrying the stop's failure
     And no claude --bg --resume command was run
 
   Scenario: nudge on a busy background unit reports it busy and leaves the session running
-    Given a background unit whose session the listing shows as working
+    Given a background unit whose session the listing shows with status busy
     When a caller runs unit nudge <ref>
     Then it throws that the unit is busy and was not rung
     And no claude stop command was run
 
   Scenario: nudge on a blocked background unit reports it waiting on a person and leaves it untouched
-    Given a background unit whose session the listing shows as blocked
+    Given a background unit whose session the listing shows with status idle and state blocked
     When a caller runs unit nudge <ref>
     Then it throws that the unit is waiting on a person, naming claude attach with the unit's short id
+    And no claude stop command was run
+
+  Scenario: nudge on a background session reporting neither busy nor idle fails and stops nothing
+    Given a background unit whose session the listing shows with no status and state failed
+    When a caller runs unit nudge <ref>
+    Then it throws that the session is not idle and was not rung
     And no claude stop command was run
 
   Scenario: nudge on a background unit whose session is gone fails naming it
@@ -175,7 +181,7 @@ Feature: unit background — a unit hosted in a Claude background session
   # ── unit show ──
 
   Scenario: show reports a running background unit live with the controls that work on it
-    Given a background unit whose session the listing shows as working
+    Given a background unit whose session the listing shows with status busy
     When a caller runs unit show <ref>
     Then the result names the backend claude-bg
     And it reports liveness live
@@ -205,7 +211,7 @@ Feature: unit background — a unit hosted in a Claude background session
   # ── unit stop ──
 
   Scenario: stop on a background unit stops the session and keeps its conversation and locator
-    Given a background unit whose session the listing shows as working
+    Given a background unit whose session the listing shows with status busy
     And the listing shows that session as stopped after claude stop runs
     When a caller runs unit stop <ref>
     Then claude stop was run with the unit's short id
@@ -221,14 +227,14 @@ Feature: unit background — a unit hosted in a Claude background session
     And the result reports the stop as verified
 
   Scenario: stop fails loud when the background session is still running after the stop
-    Given a background unit whose session the listing shows as working
-    And the listing still shows that session as working after claude stop runs
+    Given a background unit whose session the listing shows with status busy
+    And the listing still shows that session in a state other than stopped after claude stop runs
     When a caller runs unit stop <ref>
     Then it throws that the stop did not take effect
     And the unit's record status is unchanged
 
   Scenario: stop reports an unverified stop when the listing cannot be read
-    Given a background unit whose session the listing shows as working
+    Given a background unit whose session the listing shows with status busy
     And the claude agents listing command exits non-zero after claude stop runs
     When a caller runs unit stop <ref>
     Then the unit's record has status stopped
@@ -237,21 +243,33 @@ Feature: unit background — a unit hosted in a Claude background session
   # ── unit close ──
 
   Scenario: close on a background unit stops and deletes the session
-    Given a background unit spawned with --cwd whose session the listing shows as done
+    Given a background unit spawned with --cwd whose session the listing shows with status idle
     When a caller runs unit close <ref>
     Then claude stop was run with the unit's short id
     And then claude rm was run with the unit's short id
     And the unit's registry record is gone
 
+  Scenario: close on a leased background unit releases the lease and deletes the session
+    Given a background unit spawned with no --worktree-path, so it holds a worktree lease
+    And its session the listing shows with status idle
+    When a caller runs unit close <ref>
+    Then the unit's worktree lease is released
+    And the worktree is still on disk
+    And claude stop was run with the unit's short id
+    And then claude rm was run with the unit's short id
+    And the unit's registry record is gone
+
   Scenario: a refused close leaves the background session untouched
-    Given a background unit whose leased worktree holds an uncommitted change to a tracked file
+    Given a background unit spawned with --worktree-path, so it holds no worktree lease
+    And that worktree holds an uncommitted change to a tracked file
     When a caller runs unit close <ref> without --force
     Then it throws naming the uncommitted changes
     And no claude stop or claude rm command was run
     And the unit's registry record still exists
 
   Scenario: a close whose worktree removal fails leaves the background session untouched
-    Given a background unit whose leased worktree cannot be removed because git worktree remove fails
+    Given a background unit spawned with --worktree-path, so it holds no worktree lease
+    And git worktree remove fails for that worktree
     When a caller runs unit close <ref> --force
     Then it throws carrying the removal failure
     And no claude stop or claude rm command was run
@@ -267,13 +285,13 @@ Feature: unit background — a unit hosted in a Claude background session
   # ── unit focus, clear, restart, rebind ──
 
   Scenario: focus on a background unit is refused naming claude attach
-    Given a background unit whose session the listing shows as done
+    Given a background unit whose session the listing shows with status idle
     When a caller runs unit focus <ref>
     Then it throws naming claude attach with the unit's short id as the way to open it
     And no claude or multiplexer command was run
 
   Scenario: clear on a background unit is refused and runs nothing
-    Given a background unit whose session the listing shows as done
+    Given a background unit whose session the listing shows with status idle
     When a caller runs unit clear <ref>
     Then it throws naming the background session backend as unsupported for clear
     And no claude command was run

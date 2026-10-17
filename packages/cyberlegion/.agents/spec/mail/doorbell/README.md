@@ -34,9 +34,9 @@ turning the durable send into something that can fail because no one was awake:
   standing owner's bound presence, whose record carries a `claude-bg` locator has no pane
   ([`unit/background`](../../unit/background/README.md)). It is rung by that node's ring, chosen from
   the **recipient's** locator and never from whatever multiplexer the sender is in: when Claude Code
-  lists the session `done`, it is stopped and resumed by its session id with the check-your-inbox
+  lists the session `idle`, it is stopped and resumed by its session id with the check-your-inbox
   doorbell as its next prompt, and the ring counts once the resume reports it woke the same session.
-  A session that is `working` or `blocked` is **not rung and not stopped** (stopping a busy session
+  A session that is `busy` or `blocked` is **not rung and not stopped** (stopping a busy session
   would end its turn); the send reports a warning saying which. Every other way that ring can fail is
   `unit/background`'s to list; this node turns each into a warning carrying the ring's own reason. A
   recipient whose record is `stopped` is not rung at all: a stopped unit stays stopped, and its mail
@@ -195,7 +195,7 @@ graph TD
   DBT -- yes --> DBTN["no-op: a stopped unit stays stopped; the message waits"]
   DBT -- no --> DBS{"its session's state (unit/background ring)"}
   DBS -- "rung" --> DB16Y
-  DBS -- "not rung: working or blocked" --> DBSW["warn naming which, not rung; the session is not stopped"]
+  DBS -- "not rung: busy or blocked" --> DBSW["warn naming which, not rung; the session is not stopped"]
   DBS -- "not rung: any other ring failure (unit/background)" --> DB16N
   DBB -- no --> DB16{"the ring is taken within nudge's retry cap?"}
   DB16 -- yes --> DB16Y["rung, delivered once"]
@@ -233,12 +233,12 @@ Grouped by use case, 1:1 with [`doorbell.feature`](./doorbell.feature).
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `DBS -- rung` | a claude-bg peer, done, a sender in no multiplexer or in tmux | `a background-hosted peer is rung through its own session whatever multiplexer the sender is in` |
-| `DBS -- rung` presence | a standing owner whose bound presence carries a claude-bg locator, done | `a standing owner's background-hosted presence is rung through its session` |
-| `DBS -- not rung: working or blocked` | a claude-bg peer, working | `a busy background-hosted peer gets the message but is not rung, and the send says so` |
-| `DBS -- not rung: working or blocked` | a claude-bg peer, blocked | `a blocked background-hosted peer gets the message but is not rung, and the send says why` |
+| `DBS -- rung` | a claude-bg peer, status idle, a sender in no multiplexer or in tmux | `a background-hosted peer is rung through its own session whatever multiplexer the sender is in` |
+| `DBS -- rung` presence | a standing owner whose bound presence carries a claude-bg locator, status idle | `a standing owner's background-hosted presence is rung through its session` |
+| `DBS -- not rung: busy or blocked` | a claude-bg peer, status busy | `a busy background-hosted peer gets the message but is not rung, and the send says so` |
+| `DBS -- not rung: busy or blocked` | a claude-bg peer, state blocked | `a blocked background-hosted peer gets the message but is not rung, and the send says why` |
 | `DBS -- not rung: any other ring failure` | a claude-bg peer whose session Claude Code no longer lists | `a background-hosted peer whose session is gone gets the message and the send warns` |
-| `DBS -- not rung: any other ring failure` | a claude-bg peer, done, a resume that starts a copy | `a background-hosted peer the resume does not wake gets the message and the send warns` |
+| `DBS -- not rung: any other ring failure` | a claude-bg peer, status idle, a resume that starts a copy | `a background-hosted peer the resume does not wake gets the message and the send warns` |
 | `DBT -- yes` | a stopped claude-bg peer | `a stopped background-hosted peer gets the message and is not rung` |
 
 ### A standing owner with a bound presence is rung there, never focus-gated

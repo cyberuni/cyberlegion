@@ -54,7 +54,7 @@ Feature: mail doorbell — wake the recipient on delivery
 
   Scenario Outline: a background-hosted peer is rung through its own session whatever multiplexer the sender is in
     Given a registered peer recipient whose record carries a claude-bg locator
-    And Claude Code lists that peer's session as done
+    And Claude Code lists that peer's session with status idle
     And a sender <sender>
     When the sender runs mail send to that peer with the body "steer"
     Then the message lands in the peer's inbox
@@ -68,7 +68,7 @@ Feature: mail doorbell — wake the recipient on delivery
 
   Scenario: a busy background-hosted peer gets the message but is not rung, and the send says so
     Given a registered peer recipient whose record carries a claude-bg locator
-    And Claude Code lists that peer's session as working
+    And Claude Code lists that peer's session with status busy
     When the sender runs mail send to that peer
     Then the message lands durably in the peer's inbox and the send succeeds
     And the send reports a best-effort warning that the peer is busy and was not rung
@@ -76,7 +76,7 @@ Feature: mail doorbell — wake the recipient on delivery
 
   Scenario: a standing owner's background-hosted presence is rung through its session
     Given a standing owner keeper whose presence is bound to a live unit whose record carries a claude-bg locator
-    And Claude Code lists that presence's session as done
+    And Claude Code lists that presence's session with status idle
     When the sender runs mail send --to keeper
     Then the message lands in keeper's inbox
     And claude --bg --resume was run with the presence's full session id and the check-your-inbox doorbell as its prompt
@@ -84,7 +84,7 @@ Feature: mail doorbell — wake the recipient on delivery
 
   Scenario: a blocked background-hosted peer gets the message but is not rung, and the send says why
     Given a registered peer recipient whose record carries a claude-bg locator
-    And Claude Code lists that peer's session as blocked
+    And Claude Code lists that peer's session with status idle and state blocked
     When the sender runs mail send to that peer
     Then the message lands durably in the peer's inbox and the send succeeds
     And the send reports a best-effort warning that the peer is waiting on a person and was not rung
@@ -92,7 +92,7 @@ Feature: mail doorbell — wake the recipient on delivery
 
   Scenario: a background-hosted peer the resume does not wake gets the message and the send warns
     Given a registered peer recipient whose record carries a claude-bg locator
-    And Claude Code lists that peer's session as done
+    And Claude Code lists that peer's session with status idle
     And the resume exits 0 saying it started a copy under another short id
     When the sender runs mail send to that peer
     Then the message lands durably in the peer's inbox and the send succeeds
