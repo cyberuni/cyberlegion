@@ -30,8 +30,20 @@ turning the durable send into something that can fail because no one was awake:
   first submit, never re-typing so the doorbell lands exactly once — not fire-and-forget. The sender's
   own pane is never rung (a send whose recipient resolves to the sender's own session delivers no
   doorbell to itself).
+- **A recipient hosted in a Claude background session is rung through that session** — a peer, or a
+  standing owner's bound presence, whose record carries a `claude-bg` locator has no pane
+  ([`unit/background`](../../unit/background/README.md)). It is rung by that node's ring, chosen from
+  the **recipient's** locator and never from whatever multiplexer the sender is in: when Claude Code
+  lists the session `done`, it is stopped and resumed by its session id with the check-your-inbox
+  doorbell as its next prompt, and the ring counts once the resume reports it woke the same session.
+  A session that is `working` or `blocked` is **not rung and not stopped** (stopping a busy session
+  would end its turn); the send reports a warning saying which. Every other way that ring can fail is
+  `unit/background`'s to list; this node turns each into a warning carrying the ring's own reason. A
+  recipient whose record is `stopped` is not rung at all: a stopped unit stays stopped, and its mail
+  waits in its inbox (`unit/runtime`). Every one of these lands the message and never fails the send.
 - **The wake never fails the send** — durable delivery is the guaranteed effect; the doorbell is
-  best-effort on top. A recipient with **no live pane** (headless/absent) is a legitimate no-op: the
+  best-effort on top. A recipient with **no ring target** — no live pane and no background session
+  (headless/absent) — is a legitimate no-op: the
   message still lands, the send succeeds, and it surfaces on the recipient's next SessionStart via the
   existing pull path (`mail/surface`). A ring that **never completes** (a live pane that keeps the
   doorbell staged past the retry cap) is reported as a best-effort warning, never a send error — the
@@ -63,7 +75,9 @@ turning the durable send into something that can fail because no one was awake:
     - the launch comes from the home's agent definition, **looked up from the home** (the same anchor
       `unit register --standing --home` validated it against), or from its harness;
     - it opens in **its own workspace**, never a tab or split of the sender's space: the sender is not
-      the new unit's parent and may not be in a pane at all;
+      the new unit's parent and may not be in a pane at all. A **claude** home reached with no
+      multiplexer opens instead as a **Claude background session** (`mux`, `unit/background`), whose
+      first turn is its start prompt;
     - the home's folder-trust prompt is **accepted**, where a plain `--cwd` spawn leaves it for a
       person. The person named that folder when registering the home; that recorded consent is what a
       worktree spawn gets from being made out of the caller's own repository. A prompt still showing
@@ -72,7 +86,9 @@ turning the durable send into something that can fail because no one was awake:
       folder and the pane: a presence stuck at a trust prompt would be rung by every later delivery,
       and a ring typed into that prompt answers it wrongly. The unit is left open for a person to
       answer, and **no other pane is rung**: the warning already names the pane that needs a person,
-      and a main-pane ring would only say "check your inbox".
+      and a main-pane ring would only say "check your inbox". A background session shows no prompt to
+      accept: Claude Code refuses to start it in a folder it does not trust, so that case is a spawn
+      that cannot happen (below), and the warning names the folder.
   - **What it is told.** Its brief says which standing owner it stands in for and to read that owner's
     mail (`mail inbox --owner <handle>`). The first-turn doorbell names the brief's path, exactly as
     `unit spawn` does (#152: it counts only once the harness posts it).
@@ -90,8 +106,9 @@ turning the durable send into something that can fail because no one was awake:
     refusals throw (`unit/lifecycle`); this node catches them and turns each into a warning. The home
     folder may have been removed, the agent definition renamed, or the presence lock held past its
     timeout by another delivery. The
-    most important case is a **sender outside any multiplexer**: the probe (`mux`) reports none, so
-    there is nowhere to open a pane. A cron job is exactly that sender. Each of these is reported as
+    most important case is a **sender outside any multiplexer** reaching a home whose harness is
+    **not claude**: the probe (`mux`) reports none, so there is nowhere to open a pane (a claude home
+    gets a background session instead, above). A cron job is exactly that sender. Each of these is reported as
     a best-effort warning naming the standing owner, and the wake then **degrades to what an owner
     without a home gets**: the focus-gated bound main pane. The mail has already landed and stays
     queued in the owner's inbox. A sender outside any pane can still reach a running multiplexer by
@@ -143,9 +160,9 @@ graph TD
   DB0["mail send has delivered the message"] --> DB1{"--no-nudge?"}
   DB1 -- yes --> DB1Y["ring nothing, spawn nothing"]
   DB1 -- no --> DB2{"recipient kind?"}
-  DB2 -- peer --> DB3["pane := the peer's live pane, if any; never focus-gated"]
+  DB2 -- peer --> DB3["target := the peer's live pane or its claude-bg locator, if any; never focus-gated"]
   DB2 -- standing --> DB4{"a live presence bound? (an exited one counts as none)"}
-  DB4 -- yes --> DB5["pane := the presence's pane; never focus-gated"]
+  DB4 -- yes --> DB5["target := the presence's pane or its claude-bg locator; never focus-gated"]
   DB4 -- no --> DB6{"the record carries a home?"}
   DB6 -- no --> DB9["pane := the bound main pane, if any; focus-gated"]
   DB6 -- yes --> DB7{"take the presence lock"}
@@ -153,18 +170,19 @@ graph TD
   DB7 -- held --> DB7R{"re-read the owner: a live presence now?"}
   DB7R -- yes --> DB7Y["release the lock"]
   DB7Y --> DB5
-  DB7R -- no --> DB8{"spawn into the home succeeds? (a multiplexer is reachable, the folder exists, the launch resolves from it)"}
+  DB7R -- no --> DB8{"spawn into the home succeeds? (a backend is reachable: a multiplexer, or for a claude home a background session in a trusted folder; the folder exists; the launch resolves from it)"}
   DB8 -- no --> DB8R["release the lock"]
   DB8R --> DB8W
   DB8W --> DB9
-  DB8 -- yes --> DB10["opened in its own workspace in the home, brief names the owner's inbox; bind it as the presence"]
-  DB10 --> DB11{"the home's folder-trust prompt cleared after the accept keys?"}
+  DB8 -- yes --> DB10["opened in the home (its own workspace, or a background session for a claude home with no multiplexer), brief names the owner's inbox; bind it as the presence"]
+  DB10 -- "a pane" --> DB11{"the home's folder-trust prompt cleared after the accept keys?"}
+  DB10 -- "a background session: its first turn is its start prompt" --> DB11Y
   DB11 -- no --> DB11N["unbind it if it is still the presence; release the lock; warn naming the folder and pane; ring nothing"]
   DB11 -- yes --> DB11Y["release the lock"]
   DB11Y --> DB12{"first-turn doorbell posted within the spawn retry budget?"}
   DB12 -- yes --> DB12Y["spawned and woken"]
   DB12 -- no --> DB12N["warn; the spawned unit stays the presence"]
-  DB3 --> DB13{"a pane resolved?"}
+  DB3 --> DB13{"a ring target resolved (a pane, or a claude-bg locator)?"}
   DB5 --> DB13
   DB9 --> DB13
   DB13 -- no --> DB13N["no-op: the message waits for the next SessionStart pull"]
@@ -172,7 +190,14 @@ graph TD
   DB14 -- yes --> DB14Y["ring nothing"]
   DB14 -- no --> DB15{"focus-gated and the pane is positively not focused?"}
   DB15 -- yes --> DB15Y["skip; the report stays queued for that pane's next SessionStart pull"]
-  DB15 -- no --> DB16{"the ring is taken within nudge's retry cap?"}
+  DB15 -- no --> DBB{"the recipient's locator is claude-bg?"}
+  DBB -- yes --> DBT{"the recipient's record is stopped?"}
+  DBT -- yes --> DBTN["no-op: a stopped unit stays stopped; the message waits"]
+  DBT -- no --> DBS{"its session's state (unit/background ring)"}
+  DBS -- "rung" --> DB16Y
+  DBS -- "not rung: working or blocked" --> DBSW["warn naming which, not rung; the session is not stopped"]
+  DBS -- "not rung: any other ring failure (unit/background)" --> DB16N
+  DBB -- no --> DB16{"the ring is taken within nudge's retry cap?"}
   DB16 -- yes --> DB16Y["rung, delivered once"]
   DB16 -- no --> DB16N["warn; the message has still landed"]
 ```
@@ -204,6 +229,18 @@ Grouped by use case, 1:1 with [`doorbell.feature`](./doorbell.feature).
 | `DB13 -- no` | a peer with no live pane | `a recipient with no live pane is a store-and-forward no-op, not a send failure` |
 | `DB16 -- no` | a peer whose pane keeps the doorbell staged | `a delivery ring that never completes never fails the send` |
 
+### A peer hosted in a Claude background session is rung through that session
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `DBS -- rung` | a claude-bg peer, done, a sender in no multiplexer or in tmux | `a background-hosted peer is rung through its own session whatever multiplexer the sender is in` |
+| `DBS -- rung` presence | a standing owner whose bound presence carries a claude-bg locator, done | `a standing owner's background-hosted presence is rung through its session` |
+| `DBS -- not rung: working or blocked` | a claude-bg peer, working | `a busy background-hosted peer gets the message but is not rung, and the send says so` |
+| `DBS -- not rung: working or blocked` | a claude-bg peer, blocked | `a blocked background-hosted peer gets the message but is not rung, and the send says why` |
+| `DBS -- not rung: any other ring failure` | a claude-bg peer whose session Claude Code no longer lists | `a background-hosted peer whose session is gone gets the message and the send warns` |
+| `DBS -- not rung: any other ring failure` | a claude-bg peer, done, a resume that starts a copy | `a background-hosted peer the resume does not wake gets the message and the send warns` |
+| `DBT -- yes` | a stopped claude-bg peer | `a stopped background-hosted peer gets the message and is not rung` |
+
 ### A standing owner with a bound presence is rung there, never focus-gated
 
 | Edge | Path (Given) | Scenario |
@@ -229,6 +266,7 @@ Grouped by use case, 1:1 with [`doorbell.feature`](./doorbell.feature).
 | `DB7 -- timed out` | a home, no presence, the presence lock held by a live process | `a presence lock held past its timeout warns and falls back to the bound main pane` |
 | `DB8 -- no` no multiplexer | a home, a sender outside any multiplexer | `a sender outside any multiplexer spawns nothing and warns instead of staying silent` |
 | `DB10` named multiplexer | a home, a sender outside any pane that names a running herdr | `a sender outside any pane that names a running multiplexer spawns the presence` |
+| `DB10` background session | a claude home in a trusted folder, a sender outside any multiplexer | `a sender outside any multiplexer spawns a claude home's presence as a background session` |
 | `DB8 -- no` definition gone | a home whose agent definition no longer resolves from it | `a home whose agent definition no longer resolves warns and spawns nothing` |
 | `DB8 -- no` spawn fails | a home whose folder was removed, a focused main pane | `a home that cannot be spawned warns and falls back to the bound main pane` |
 | `DB1 -- yes` home | a home, no presence | `--no-nudge spawns nothing into a standing owner's home` |

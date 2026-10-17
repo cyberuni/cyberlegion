@@ -29,7 +29,9 @@ resolves to an exited unit.
 
 - **runtime** — the harness process in a pane, reached through a pane locator (`mux` + pane id).
 - **stopped** — the record status meaning "no runtime, on purpose". The record has no pane, keeps
-  everything else, stays addressable by handle, and is exempt from pruning.
+  everything else, stays addressable by handle, and is exempt from pruning. A unit hosted in a Claude
+  background session is the one exception: it keeps its `claude-bg` locator through a stop, so its
+  session can still be deleted at close ([`unit/background`](../background/README.md)).
 - **liveness** — what the multiplexer says *now*: `live` (the backend lists the pane), `gone` (the
   backend answered and the pane is not in the list), `unknown` (no pane is recorded, or the backend
   gave no answer), `stopped`, or `exited` (from the recorded status). A standing or service record
@@ -45,6 +47,9 @@ resolves to an exited unit.
 
 **Non-goals.**
 
+- **A unit hosted in a Claude background session.** What `unit stop` and `unit restart` do on such a
+  unit (stop keeps its conversation; restart is refused for now) is
+  [`unit/background`](../background/README.md)'s.
 - **Resuming a cursor conversation.** Cursor's hook id is not confirmed to be the chat id
   `cursor-agent --resume` takes, so a cursor unit always restarts fresh and is rebriefed.
 - **Resuming without a recorded id.** A harness's "continue the latest conversation in this
@@ -65,6 +70,10 @@ resolves to an exited unit.
 | tmux | yes — kill the pane, verified by listing panes | yes — fresh window at the unit's cwd | yes — from inside a tmux pane |
 | herdr | yes — close the pane, verified by listing panes | yes — fresh workspace or tab at the unit's cwd | yes — from inside a herdr pane |
 | no multiplexer | no pane to stop; the record is marked stopped | refused — no backend can open a session | refused — the caller has no pane to bind |
+| Claude background session (`claude-bg`) | yes — `claude stop`, verified by Claude Code's listing; the locator is kept | refused for now | refused — the caller has no pane to bind |
+
+What `unit stop`, `unit restart`, and `unit show` do on a `claude-bg` unit is specified in
+[`unit/background`](../background/README.md); the flows below are the pane backends'.
 
 A claude or codex unit whose record carries a conversation resumes it on restart; every other
 restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone cannot be restarted: it needs a new unit
@@ -225,7 +234,8 @@ graph TD
 ```
 
 "Mark stopped" is one write: status `stopped`, pane `null`, the pane pointer removed; the id,
-handle, harness, cwd, worktree, brief, and last-seen are kept. Nothing mail-side is written.
+handle, harness, cwd, worktree, brief, and last-seen are kept. Nothing mail-side is written. A
+`claude-bg` unit's stop keeps its locator instead ([`unit/background`](../background/README.md)).
 
 ### restart
 

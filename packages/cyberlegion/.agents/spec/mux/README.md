@@ -16,8 +16,11 @@ own node per the decision.
 
 ## What
 
-Every unit the legion spawns lives in a **pane** — one split of a terminal window. Which program owns
-those panes differs per machine (tmux, herdr), and each calls the same ideas by different names. This
+A unit the legion spawns lives in a **pane** — one split of a terminal window — whenever a
+multiplexer is running. Which program owns those panes differs per machine (tmux, herdr), and each
+calls the same ideas by different names. With no multiplexer, a `claude` unit lives in a Claude
+background session instead ([`unit/background`](../unit/background/README.md)); choosing that is also
+this node's. This
 node is the one place that answers three questions on everyone else's behalf: **which pane program am
 I actually running inside**, **which one may I use**, and **where does a new pane go**.
 
@@ -25,8 +28,8 @@ Getting the first question wrong is the expensive case. A caller that guesses wr
 to a pane that is not there, or opens a unit somewhere nobody can see it. So detection is answered
 once, here, and every other part of the legion takes the answer rather than re-deriving it.
 
-**Key terms** — **pane**: one split of a terminal window, where a unit runs. **backend**: the program
-managing panes (tmux or herdr). **placement** (`--at`): where a new pane goes relative to the caller's.
+**Key terms** — **pane**: one split of a terminal window, where a unit runs. **backend**: what hosts a unit's session —
+a multiplexer managing panes (tmux or herdr), or, with none, a Claude background session. **placement** (`--at`): where a new pane goes relative to the caller's.
 **fast-path vars**: environment variables carrying an already-known answer, so detection can skip its
 search. **pane locator**: the stored pointer (`unit/registry`'s) naming a unit's pane and its backend.
 
@@ -43,7 +46,7 @@ Each entry point below enters the control-flow graph in the next section.
 
 | Use case | Trigger | Inputs | Outcome |
 |---|---|---|---|
-| `unit spawn` (backend select + placement) | a caller spawns a unit | `--at`, the ambient environment | a pane opened on the selected backend, or a refusal before anything opens |
+| `unit spawn` (backend select + placement) | a caller spawns a unit | `--at`, the ambient environment, the spawn's harness | a pane opened on the selected multiplexer; with none and a `claude` harness, a Claude background session; otherwise a refusal before anything opens |
 | `mux doctor` | a caller runs `cyberlegion mux doctor` | the ambient environment | harness, mux, pane, hub root, self-id, the Claude Code permission rule's state, and a pin hint to fix the fast-path |
 | `mux mode` | a caller runs `cyberlegion mux mode` | the ambient environment | the selected backend's name, or `none` at exit 0 |
 | the focus probe | the doorbell asks before spending a turn | a pane locator | `focused`, `not-focused`, or `unknown` |
@@ -52,13 +55,20 @@ Each entry point below enters the control-flow graph in the next section.
 session opens through, independent of any unit's identity or lifecycle:
 
 - **The session backend is selected by environment** — tmux when `$TMUX` is set, herdr when
-  `$HERDR_ENV` is set and `$TMUX` is not; an environment with neither throws asking for one. The
+  `$HERDR_ENV` is set and `$TMUX` is not. An environment with neither has one more option, keyed on
+  the spawn's harness: a `claude` unit runs in a **Claude background session**
+  ([`unit/background`](../unit/background/README.md), ADR-0036), and every other harness is refused
+  with an error asking for tmux or herdr. A detected multiplexer always wins over the background
+  session. This harness-keyed step is spawn's alone: `mux mode` still reports only the multiplexer,
+  so it says `none` outside one. The
   multiplexer package detects **more** backends than the legion can use. Which multiplexers a pane
   locator can be stored under is [`unit/registry`](../unit/registry/README.md)'s to state, not this
   node's; the decision here is what selection does with a detected backend outside that set —
   **refuse before anything opens**, naming the backend it found. Driving it would open a real pane no
   record could name, stranding a live session that `prune` cannot reap and no caller can nudge.
-  Widening the storable set is a change to that node, not this one.
+  Widening the storable set is a change to that node, not this one. The background session is the
+  fallback for **no** multiplexer, not for an unsupported one: a `claude` caller inside wezterm is
+  still refused, and opts into the background session with `$CYBER_MUX=none`.
 - **Placement maps each `--at` value onto the backend** — `--at pane:right|pane:down|tab|workspace`
   chooses where the new session opens. This layer only maps a **resolved** placement onto the backend;
   a **pane** placement splits the **caller's own** pane, named explicitly rather than left to the
@@ -129,7 +139,9 @@ graph TD
   E1 & E2 & E3 & E4 & E5 --> S{selectable backend?}
   S -- "tmux / herdr" --> ADP[bind that adapter]
   S -- "detected, not storable<br/>by unit/registry" --> REF[refuse, naming it;<br/>open nothing]
-  S -- none --> ERR[throw naming tmux/herdr]
+  S -- none --> HN{"spawn's harness is claude?"}
+  HN -- yes --> BG["start a Claude background session<br/>(unit/background)"]
+  HN -- no --> ERR[throw naming tmux/herdr]
 
   ADP --> AT{"--at"}
   AT -- "pane:right / pane:down" --> SP[split the CALLER's pane]
@@ -178,8 +190,11 @@ coverage, not duplication.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | selectable backend → bind adapter | a detectable tmux or herdr environment | `the session backend is selected by environment` |
-| no selectable backend → throw | neither `$TMUX` nor `$HERDR_ENV` set | `neither tmux nor herdr detected errors before opening anything` |
+| selectable backend → bind adapter | tmux detected, a claude spawn | `a detected multiplexer wins over the background session for a claude spawn` |
+| none → not claude → throw | neither `$TMUX` nor `$HERDR_ENV` set, a cursor or codex spawn | `a non-claude spawn with neither tmux nor herdr detected errors before opening anything` |
+| none → claude → background session | neither `$TMUX` nor `$HERDR_ENV` set, a claude spawn | `a claude spawn with neither tmux nor herdr detected runs in a Claude background session` |
 | detected but not storable → refuse | inside a backend `unit/registry` cannot store a locator under | `a detected backend a unit record cannot carry is refused before opening anything` |
+| detected but not storable → refuse | inside wezterm, a claude spawn | `a claude spawn inside a detected backend a unit record cannot carry is refused, not sent to a background session` |
 
 ### `unit spawn` — placement
 

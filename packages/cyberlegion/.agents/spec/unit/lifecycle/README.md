@@ -12,6 +12,13 @@ CR-2 from `session/` (`cyberlegion-cli-realign`, ADR-0024): the lifecycle half o
 registration and discovery live in the sibling `unit/registry` node; backend selection and placement
 moved to the new `mux/` node (a real architectural layer, not a command noun).
 
+A unit hosted in a **Claude background session** instead of a pane (no multiplexer, harness
+`claude`, ADR-0036) is specified in [`unit/background`](../background/README.md). Everything here that
+acts on a **pane** — placement and labels, the folder-trust keys, the first-turn ring and its boot
+race, focus beaming, the screen scrape, and `clear` — does not apply to it; that node says what each
+of those operations does instead. Worktree leasing, the brief file, and close's worktree rules apply
+to both.
+
 ## Use Cases
 
 **Subject** — opening a genuine sibling peer session — in a new git worktree it creates, or in an
@@ -20,7 +27,8 @@ cleanly — the deterministic inverse pair:
 
 - **spawn opens a new peer session and registers the peer it opened** — `unit spawn
   --harness <h> --task <text>` (or `--brief-file`) creates a real git worktree distinct from the
-  primary checkout, opens a session backend (tmux or herdr, selected by environment — see `mux/`)
+  primary checkout, opens a session backend (tmux or herdr, or with neither a Claude background
+  session for a claude unit — selected by `mux/`)
   with its cwd set to that worktree, then registers the peer (`status: active`, `spawnedBy` the
   caller's own id when it has one, and the launch command it ran, so `unit restart` can relaunch the
   unit the same way) and writes its pane pointer and brief file. There is no

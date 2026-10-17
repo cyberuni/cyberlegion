@@ -48,6 +48,70 @@ Feature: mail doorbell — wake the recipient on delivery
     Then the message still lands durably and the send succeeds
     And the failed ring is reported as a best-effort warning, not a send error
 
+  # ── A peer hosted in a Claude background session is rung through that session ──
+  # Such a peer has no pane. It is rung by unit/background's ring (stop, then resume by session id),
+  # chosen from the RECIPIENT's locator, never from whatever multiplexer the sender happens to be in.
+
+  Scenario Outline: a background-hosted peer is rung through its own session whatever multiplexer the sender is in
+    Given a registered peer recipient whose record carries a claude-bg locator
+    And Claude Code lists that peer's session as done
+    And a sender <sender>
+    When the sender runs mail send to that peer with the body "steer"
+    Then the message lands in the peer's inbox
+    And claude --bg --resume was run with the peer's full session id and the check-your-inbox doorbell as its prompt
+    And no multiplexer command was run against the peer
+
+    Examples:
+      | sender             |
+      | in no multiplexer  |
+      | inside a tmux pane |
+
+  Scenario: a busy background-hosted peer gets the message but is not rung, and the send says so
+    Given a registered peer recipient whose record carries a claude-bg locator
+    And Claude Code lists that peer's session as working
+    When the sender runs mail send to that peer
+    Then the message lands durably in the peer's inbox and the send succeeds
+    And the send reports a best-effort warning that the peer is busy and was not rung
+    And no claude stop command was run against the peer's session
+
+  Scenario: a standing owner's background-hosted presence is rung through its session
+    Given a standing owner keeper whose presence is bound to a live unit whose record carries a claude-bg locator
+    And Claude Code lists that presence's session as done
+    When the sender runs mail send --to keeper
+    Then the message lands in keeper's inbox
+    And claude --bg --resume was run with the presence's full session id and the check-your-inbox doorbell as its prompt
+    And no new unit is registered
+
+  Scenario: a blocked background-hosted peer gets the message but is not rung, and the send says why
+    Given a registered peer recipient whose record carries a claude-bg locator
+    And Claude Code lists that peer's session as blocked
+    When the sender runs mail send to that peer
+    Then the message lands durably in the peer's inbox and the send succeeds
+    And the send reports a best-effort warning that the peer is waiting on a person and was not rung
+    And no claude stop command was run against the peer's session
+
+  Scenario: a background-hosted peer the resume does not wake gets the message and the send warns
+    Given a registered peer recipient whose record carries a claude-bg locator
+    And Claude Code lists that peer's session as done
+    And the resume exits 0 saying it started a copy under another short id
+    When the sender runs mail send to that peer
+    Then the message lands durably in the peer's inbox and the send succeeds
+    And the send reports a best-effort warning that the peer was not woken
+
+  Scenario: a stopped background-hosted peer gets the message and is not rung
+    Given a registered peer recipient whose record has status stopped and carries a claude-bg locator
+    When the sender runs mail send to that peer
+    Then the message lands durably in the peer's inbox and the send succeeds
+    And no claude command was run
+
+  Scenario: a background-hosted peer whose session is gone gets the message and the send warns
+    Given a registered peer recipient whose record carries a claude-bg locator
+    And Claude Code's session listing does not contain that peer's short id
+    When the sender runs mail send to that peer
+    Then the message lands durably in the peer's inbox and the send succeeds
+    And the send reports a best-effort warning naming the peer's session as gone
+    And no claude --bg --resume command was run
+
   # ── A standing owner with a bound presence is rung there, never focus-gated ──
 
   Scenario: sending to a standing owner with a bound presence rings that unit's pane, not the main pane
@@ -167,6 +231,16 @@ Feature: mail doorbell — wake the recipient on delivery
     When the sender runs mail send --to keeper
     Then a new unit is registered whose cwd is /work/keeper-desk
     And keeper's presence is bound to the new unit
+
+  Scenario: a sender outside any multiplexer spawns a claude home's presence as a background session
+    Given a standing owner keeper whose home is /work/keeper-desk with the harness claude
+    And keeper has no presence bound
+    And a sender whose multiplexer probe reports none
+    And Claude Code trusts /work/keeper-desk
+    When the sender runs mail send --to keeper
+    Then a new unit is registered whose cwd is /work/keeper-desk and whose record carries a claude-bg locator
+    And keeper's presence is bound to the new unit
+    And the new session's first prompt is the first-turn doorbell naming the spawned unit's brief path
 
   Scenario: a home whose agent definition no longer resolves warns and spawns nothing
     Given a standing owner keeper whose home is /work/keeper-desk with the agent definition triage

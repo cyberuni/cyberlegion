@@ -114,6 +114,40 @@ Feature: unit registry — register, discover, and prune legion units
     Then that agent's status remains unchanged
     And the pruned list is empty
 
+  # A unit hosted in a Claude background session (unit/background) is judged against Claude Code's own
+  # session listing. Any listing that parses is an answer — an empty one included, since Claude Code
+  # lists nothing when no session runs — and only a listing that cannot be read proves nothing.
+
+  Scenario: prune marks a background unit exited when Claude Code no longer lists its session
+    Given a registered unit whose record carries a claude-bg locator
+    And Claude Code's session listing parses and does not contain that locator's short id
+    When a session runs unit prune
+    Then that unit's status becomes exited
+    And it is included in the pruned list
+
+  Scenario: prune marks a background unit exited when Claude Code's session listing is empty
+    Given a registered unit whose record carries a claude-bg locator
+    And the claude agents listing command exits 0 printing an empty JSON array
+    When a session runs unit prune
+    Then that unit's status becomes exited
+    And it is included in the pruned list
+
+  Scenario: prune leaves a background unit whose session is listed untouched however stale its last-seen
+    Given a registered unit whose record carries a claude-bg locator
+    And Claude Code's session listing contains that locator's short id
+    And the unit's lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then that unit's status remains unchanged
+    And the pruned list is empty
+
+  Scenario: prune leaves a background unit untouched when Claude Code's session listing cannot be read
+    Given a registered unit whose record carries a claude-bg locator
+    And the claude agents listing command exits non-zero
+    And the unit's lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then that unit's status remains unchanged
+    And the pruned list is empty
+
   Scenario: prune marks a pane-less agent exited when its last-seen is stale
     Given a registered agent with no pane whose lastSeen is older than the staleness window
     When a session runs unit prune
@@ -475,6 +509,12 @@ Feature: unit registry — register, discover, and prune legion units
     Given a session inside a tmux pane and a registered agent whose pane is a herdr pane absent from any live set
     When it runs unit who --reconcile
     Then the herdr-paned agent's status remains unchanged
+
+  Scenario: reconcile from a multiplexer pane never culls a background unit
+    Given a session inside a tmux pane whose live pane list is non-empty
+    And a registered unit whose record carries a claude-bg locator
+    When it runs unit who --reconcile
+    Then the background unit's status remains unchanged
 
   Scenario: reconcile never touches a standing record
     Given a session inside a tmux pane and a standing identity homa

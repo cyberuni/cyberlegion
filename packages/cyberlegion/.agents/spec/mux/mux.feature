@@ -18,10 +18,34 @@ Feature: mux — the unit-agnostic pane abstraction
       | $TMUX set                   | tmux    |
       | $HERDR_ENV set and no $TMUX | herdr   |
 
-  Scenario: neither tmux nor herdr detected errors before opening anything
+  # With no multiplexer, a claude unit still has somewhere to run: a Claude background session
+  # (unit/background, ADR-0036). Every other harness has no such mode, so it is still refused.
+
+  Scenario Outline: a non-claude spawn with neither tmux nor herdr detected errors before opening anything
     Given a caller with neither $TMUX nor $HERDR_ENV set
+    And the spawn's harness is <harness>
     When unit spawn runs
     Then it throws naming tmux/herdr as the required backend
+    And no claude --bg command was run
+
+    Examples:
+      | harness |
+      | cursor  |
+      | codex   |
+
+  Scenario: a claude spawn with neither tmux nor herdr detected runs in a Claude background session
+    Given a caller with neither $TMUX nor $HERDR_ENV set
+    And the spawn's harness is claude
+    When unit spawn runs
+    Then the unit's session is started by a claude --bg command
+    And the unit's record carries a locator tagged claude-bg
+
+  Scenario: a detected multiplexer wins over the background session for a claude spawn
+    Given a caller with $TMUX set
+    And the spawn's harness is claude
+    When unit spawn runs
+    Then the new pane is opened through the tmux adapter
+    And no claude --bg command was run
 
   # The multiplexer layer detects more backends than a unit record can carry. Which multiplexers a
   # pane locator can be stored under is unit/registry's to state, not this node's; the decision here
@@ -43,6 +67,17 @@ Feature: mux — the unit-agnostic pane abstraction
       | mux     |
       | wezterm |
       | zellij  |
+
+  # The background session is the fallback for NO multiplexer, not for an unsupported one: a claude
+  # caller inside wezterm is told so, and can opt into the background session with $CYBER_MUX=none.
+
+  Scenario: a claude spawn inside a detected backend a unit record cannot carry is refused, not sent to a background session
+    Given a caller running inside wezterm
+    And the probe detects wezterm
+    And the spawn's harness is claude
+    When unit spawn runs
+    Then it throws naming wezterm as the detected-but-unsupported backend
+    And no claude --bg command was run
 
   # ── Placement ──
 

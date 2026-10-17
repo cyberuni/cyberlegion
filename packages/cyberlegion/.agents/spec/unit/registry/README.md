@@ -18,7 +18,9 @@ result and exit. A standing owner can have a **presence**: one live unit standin
 **Key terms**
 
 - **record** — one entry in the registry: id, handle, harness, cwd, worktree, a pane locator tagged
-  with its multiplexer (tmux or herdr), status, and timestamps (`createdAt`, `lastSeen`).
+  with its backend (a tmux or herdr pane, or `claude-bg` for a unit hosted in a Claude background
+  session, [`unit/background`](../background/README.md)), status, and timestamps (`createdAt`,
+  `lastSeen`).
 - **pane pointer** — a pane-id → unit-id entry, written when a session registers inside a pane.
   It is how a later call finds its own id.
 - **self id** — the caller's own unit id, recovered by `resolveSelfId`.
@@ -257,7 +259,8 @@ help-and-error.
 A record is judged dead when its pane is gone, or — for a record with **no pane** — when its
 `lastSeen` is older than the staleness window. Liveness is checked **against the pane's own
 multiplexer** — a tmux locator through `tmux has-session`/`list-panes`, a herdr locator through a
-herdr pane-existence query — so a live herdr pane is never false-reaped by a tmux check, and the
+herdr pane-existence query, a `claude-bg` locator through Claude Code's session listing
+(`claude agents --json --all`) — so a live herdr pane is never false-reaped by a tmux check, and the
 reverse. `prune` reconcile-culls too, before judging each record.
 
 Extensions — each is a record `prune` leaves alone:
@@ -274,8 +277,16 @@ Extensions — each is a record `prune` leaves alone:
   ambiguous holder. The cost is that a record whose multiplexer is truly gone stays `active` until
   that multiplexer answers again (or the unit is closed); the alternative, reaping a possibly live
   unit and stranding its handle and mail, is the worse failure.
+- **A background unit is judged by Claude Code's listing.** A `claude-bg` locator has no pane to
+  probe; its session is alive while `claude agents --json --all` lists its short id. (An active record
+whose session is listed `stopped` is an invalid state `unit/background` rules out of the contract;
+this rule does not decide it.) Any listing that
+  parses counts as an answer, an empty one included, because Claude Code lists nothing when no
+  session runs. Only a listing that cannot be read (the command fails, or its output is not JSON)
+  proves nothing, and the unit is left untouched under the same fail-closed rule.
 - **A stopped unit is never pruned.** `unit stop` (`unit/runtime`) leaves a record with status
-  `stopped` and no pane, on purpose. Neither a pane check nor the staleness timer can say anything
+  `stopped` and no pane, on purpose (a background unit keeps its `claude-bg` locator through a stop,
+  so its session can still be deleted at close, [`unit/background`](../background/README.md)). Neither a pane check nor the staleness timer can say anything
   about a runtime that was ended deliberately, so `prune` skips it however old its `lastSeen` is.
   This is what keeps a stopped unit addressable by handle (a handle never resolves to an exited
   unit), and so what keeps its mail arriving while it has no session.
@@ -298,7 +309,8 @@ Cull extensions:
 
 - **Mux-scoped.** Reconcile enumerates only the multiplexer the caller is currently inside (tmux
   `list-panes -a` or herdr `pane list`) and never declares the *other* mux's records dead, since it
-  cannot see them.
+  cannot see them. A `claude-bg` record is never on the caller's multiplexer, so reconcile never
+  culls it; only `prune` judges it, against Claude Code's listing.
 - **A `kind: standing` record** is never touched.
 - **A record whose `pane` is `null`** cannot be pane-culled by enumeration; it is left to the
   staleness timer.
@@ -543,7 +555,12 @@ graph TD
   PR4 -- no --> PR5{"lastSeen older than 15 minutes?"}
   PR5 -- yes --> PRX["mark exited; return it"]
   PR5 -- no --> PRK["keep"]
-  PR4 -- yes --> PR6{"the pane's own mux says the pane exists?"}
+  PR4 -- "yes: claude-bg" --> PB1{"Claude Code's session listing parses?"}
+  PB1 -- no --> PRK
+  PB1 -- yes --> PB2{"the listing contains the short id?"}
+  PB2 -- yes --> PRK
+  PB2 -- no --> PRX
+  PR4 -- "yes: tmux / herdr" --> PR6{"the pane's own mux says the pane exists?"}
   PR6 -- yes --> PRK
   PR6 -- no --> PR7{"that mux answers a non-empty pane list?"}
   PR7 -- no --> PRK
@@ -745,6 +762,10 @@ adapters.
 | `PR8 -- no` tmux | a tmux pane that no longer exists | `prune marks an agent exited when its tmux pane is gone` |
 | `PR8 -- no` herdr | a herdr pane that no longer exists | `prune marks an agent exited when its herdr pane is gone` |
 | `PR6 -- yes` herdr | a live herdr pane, a fresh lastSeen | `prune leaves a live herdr-pane agent untouched` |
+| `PB2 -- no` | a claude-bg locator, a listing without its short id | `prune marks a background unit exited when Claude Code no longer lists its session` |
+| `PB2 -- no` empty | a claude-bg locator, a listing that parses as an empty array | `prune marks a background unit exited when Claude Code's session listing is empty` |
+| `PB2 -- yes` | a claude-bg locator, a listing with its short id, a stale lastSeen | `prune leaves a background unit whose session is listed untouched however stale its last-seen` |
+| `PB1 -- no` | a claude-bg locator, a listing that cannot be read, a stale lastSeen | `prune leaves a background unit untouched when Claude Code's session listing cannot be read` |
 | `PR5 -- yes` | no pane, a stale lastSeen | `prune marks a pane-less agent exited when its last-seen is stale` |
 | `PR6 -- yes` stale | a live tmux pane, a stale lastSeen | `prune leaves an agent whose pane is live untouched however stale its last-seen` |
 | `PR7 -- no` | a tmux pane, tmux answering no pane list, a stale lastSeen | `prune leaves a pane-bound agent untouched when its multiplexer cannot be queried` |
@@ -758,6 +779,7 @@ adapters.
 | `RC7X` tmux | caller in tmux, a record's tmux pane absent from the live list | `reconcile marks a record exited when its pane is absent from the live set` |
 | `RC7X` herdr | caller in herdr, a record's herdr pane absent from the live list | `reconcile marks a record exited from within a herdr session too` |
 | `RC6S` | caller in tmux, a record on a herdr pane | `reconcile is mux-scoped and never culls the other mux's records` |
+| `RC6S` background | caller in tmux, a record carrying a claude-bg locator | `reconcile from a multiplexer pane never culls a background unit` |
 | `RC4S` | caller in tmux, a standing record | `reconcile never touches a standing record` |
 | `RC5S` | caller in tmux, a record with pane null | `a pane-null record is not pane-culled by reconcile` |
 | `RC1N` | caller in no multiplexer pane | `reconcile outside any multiplexer pane culls nothing` |
