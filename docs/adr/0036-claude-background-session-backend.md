@@ -18,7 +18,7 @@ Claude Code runs its own background sessions. `claude --bg` starts a session and
 |---|---|
 | First turn | The prompt argument to `claude --bg` is the first turn. There is no boot race to recover from. |
 | Environment | The session inherits the launcher's environment, `PATH`, and working directory. |
-| States | Each entry has a `status` (`busy` during a turn, `idle` between turns, absent with no process) and a `state` (Claude Code's read of the task: `working`, `done`, `blocked` while waiting on a person, `failed`, `stopped` after `claude stop`). They are independent: a live run showed an idle session whose task was unfinished reading `idle` + `working` indefinitely. A session started with no prompt reads `blocked`, the same as one stuck at a permission prompt. A stopped session stays listed. |
+| States | Each entry has a `status` (`busy` during a turn, `idle` between turns, absent with no process) and a `state` (Claude Code's read of the task: `working`, `done`, `blocked` while waiting on a person, `failed`, `stopped`). They are independent: a live run showed an idle session whose task was unfinished reading `idle` + `working` indefinitely. A session started with no prompt reads `blocked`, the same as one stuck at a permission prompt. A stopped session stays listed with no `status`; its state reads `stopped` only when it was stopped mid-turn, and a session stopped after its turn finished keeps `done` (found by the second live run). |
 | Ids | The short id is the first 8 characters of the full session id. The listing carries both. |
 | Ringing a live session | Not possible from outside. `claude --bg --resume` on a running session starts a copy. |
 | Ringing a stopped session | `claude stop <id>`, then `claude --bg --resume <full session id> "<text>"`, resumes the same session id with the new prompt and its saved options. |
@@ -69,17 +69,17 @@ that interface. cyberlegion owns it, and dispatches on the record's locator for 
 | ring (`unit nudge`, `mail send`) | State `blocked`: not rung, reported as waiting on a person, with `claude attach <id>` as the next step. Status `busy`: not rung, reported busy. Status `idle`: stop, then resume by full session id with the ring text; rung once the resume reports it woke the same short id. Neither busy nor idle: not rung. A `stopped` record is not rung: its mail waits. The first freeze keyed idleness on `state: done`; the live run disproved it and the owner approved re-keying it on `status`. |
 | read | `claude logs <id>`, stripped of terminal control sequences, then bounded by `--lines`. |
 | focus | Refused with `claude attach <id>` as the next step. There is no attached view to move. |
-| show | Liveness from the listing (`live` unless `stopped`; `gone` when absent; `unknown` when the listing cannot be read). Controls: `nudge`, `read`, `stop`, `close` when live; `close` alone otherwise. |
-| stop | `claude stop`, verified by the listing showing `stopped`. The record keeps its locator, so `close` can still delete the session. |
+| show | Liveness from the listing (`live` when listed with a status; `gone` when absent; `unknown` when the listing cannot be read). Controls: `nudge`, `read`, `stop`, `close` when live; `close` alone otherwise. |
+| stop | `claude stop`, verified by the listing showing the session with no running process (no `status`). The record keeps its locator, so `close` can still delete the session. |
 | close | The existing close refusals and worktree removal run first; only then `claude stop` and `claude rm`, whose failures are tolerated. A refused close leaves the session untouched. |
 | prune | Alive while `claude agents --json --all` lists the session. Absent from a listing that parses, even an empty one, means exited. If the listing cannot be read, the unit is left untouched. Reconcile never culls a `claude-bg` record. |
 | `unit rebind` | Refused: it would replace the locator with the caller's pane and leave the session with nothing that can delete it. |
 | `unit clear`, `unit restart` | Refused for now, naming the background backend. Follow-ups. |
 
-A unit whose record is active while Claude Code lists its session `stopped` is an **invalid state**,
+A unit whose record is active while Claude Code lists its session with no running process is an **invalid state**,
 outside the contract by the owner's ruling. A ring whose resume fails after its stop leaves a unit
-there, and so does a `claude stop` run outside cyberlegion. The ring fails loud; no operation's
-behavior on the unit afterwards is specified.
+there, and so does a `claude stop` run outside cyberlegion or a session whose process ended on its own. The ring fails loud. What `show` and `prune` report for
+such a unit is not specified; a later ring refuses it as neither busy nor idle.
 
 The ring keeps ADR-0025's rule by confirming the effect from the resume's own output: it wakes the
 same short id, or the ring fails loud. Polling the state for `working` was rejected because a quick

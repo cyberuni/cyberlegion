@@ -138,11 +138,16 @@ Feature: unit background — a unit hosted in a Claude background session
     Then it throws that the unit is waiting on a person, naming claude attach with the unit's short id
     And no claude stop command was run
 
-  Scenario: nudge on a background session reporting neither busy nor idle fails and stops nothing
-    Given a background unit whose session the listing shows with no status and state failed
-    When a caller runs unit nudge <ref>
+  Scenario Outline: nudge on a background session reporting neither busy nor idle fails and stops nothing
+    Given a background unit whose session the listing shows with no status and state <state>
+    When a caller runs unit nudge on that unit
     Then it throws that the session is not idle and was not rung
     And no claude stop command was run
+
+    Examples:
+      | state  |
+      | failed |
+      | done   |
 
   Scenario: nudge on a background unit whose session is gone fails naming it
     Given a background unit whose short id the listing does not contain
@@ -211,13 +216,20 @@ Feature: unit background — a unit hosted in a Claude background session
   # ── unit stop ──
 
   Scenario: stop on a background unit stops the session and keeps its conversation and locator
-    Given a background unit whose session the listing shows with status busy
-    And the listing shows that session as stopped after claude stop runs
+    Given a background unit whose session the listing shows with status idle and state done
+    And after claude stop runs, the listing shows that session with no status and state done
     When a caller runs unit stop <ref>
     Then claude stop was run with the unit's short id
     And no claude rm command was run
     And the unit's record has status stopped
     And the unit's record still carries its claude-bg locator with the same short id
+    And the result reports the stop as verified
+
+  Scenario: stop verifies a background session stopped mid-turn
+    Given a background unit whose session the listing shows with status busy and state working
+    And after claude stop runs, the listing shows that session with no status and state stopped
+    When a caller runs unit stop <ref>
+    Then the unit's record has status stopped
     And the result reports the stop as verified
 
   Scenario: stop on a background unit whose session is gone marks it stopped
@@ -228,7 +240,7 @@ Feature: unit background — a unit hosted in a Claude background session
 
   Scenario: stop fails loud when the background session is still running after the stop
     Given a background unit whose session the listing shows with status busy
-    And the listing still shows that session in a state other than stopped after claude stop runs
+    And after claude stop runs, the listing still shows that session with status busy and state done
     When a caller runs unit stop <ref>
     Then it throws that the stop did not take effect
     And the unit's record status is unchanged

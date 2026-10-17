@@ -24,14 +24,16 @@ A background session differs from a pane in ways that change each operation:
   `busy` or `idle` (absent when no process runs). Its **state** is Claude Code's read of the *task*:
   `working`, `done`, `blocked` (waiting on a person, such as a permission prompt), `failed`, or
   `stopped`. The two are independent — an idle session whose task is unfinished reads `idle` +
-  `working` — so whether a unit can be rung is read from **status**, and only `blocked` and `stopped`
-  are read from state.
+  `working`, and a session stopped after its turn finished keeps `done` with no `status` — so whether a
+  session is running, and whether it can be rung, is read from **status**; only `blocked` is read from
+  state.
 - It refuses to start in a folder Claude Code has not trusted, and there is no prompt to accept.
 - There is no view to move focus to. A person opens one with `claude attach <id>`.
 
 **Key terms** — **background session**: a Claude Code session started with `claude --bg`.
 **listing**: Claude Code's session list, `claude agents --json --all`, one entry per session carrying
-its short id, its session id, and its state; a stopped session stays listed with state `stopped`.
+its short id, its session id, its state, and a status while a process runs; a stopped session stays
+listed with no status.
 **short id**: the 8-character id `claude --bg` prints and `claude logs`, `stop`, and `rm` take; it is
 the first 8 characters of the session id. **session id**: the full id; `claude --bg --resume` resumes
 the same session only when given this form, and otherwise starts a copy. **locator**: the record field
@@ -56,12 +58,16 @@ unchanged. Out of scope for now: surfacing mail to a busy unit at the end of its
 `blocked` unit in `unit who`; and showing the unit in a terminal tab (ADR-0034). The design record is
 ADR-0036.
 
-**An invalid state, outside the contract.** A unit whose record is active while Claude Code lists its
-session as `stopped` is **invalid**. Two things can produce it: a ring whose resume failed after the
-stop, and someone running `claude stop` on the session directly, outside cyberlegion. The owner ruled
-both out of the contract. No operation's behavior on such a unit is specified (nudge, mail delivery,
-show, prune), and no scenario covers it. A ring whose resume fails still **fails loud**; what happens
-to the unit afterwards is not defined here.
+**An invalid state, outside the contract.** A unit whose record is active while Claude Code lists
+its session with **no running process** (no `status`; its state may read `stopped` or keep the task
+state it had, such as `done`) is **invalid**. It arises, for example, from a ring whose resume
+failed after the stop, from someone running `claude stop` on the session directly outside
+cyberlegion, or from a session whose process ended on its own (a crash or a failed task). The owner
+ruled all of these out of the contract: what `unit show` and `prune` report for such a unit is not
+specified, and no scenario asserts it. Ringing it is the one exception, because the ring's own rule
+already decides it: a session with no status is neither busy nor idle, so `unit nudge` refuses it
+and mail delivery warns, stopping nothing (the "neither busy nor idle" extension below). A ring
+whose resume fails still **fails loud**.
 
 ## Use Cases
 
@@ -136,7 +142,7 @@ Extensions: the log cannot be read (the session is gone) — fails naming the se
 |---|---|
 | Actor / goal | a person or controller — know whether the unit is running and which verbs apply, without changing anything |
 | Trigger | `unit show <ref>` on a unit whose locator is `claude-bg` |
-| Outcome | the backend reads `claude-bg`. A record that is `stopped` reports liveness `stopped`, as for any unit (`unit/runtime`), with `close` as its only control. Otherwise liveness comes from the listing: `live` when it lists the session (in any state but `stopped`, which on an active record is the invalid state above), `gone` when it parses without it, `unknown` when it cannot be read. The controls are `nudge`, `read`, `stop`, and `close` for a live unit, and `close` alone otherwise — never `restart`, `clear`, or `focus`. |
+| Outcome | the backend reads `claude-bg`. A record that is `stopped` reports liveness `stopped`, as for any unit (`unit/runtime`), with `close` as its only control. Otherwise liveness comes from the listing: `live` when it lists the session with a status (a running process; a listed session with none, on an active record, is the invalid state above), `gone` when it parses without it, `unknown` when it cannot be read. The controls are `nudge`, `read`, `stop`, and `close` for a live unit, and `close` alone otherwise — never `restart`, `clear`, or `focus`. |
 
 Extensions: covered by the liveness outcomes above.
 
@@ -156,12 +162,12 @@ Extensions: none — the refusal is the only path; there is no attached view to 
 |---|---|
 | Actor / goal | the unit's owner — free the session without losing the unit's work |
 | Trigger | `unit stop <ref>` |
-| Outcome | `claude stop <short id>` is run, and the listing then shows the session `stopped`; the record is `stopped` and **keeps its `claude-bg` locator**, so `close` can later delete the session. `claude rm` is not run, so the conversation is kept. |
+| Outcome | `claude stop <short id>` is run, and the listing then shows the session with no running process (no `status`), whatever its state; the record is `stopped` and **keeps its `claude-bg` locator**, so `close` can later delete the session. `claude rm` is not run, so the conversation is kept. |
 
 Extensions:
 
 - The session is not in the listing — nothing to stop; the record is marked `stopped`.
-- The listing still shows the session in another state after the stop — fails loud ("stop did not
+- The listing still shows the session with a status after the stop — fails loud ("stop did not
   take effect"); the record is unchanged.
 - The listing cannot be read after the stop — the record is marked `stopped`, reported as unverified.
 
@@ -256,16 +262,16 @@ graph TD
     H0S -- no --> H1{"listing readable?"}
     H1 -- no --> HU["liveness unknown; controls: close"]
     H1 -- yes --> H2{"session listed?"}
-    H2 -- yes --> HL["liveness live; controls: nudge, read, stop, close"]
-    H2 -- no --> HG["liveness gone; controls: close"]
+    H2 -- "listed with a status" --> HL["liveness live; controls: nudge, read, stop, close"]
+    H2 -- "not listed" --> HG["liveness gone; controls: close"]
   end
 
   subgraph stop
     S0["unit stop"] --> S1["claude stop"]
     S1 --> S2{"listing after the stop?"}
     S2 -- "unreadable" --> SU["mark stopped, keep locator; unverified"]
-    S2 -- "not listed, or stopped" --> SV["mark stopped, keep locator; verified"]
-    S2 -- "listed in another state" --> SF["fail: did not take effect; record unchanged"]
+    S2 -- "not listed, or listed with no status" --> SV["mark stopped, keep locator; verified"]
+    S2 -- "listed with a status" --> SF["fail: did not take effect; record unchanged"]
   end
 
   subgraph close
@@ -281,6 +287,9 @@ graph TD
     B0["unit rebind"] --> BR["refuse; record unchanged"]
   end
 ```
+
+`unit show` leaves the third case — listed with no status, on an active record — unrouted: it is the
+invalid state above.
 
 `unit nudge` reports a ring by what the resume printed, not by polling the session's state: a quick
 turn can go from `busy` back to `idle` between two polls and read as never started. The resume waking
@@ -317,7 +326,7 @@ case.
 | `N4 -- no` | the resume starts a copy | `nudge fails loud when the resume starts a copy instead of waking the unit` |
 | `N3 -- no` | `claude stop` fails | `nudge fails loud and resumes nothing when the stop fails` |
 | `N2 -- status busy` | a session in a turn | `nudge on a busy background unit reports it busy and leaves the session running` |
-| `N2 -- neither busy nor idle` | no status, state failed | `nudge on a background session reporting neither busy nor idle fails and stops nothing` |
+| `N2 -- neither busy nor idle` | no status, state failed or done | `nudge on a background session reporting neither busy nor idle fails and stops nothing` |
 | `N2 -- state blocked` | a session waiting on a person | `nudge on a blocked background unit reports it waiting on a person and leaves it untouched` |
 | `N2 -- not listed` | a listing without the short id | `nudge on a background unit whose session is gone fails naming it` |
 | `N1 -- no` | the listing command fails | `nudge fails and stops nothing when Claude Code's listing cannot be read` |
@@ -334,8 +343,8 @@ case.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `H2 -- yes` | an active record, a listed session with status busy | `show reports a running background unit live with the controls that work on it` |
-| `H2 -- no` | an active record, a listing without its short id | `show reports a background unit gone when the listing does not contain it` |
+| `H2 -- listed with a status` | an active record, a listed session with status busy | `show reports a running background unit live with the controls that work on it` |
+| `H2 -- not listed` | an active record, a listing without its short id | `show reports a background unit gone when the listing does not contain it` |
 | `H0S -- yes` | a stopped record | `show offers only close for a stopped background unit` |
 | `H1 -- no` | the listing command fails | `show reports a background unit's liveness unknown when the listing cannot be read` |
 
@@ -343,9 +352,10 @@ case.
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `S2 -- stopped` | a listed busy session whose state reads `stopped` after | `stop on a background unit stops the session and keeps its conversation and locator` |
+| `S2 -- no status` | an idle session that is listed with no status and state `done` after | `stop on a background unit stops the session and keeps its conversation and locator` |
 | `S2 -- not listed` | a listing without the short id | `stop on a background unit whose session is gone marks it stopped` |
-| `S2 -- another state` | a session whose state is still not `stopped` after the stop | `stop fails loud when the background session is still running after the stop` |
+| `S2 -- no status` | a busy session stopped mid-turn, listed with no status and state `stopped` after | `stop verifies a background session stopped mid-turn` |
+| `S2 -- with a status` | a session still listed with status busy and state done after the stop | `stop fails loud when the background session is still running after the stop` |
 | `S2 -- unreadable` | the listing fails after the stop | `stop reports an unverified stop when the listing cannot be read` |
 
 ### `unit close`

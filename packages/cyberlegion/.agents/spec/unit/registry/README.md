@@ -278,12 +278,12 @@ Extensions — each is a record `prune` leaves alone:
   that multiplexer answers again (or the unit is closed); the alternative, reaping a possibly live
   unit and stranding its handle and mail, is the worse failure.
 - **A background unit is judged by Claude Code's listing.** A `claude-bg` locator has no pane to
-  probe; its session is alive while `claude agents --json --all` lists its short id. (An active record
-whose session is listed `stopped` is an invalid state `unit/background` rules out of the contract;
-this rule does not decide it.) Any listing that
-  parses counts as an answer, an empty one included, because Claude Code lists nothing when no
-  session runs. Only a listing that cannot be read (the command fails, or its output is not JSON)
-  proves nothing, and the unit is left untouched under the same fail-closed rule.
+  probe; its session is alive while `claude agents --json --all` lists its short id. (An active
+  record whose session is listed with no running process is an invalid state `unit/background` rules
+  out of the contract; this rule does not decide it.) Any listing that parses counts as an answer,
+  an empty one included, because Claude Code lists nothing when no session runs. Only a listing that
+  cannot be read (the command fails, or its output is not JSON) proves nothing, and the unit is left
+  untouched under the same fail-closed rule.
 - **A stopped unit is never pruned.** `unit stop` (`unit/runtime`) leaves a record with status
   `stopped` and no pane, on purpose (a background unit keeps its `claude-bg` locator through a stop,
   so its session can still be deleted at close, [`unit/background`](../background/README.md)). Neither a pane check nor the staleness timer can say anything
