@@ -5,9 +5,9 @@ import { EventEmitter } from "node:events";
 import childProcess, { execFile, execFileSync } from "node:child_process";
 import process$1 from "node:process";
 import { stripVTControlCharacters } from "node:util";
-import { lstat, readFile, readdir, readlink, realpath, unlink, writeFile } from "node:fs/promises";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
+import { lstat, readFile, readdir, readlink, realpath, unlink, writeFile } from "node:fs/promises";
 //#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/error.js
 /**
 * CommanderError class
@@ -2963,7 +2963,7 @@ function useColor() {
 }
 new Command();
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.9.1_typescript@7.0.2/node_modules/cyber-mux/dist/worktree-08MMRO3P.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.10.0_js-yaml@4.3.2/node_modules/cyber-mux/dist/exec-Bmdcg_T7.mjs
 const nodeExec$1 = (cmd, args) => {
 	try {
 		const out = execFileSync(cmd, args, {
@@ -2990,87 +2990,8 @@ const nodeExec$1 = (cmd, args) => {
 function withReason(exec, message) {
 	return exec.lastError ? `${message} — ${exec.lastError}` : message;
 }
-const nodeWorktreeFs = {
-	exists: existsSync,
-	realpath: (path) => realpathSync.native(path)
-};
-/**
-* This module's own refusals and failures — plain cyber-mux prose, never a dependency's raw words.
-* `reportWorktreeFailure` (`cli.ts`) forwards a `WorktreeGitError`'s message onto stdout verbatim
-* because it is safe to: everything thrown here is this CLI's own text. Anything else that reaches
-* that catch-all (a `session.tmux.ts`/`session.herdr.ts` throw, which embeds the backend's own name
-* and its raw stderr via `withReason`) is a different case and is translated, not forwarded.
-*/
-var WorktreeGitError = class extends Error {};
-/** The only worktree backend at MVP — plain `git worktree`. */
-const gitWorktreeAdapter = {
-	add(exec, opts) {
-		const args = [
-			"-C",
-			opts.primaryRoot,
-			"worktree",
-			"add",
-			"-b",
-			opts.branch,
-			opts.path
-		];
-		if (opts.base) args.push(opts.base);
-		if (exec("git", args) === null) throw new WorktreeGitError(`git worktree add failed for ${opts.path}`);
-		return {
-			root: resolve(opts.path),
-			branch: opts.branch
-		};
-	},
-	remove(exec, path, opts) {
-		if (exec("git", [
-			"-C",
-			opts.primaryRoot,
-			"worktree",
-			"remove",
-			path,
-			"--force"
-		]) === null) throw new WorktreeGitError(`git worktree remove failed for ${path}`);
-	}
-};
-/**
-* @deprecated Use `primaryRoot({ exec })` from `@cyberuni/agent-harness/worktrees` (re-exported here).
-*
-* Resolve the primary checkout's root regardless of whether the caller's cwd is the primary
-* checkout or a linked worktree — `--git-common-dir` always points at the main repo's `.git`.
-*/
-function resolvePrimaryRoot(exec) {
-	const commonDir = exec("git", [
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-common-dir"
-	]);
-	if (!commonDir) throw new WorktreeGitError("cannot resolve the primary checkout — not inside a git repository");
-	return dirname(commonDir);
-}
-/**
-* @deprecated Use `normalizeWorktreePath` from `@cyberuni/agent-harness/worktrees` (async).
-*
-* The single normalization point for every path that gets MATCHED against another — a multiplexer
-* reports its own checkout paths, and those only line up with git's if both sides are resolved the
-* same way (a symlinked repo, or macOS's `/tmp` → `/private/tmp`, otherwise silently fails to
-* match). Falls back to `resolve` for a path that isn't on disk, where there is no link to follow.
-*/
-function normalizeWorktreePath$1(path, fs = nodeWorktreeFs) {
-	try {
-		return fs.realpath(path);
-	} catch {
-		return resolve(path);
-	}
-}
-/**
-* Refuse the primary checkout: a spawned session's resolved worktree root must never be the primary
-* checkout itself.
-*/
-function assertDistinctFromPrimary(worktreeRoot, primaryRoot) {
-	if (resolve(worktreeRoot) === resolve(primaryRoot)) throw new WorktreeGitError("refusing to run in the primary checkout — spawn a worktree distinct from the primary checkout");
-}
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.9.1_typescript@7.0.2/node_modules/cyber-mux/dist/backend-26cY2q8x.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.10.0_js-yaml@4.3.2/node_modules/cyber-mux/dist/backend-BqN-c9yl.mjs
 /**
 * The launch-line fallbacks — the compensations for what a creating route could not set natively.
 *
@@ -3488,6 +3409,19 @@ function holds(node, paneId) {
 /** Every pane under `node`, in order. */
 function leaves(node) {
 	return node.type === "pane" ? [node.pane] : [...leaves(node.first), ...leaves(node.second)];
+}
+/**
+* The synchronous twin of the library's `normalizeWorktreePath`, for the one caller that cannot await:
+* a multiplexer adapter keying its worktree bindings inside the synchronous `Exec` convention. Both
+* resolve through the native `realpath`, so a binding keyed here matches a root the library listed.
+* Falls back to `resolve` for a path not on disk, where there is no link to follow.
+*/
+function normalizeWorktreePathSync(path) {
+	try {
+		return realpathSync.native(path);
+	} catch {
+		return resolve(path);
+	}
 }
 /**
 * herdr backend — detected via `$HERDR_ENV`. herdr (https://herdr.dev) is an agent-aware terminal
@@ -4534,7 +4468,7 @@ function parseWorktreeBindings(out) {
 	for (const entry of worktrees) {
 		const path = entry?.path;
 		const workspace = entry?.open_workspace_id;
-		if (typeof path === "string" && path !== "" && typeof workspace === "string" && workspace !== "") bindings.set(normalizeWorktreePath$1(path), workspace);
+		if (typeof path === "string" && path !== "" && typeof workspace === "string" && workspace !== "") bindings.set(normalizeWorktreePathSync(path), workspace);
 	}
 	return bindings;
 }
@@ -5600,104 +5534,7 @@ function migrateStore(from, to) {
 	};
 }
 //#endregion
-//#region src/paths.ts
-/** The tracked marker file that makes a hub root initialized (see ensureMarker). */
-const MARKER_FILE = "config.json";
-/** Where `spawn` stamps that marker inside a worktree it creates, relative to the worktree root. */
-const WORKTREE_MARKER = `.agents/cyberlegion/${MARKER_FILE}`;
-/** Walk up from `cwd` to the nearest git repo root; fall back to `cwd`. */
-function projectRoot(cwd = process.cwd()) {
-	let dir = resolve(cwd);
-	for (;;) {
-		if (existsSync(join(dir, ".git"))) return dir;
-		const parent = dirname(dir);
-		if (parent === dir) return resolve(cwd);
-		dir = parent;
-	}
-}
-/**
-* Resolve the cyberlegion hub root. Precedence: explicit --root/--space, then `$CYBERLEGION_ROOT`,
-* then the GLOBAL hub `~/.agents/cyberlegion` (addressable across every project and worktree
-* boundary — identity/mail/registry state lives here by default; `--space` isolates it), falling
-* back to a project-local `.agents/cyberlegion` only when no home directory is resolvable.
-*/
-function resolveRoot(opts = {}) {
-	const env = opts.env ?? process.env;
-	const explicit = opts.root ?? opts.space ?? env.CYBERLEGION_ROOT;
-	if (explicit) return resolve(explicit);
-	const home = homedir();
-	if (home) return join(home, ".agents", "cyberlegion");
-	return join(projectRoot(opts.cwd), ".agents", "cyberlegion");
-}
-/**
-* Create the tracked `config.json` marker at `root` (a hub root) if it does not already exist.
-* Callers pass the root under which the marker should be created/ensured; this mkdir's it as
-* needed. Idempotent — never overwrites an existing marker.
-*/
-function ensureMarker(root) {
-	mkdirSync(root, { recursive: true });
-	const marker = join(root, MARKER_FILE);
-	if (!existsSync(marker)) writeFileSync(marker, `${JSON.stringify({ version: 1 }, null, 2)}\n`);
-}
-/**
-* Thrown when an agent/message id destined to become a filename PATH SEGMENT fails
-* `assertSafeId` — see that function's doc for why this rejects rather than encodes.
-*/
-var InvalidIdError = class extends Error {
-	kind;
-	value;
-	constructor(kind, value) {
-		super(`invalid ${kind} ${JSON.stringify(value)} — must not be empty, ".", "..", or contain a path separator`);
-		this.kind = kind;
-		this.value = value;
-		this.name = "InvalidIdError";
-	}
-};
-const UNSAFE_ID = /[\\/\0]/;
-/**
-* Filename-safety guard for any id that becomes a bare PATH SEGMENT under the hub root — agent ids
-* (`agentFile`/`inboxDir`/`dataDir`/`briefFile`) and message ids (`messageFile`). Both are
-* effectively user/peer-controlled: an agent id round-trips a caller-supplied `--handle`-adjacent
-* value in some flows, and nothing upstream of the store validates it before it reaches a `join()`.
-*
-* REJECT, don't encode: unlike `sanitizePane` (which deliberately encodes, because a tmux/herdr pane
-* locator is an opaque, internally-produced token that only needs to survive as a *lookup key*, not
-* round-trip as an identity), an agent/message id is a PRIMARY KEY — `getAgent(id)` must return
-* exactly what `putAgent` stored under that same `id`. Silently encoding two different malformed ids
-* onto the same sanitized filename would let one caller's write silently clobber or read another's
-* record — a worse failure than a loud, immediate refusal. So: empty, `.`, `..`, and any embedded
-* path separator (POSIX `/`, Windows `\`) or NUL byte are rejected outright, which also rejects an
-* absolute path outright (an absolute path always contains a separator).
-*/
-function assertSafeId(id, kind) {
-	if (!id || id === "." || id === ".." || UNSAFE_ID.test(id)) throw new InvalidIdError(kind, id);
-	return id;
-}
-const paths = {
-	agentsDir: (root) => join(root, "agents"),
-	agentFile: (root, id) => join(root, "agents", `${assertSafeId(id, "agent id")}.json`),
-	panesDir: (root) => join(root, "panes"),
-	paneFile: (root, pane) => join(root, "panes", `${sanitizePane(pane)}.id`),
-	inboxDir: (root, id) => join(root, "inbox", assertSafeId(id, "agent id")),
-	inboxReadDir: (root, id) => join(root, "inbox", assertSafeId(id, "agent id"), "read"),
-	dataDir: (root, id) => join(root, "data", assertSafeId(id, "agent id")),
-	briefFile: (root, id) => join(root, "data", assertSafeId(id, "agent id"), "brief.md"),
-	mainPaneFile: (root) => join(root, "main-pane.id"),
-	projectsDir: (root) => join(root, "projects"),
-	serviceLeaseFile: (root, project, service) => join(root, "services", assertSafeId(project, "project id"), `${assertSafeId(service, "service name")}.json`),
-	projectFile: (root, id) => join(root, "projects", `${assertSafeId(id, "project id")}.json`),
-	/** A message's file path within `toId`'s unread/read inbox dir, keyed by its own collision-free
-	* id — validated the same as an agent id (it's the same class of risk: a peer- or CLI-controlled
-	* string becoming a filename). */
-	messageFile: (root, toId, msgId) => join(paths.inboxDir(root, toId), `${assertSafeId(msgId, "message id")}.json`),
-	messageReadFile: (root, toId, msgId) => join(paths.inboxReadDir(root, toId), `${assertSafeId(msgId, "message id")}.json`)
-};
-/** tmux pane ids look like "%3"; make them filesystem-safe. */
-function sanitizePane(pane) {
-	return pane.replace(/[^A-Za-z0-9_-]/g, "_");
-}
-//#endregion
-//#region ../../node_modules/.pnpm/@cyberuni+agent-harness@0.7.0_clibuilder@11.3.2_typescript@7.0.2_/node_modules/@cyberuni/agent-harness/dist/worktrees.js
+//#region ../../node_modules/.pnpm/@cyberuni+agent-harness@0.7.0_clibuilder@12.1.0_js-yaml@4.3.2_/node_modules/@cyberuni/agent-harness/dist/worktrees.js
 /**
 * Whether a checkout has uncommitted changes, tracked or untracked, or `undefined` when git could not
 * say. `undefined` is not `false`: a caller deciding whether a worktree is safe to reuse must not read
@@ -6769,6 +6606,165 @@ async function exists(path) {
 	} catch {
 		return false;
 	}
+}
+//#endregion
+//#region ../../node_modules/.pnpm/cyber-mux@0.10.0_js-yaml@4.3.2/node_modules/cyber-mux/dist/worktree.mjs
+/**
+* This module's own refusals and failures — plain cyber-mux prose, never a dependency's raw words.
+* `reportWorktreeFailure` (`cli.ts`) forwards a `WorktreeGitError`'s message onto stdout verbatim
+* because it is safe to: everything thrown here is this CLI's own text. Anything else that reaches
+* that catch-all (a `session.tmux.ts`/`session.herdr.ts` throw, which embeds the backend's own name
+* and its raw stderr via `withReason`) is a different case and is translated, not forwarded.
+*/
+var WorktreeGitError = class extends Error {};
+/** The only worktree backend at MVP — plain `git worktree`. */
+const gitWorktreeAdapter = {
+	add(exec, opts) {
+		const args = [
+			"-C",
+			opts.primaryRoot,
+			"worktree",
+			"add",
+			"-b",
+			opts.branch,
+			opts.path
+		];
+		if (opts.base) args.push(opts.base);
+		if (exec("git", args) === null) throw new WorktreeGitError(`git worktree add failed for ${opts.path}`);
+		return {
+			root: resolve(opts.path),
+			branch: opts.branch
+		};
+	},
+	remove(exec, path, opts) {
+		if (exec("git", [
+			"-C",
+			opts.primaryRoot,
+			"worktree",
+			"remove",
+			path,
+			"--force"
+		]) === null) throw new WorktreeGitError(`git worktree remove failed for ${path}`);
+	}
+};
+/**
+* @deprecated Use `primaryRoot({ exec })` from `@cyberuni/agent-harness/worktrees` (re-exported here).
+*
+* Resolve the primary checkout's root regardless of whether the caller's cwd is the primary
+* checkout or a linked worktree — `--git-common-dir` always points at the main repo's `.git`.
+*/
+function resolvePrimaryRoot(exec) {
+	const commonDir = exec("git", [
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir"
+	]);
+	if (!commonDir) throw new WorktreeGitError("cannot resolve the primary checkout — not inside a git repository");
+	return dirname(commonDir);
+}
+/**
+* Refuse the primary checkout: a spawned session's resolved worktree root must never be the primary
+* checkout itself.
+*/
+function assertDistinctFromPrimary(worktreeRoot, primaryRoot) {
+	if (resolve(worktreeRoot) === resolve(primaryRoot)) throw new WorktreeGitError("refusing to run in the primary checkout — spawn a worktree distinct from the primary checkout");
+}
+//#endregion
+//#region src/paths.ts
+/** The tracked marker file that makes a hub root initialized (see ensureMarker). */
+const MARKER_FILE = "config.json";
+/** Where `spawn` stamps that marker inside a worktree it creates, relative to the worktree root. */
+const WORKTREE_MARKER = `.agents/cyberlegion/${MARKER_FILE}`;
+/** Walk up from `cwd` to the nearest git repo root; fall back to `cwd`. */
+function projectRoot(cwd = process.cwd()) {
+	let dir = resolve(cwd);
+	for (;;) {
+		if (existsSync(join(dir, ".git"))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) return resolve(cwd);
+		dir = parent;
+	}
+}
+/**
+* Resolve the cyberlegion hub root. Precedence: explicit --root/--space, then `$CYBERLEGION_ROOT`,
+* then the GLOBAL hub `~/.agents/cyberlegion` (addressable across every project and worktree
+* boundary — identity/mail/registry state lives here by default; `--space` isolates it), falling
+* back to a project-local `.agents/cyberlegion` only when no home directory is resolvable.
+*/
+function resolveRoot(opts = {}) {
+	const env = opts.env ?? process.env;
+	const explicit = opts.root ?? opts.space ?? env.CYBERLEGION_ROOT;
+	if (explicit) return resolve(explicit);
+	const home = homedir();
+	if (home) return join(home, ".agents", "cyberlegion");
+	return join(projectRoot(opts.cwd), ".agents", "cyberlegion");
+}
+/**
+* Create the tracked `config.json` marker at `root` (a hub root) if it does not already exist.
+* Callers pass the root under which the marker should be created/ensured; this mkdir's it as
+* needed. Idempotent — never overwrites an existing marker.
+*/
+function ensureMarker(root) {
+	mkdirSync(root, { recursive: true });
+	const marker = join(root, MARKER_FILE);
+	if (!existsSync(marker)) writeFileSync(marker, `${JSON.stringify({ version: 1 }, null, 2)}\n`);
+}
+/**
+* Thrown when an agent/message id destined to become a filename PATH SEGMENT fails
+* `assertSafeId` — see that function's doc for why this rejects rather than encodes.
+*/
+var InvalidIdError = class extends Error {
+	kind;
+	value;
+	constructor(kind, value) {
+		super(`invalid ${kind} ${JSON.stringify(value)} — must not be empty, ".", "..", or contain a path separator`);
+		this.kind = kind;
+		this.value = value;
+		this.name = "InvalidIdError";
+	}
+};
+const UNSAFE_ID = /[\\/\0]/;
+/**
+* Filename-safety guard for any id that becomes a bare PATH SEGMENT under the hub root — agent ids
+* (`agentFile`/`inboxDir`/`dataDir`/`briefFile`) and message ids (`messageFile`). Both are
+* effectively user/peer-controlled: an agent id round-trips a caller-supplied `--handle`-adjacent
+* value in some flows, and nothing upstream of the store validates it before it reaches a `join()`.
+*
+* REJECT, don't encode: unlike `sanitizePane` (which deliberately encodes, because a tmux/herdr pane
+* locator is an opaque, internally-produced token that only needs to survive as a *lookup key*, not
+* round-trip as an identity), an agent/message id is a PRIMARY KEY — `getAgent(id)` must return
+* exactly what `putAgent` stored under that same `id`. Silently encoding two different malformed ids
+* onto the same sanitized filename would let one caller's write silently clobber or read another's
+* record — a worse failure than a loud, immediate refusal. So: empty, `.`, `..`, and any embedded
+* path separator (POSIX `/`, Windows `\`) or NUL byte are rejected outright, which also rejects an
+* absolute path outright (an absolute path always contains a separator).
+*/
+function assertSafeId(id, kind) {
+	if (!id || id === "." || id === ".." || UNSAFE_ID.test(id)) throw new InvalidIdError(kind, id);
+	return id;
+}
+const paths = {
+	agentsDir: (root) => join(root, "agents"),
+	agentFile: (root, id) => join(root, "agents", `${assertSafeId(id, "agent id")}.json`),
+	panesDir: (root) => join(root, "panes"),
+	paneFile: (root, pane) => join(root, "panes", `${sanitizePane(pane)}.id`),
+	inboxDir: (root, id) => join(root, "inbox", assertSafeId(id, "agent id")),
+	inboxReadDir: (root, id) => join(root, "inbox", assertSafeId(id, "agent id"), "read"),
+	dataDir: (root, id) => join(root, "data", assertSafeId(id, "agent id")),
+	briefFile: (root, id) => join(root, "data", assertSafeId(id, "agent id"), "brief.md"),
+	mainPaneFile: (root) => join(root, "main-pane.id"),
+	projectsDir: (root) => join(root, "projects"),
+	serviceLeaseFile: (root, project, service) => join(root, "services", assertSafeId(project, "project id"), `${assertSafeId(service, "service name")}.json`),
+	projectFile: (root, id) => join(root, "projects", `${assertSafeId(id, "project id")}.json`),
+	/** A message's file path within `toId`'s unread/read inbox dir, keyed by its own collision-free
+	* id — validated the same as an agent id (it's the same class of risk: a peer- or CLI-controlled
+	* string becoming a filename). */
+	messageFile: (root, toId, msgId) => join(paths.inboxDir(root, toId), `${assertSafeId(msgId, "message id")}.json`),
+	messageReadFile: (root, toId, msgId) => join(paths.inboxReadDir(root, toId), `${assertSafeId(msgId, "message id")}.json`)
+};
+/** tmux pane ids look like "%3"; make them filesystem-safe. */
+function sanitizePane(pane) {
+	return pane.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 //#endregion
 //#region src/mux-env.ts
