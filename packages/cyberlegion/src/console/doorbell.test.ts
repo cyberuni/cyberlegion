@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { MuxAdapter } from 'cyber-mux'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { fakeClaude, listed } from '../fake-claude.test-util.ts'
 import type { Exec } from '../identity.ts'
-import { claimPresence, registerStanding, saveAgent } from '../identity.ts'
+import { claimPresence, loadAgent, registerStanding, saveAgent } from '../identity.ts'
+import { send } from '../message.ts'
 import { FileStore } from '../store/file-store.ts'
 import type { AgentRecord } from '../store/store.ts'
 import { DELIVERY_DOORBELL, isRingText, resumeDoorbell, spawnDoorbell, wakeRecipient, wakeSpawn } from './doorbell.ts'
@@ -629,5 +631,140 @@ describe('isRingText', () => {
 		expect(isRingText('half a thought')).toBe(false)
 		expect(isRingText(`why does it say ${DELIVERY_DOORBELL}`)).toBe(false)
 		expect(isRingText('wake up', 'wake up and rebase')).toBe(false)
+	})
+})
+
+// spec: mail/doorbell/doorbell.feature — "A peer hosted in a Claude background session is rung through
+// that session". Boundary level: the send lands through the real mail store, then the wake runs with
+// Claude Code answering at the `Exec` seam (`fake-claude.test-util.ts`); the sender's multiplexer is an
+// adapter that records any call made to it.
+describe('spec:cyberlegion/mail/doorbell — a background-hosted recipient', () => {
+	function bgPeer(id: string, over: Partial<AgentRecord> = {}): AgentRecord {
+		const rec: AgentRecord = {
+			id,
+			handle: id,
+			harness: 'claude',
+			cwd: '/repo',
+			pane: { mux: 'claude-bg', id: '9f8e7d6c' },
+			status: 'active',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			lastSeen: '2026-01-01T00:00:00.000Z',
+			...over,
+		}
+		saveAgent(store, rec)
+		return rec
+	}
+
+	/** A sender's multiplexer that counts every call made through it. */
+	function senderMux(): { getAdapter: () => MuxAdapter; used: () => number } {
+		let used = 0
+		const { adapter } = fakeAdapter([SCROLLED_OUT])
+		const counted = new Proxy(adapter, {
+			get(target, key, receiver) {
+				const value = Reflect.get(target, key, receiver)
+				return typeof value === 'function'
+					? (...args: unknown[]) => {
+							used++
+							return value(...args)
+						}
+					: value
+			},
+		})
+		return { getAdapter: () => counted, used: () => used }
+	}
+	const noMux = () => {
+		throw new Error('spawn requires a session backend — run inside tmux ($TMUX) or herdr ($HERDR_ENV=1)')
+	}
+
+	/** `mail send`: the durable delivery, then the best-effort wake. */
+	async function mailSend(to: string, claude: Exec, getAdapter: () => MuxAdapter = noMux, body = 'steer') {
+		const msg = send({ store }, { fromId: 'alice', to, body })
+		const wake = await wakeRecipient(store, getAdapter, claude, { toId: msg.to, fromId: 'alice' })
+		return { msg, wake }
+	}
+	const landed = (id: string, body: string) => store.listInbox(id).unread.some((m) => m.body === body)
+
+	it.each([
+		['in no multiplexer', false],
+		['inside a tmux pane', true],
+	])(
+		'a background-hosted peer is rung through its own session whatever multiplexer the sender is in (%s)',
+		async (_sender, inTmux) => {
+			bgPeer('bob')
+			const session = listed('9f8e7d6c', { status: 'idle', state: 'working' })
+			const fake = fakeClaude({ listing: [session] })
+			const mux = senderMux()
+			const { wake } = await mailSend('bob', fake.exec, inTmux ? mux.getAdapter : noMux)
+			expect(landed('bob', 'steer')).toBe(true)
+			expect(fake.claude()).toContainEqual(['--bg', '--resume', session.sessionId, DELIVERY_DOORBELL])
+			expect(wake.rung).toBe(true)
+			expect(mux.used()).toBe(0)
+		},
+	)
+
+	it('a busy background-hosted peer gets the message but is not rung, and the send says so', async () => {
+		bgPeer('bob')
+		const fake = fakeClaude({ listing: [listed('9f8e7d6c', { status: 'busy', state: 'working' })] })
+		const { wake } = await mailSend('bob', fake.exec)
+		expect(landed('bob', 'steer')).toBe(true)
+		expect(wake.rung).toBe(false)
+		expect(wake.warning).toMatch(/busy.*not rung/)
+		expect(fake.claude().some(([sub]) => sub === 'stop')).toBe(false)
+	})
+
+	it("a standing owner's background-hosted presence is rung through its session", async () => {
+		registerStanding({ store, env: {}, now: () => 1_700_000_000_000 }, { handle: 'keeper' })
+		bgPeer('standin')
+		const owner = loadAgent(store, 'standing-keeper') as AgentRecord
+		saveAgent(store, { ...owner, presence: 'standin' })
+		const session = listed('9f8e7d6c', { status: 'idle', state: 'done' })
+		const fake = fakeClaude({ listing: [session] })
+		const before = store.listAgents().length
+		const { wake } = await mailSend('keeper', fake.exec)
+		expect(landed('standing-keeper', 'steer')).toBe(true)
+		expect(fake.claude()).toContainEqual(['--bg', '--resume', session.sessionId, DELIVERY_DOORBELL])
+		expect(wake.rung).toBe(true)
+		expect(store.listAgents()).toHaveLength(before)
+	})
+
+	it('a blocked background-hosted peer gets the message but is not rung, and the send says why', async () => {
+		bgPeer('bob')
+		const fake = fakeClaude({ listing: [listed('9f8e7d6c', { status: 'idle', state: 'blocked' })] })
+		const { wake } = await mailSend('bob', fake.exec)
+		expect(landed('bob', 'steer')).toBe(true)
+		expect(wake.rung).toBe(false)
+		expect(wake.warning).toMatch(/waiting on a person.*not rung/)
+		expect(fake.claude().some(([sub]) => sub === 'stop')).toBe(false)
+	})
+
+	it('a background-hosted peer the resume does not wake gets the message and the send warns', async () => {
+		bgPeer('bob')
+		const fake = fakeClaude({
+			listing: [listed('9f8e7d6c', { status: 'idle', state: 'done' })],
+			resume: () => ({ stdout: 'note: started a copy of session 9f8e7d6c as 0a0b0c0d' }),
+		})
+		const { wake } = await mailSend('bob', fake.exec)
+		expect(landed('bob', 'steer')).toBe(true)
+		expect(wake.rung).toBe(false)
+		expect(wake.warning).toMatch(/not woken/)
+	})
+
+	it('a stopped background-hosted peer gets the message and is not rung', async () => {
+		bgPeer('bob', { status: 'stopped' })
+		const fake = fakeClaude({ listing: [listed('9f8e7d6c', { state: 'stopped' })] })
+		const { wake } = await mailSend('bob', fake.exec)
+		expect(landed('bob', 'steer')).toBe(true)
+		expect(wake.rung).toBe(false)
+		expect(fake.claude()).toEqual([])
+	})
+
+	it('a background-hosted peer whose session is gone gets the message and the send warns', async () => {
+		bgPeer('bob')
+		const fake = fakeClaude({ listing: [listed('0a0b0c0d', { status: 'idle', state: 'done' })] })
+		const { wake } = await mailSend('bob', fake.exec)
+		expect(landed('bob', 'steer')).toBe(true)
+		expect(wake.rung).toBe(false)
+		expect(wake.warning).toMatch(/9f8e7d6c.*gone/)
+		expect(fake.claude().some((c) => c[0] === '--bg' && c[1] === '--resume')).toBe(false)
 	})
 })

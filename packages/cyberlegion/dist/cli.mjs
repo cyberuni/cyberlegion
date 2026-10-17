@@ -6767,6 +6767,150 @@ function sanitizePane(pane) {
 	return pane.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 //#endregion
+//#region src/background.ts
+/** The locator tag a background-hosted unit's record carries in `pane.mux`. */
+const BACKGROUND = "claude-bg";
+/** The short id of a background-hosted unit's session, or undefined for any other record. */
+function backgroundId(rec) {
+	return rec.pane?.mux === "claude-bg" ? rec.pane.id : void 0;
+}
+/**
+* Claude Code's session listing (`claude agents --json --all`), or undefined when it cannot be read: a
+* non-zero exit, or output that is not a JSON array. An empty array is an answer — Claude Code lists
+* nothing when no session runs.
+*/
+function listSessions(exec) {
+	const out = exec("claude", [
+		"agents",
+		"--json",
+		"--all"
+	]);
+	if (out === null) return void 0;
+	let parsed;
+	try {
+		parsed = JSON.parse(out);
+	} catch {
+		return;
+	}
+	if (!Array.isArray(parsed)) return void 0;
+	return parsed.filter((e) => typeof e === "object" && e !== null).map((e) => ({
+		id: String(e.id ?? ""),
+		sessionId: String(e.sessionId ?? ""),
+		...typeof e.status === "string" ? { status: e.status } : {},
+		state: String(e.state ?? "")
+	}));
+}
+/** Whether a listing positively shows the session gone: it was read, and the short id is not in it.
+* An unreadable listing proves nothing. */
+function sessionGone(listing, short) {
+	return listing !== void 0 && !listing.some((s) => s.id === short);
+}
+/**
+* Refuse a launch that is not the `claude` command before anything is created: the background flags
+* are appended to it, and a wrapper may not take them. The first word must be `claude`, bare or a
+* path whose last segment is `claude`.
+*/
+function assertClaudeLaunch(launch) {
+	const first = launch.trim().split(/\s+/)[0] ?? "";
+	if (basename(first) === "claude") return;
+	throw new Error(`a background session runs the claude command, and the launch "${launch}" is not the claude command (it starts with "${first}") — refusing before creating anything`);
+}
+/** Refuse `--no-wake` before anything is created: a session started with no prompt reads `blocked`,
+* which a ring cannot tell from a permission prompt, so the unit could never be rung. */
+function refuseNoWake() {
+	return /* @__PURE__ */ new Error("--no-wake is unsupported on a background session — it takes its first turn from the prompt it starts with, and one started with none reads blocked and could never be rung; refusing before creating anything");
+}
+/**
+* Run `script` — a shell line that changes into `folder` and runs `claude --bg` — and return the short
+* id it printed. Throws when the session did not start: Claude Code does not trust the folder, the
+* command failed, or it exited 0 without a `backgrounded · <short id>` line.
+*/
+function startSession(exec, folder, script) {
+	const out = exec("sh", ["-c", script]);
+	if (out === null) {
+		const reason = exec.lastError ?? "";
+		if (/^Workspace not trusted\./.test(reason)) throw new Error(`Claude Code does not trust ${folder}, so the background session did not start — trust that folder (or one above it) in Claude Code, then spawn again: ${reason}`);
+		throw new Error(`the background session did not start: ${reason || "claude --bg exited non-zero"}`);
+	}
+	const short = out.match(/backgrounded\s*·\s*([0-9a-f]{8})/)?.[1];
+	if (!short) throw new Error(`the background session did not start — claude --bg named no session: ${out}`);
+	return short;
+}
+/**
+* Ring a background-hosted unit: deliver `text` as its next turn. Only a session with no turn running
+* (`status: idle`) can be rung — it is stopped, then resumed by its full session id with `text` as the
+* prompt, and the ring counts once the resume says it woke the same short id. A session waiting on a
+* person (`state: blocked`, checked first), a busy one, or one reporting neither busy nor idle is not
+* rung and not stopped (stopping it would end its turn). Throws on every path that did not ring.
+*/
+function ringSession(exec, rec, text) {
+	const short = backgroundId(rec);
+	const unit = `unit "${rec.handle}"`;
+	if (rec.status === "stopped") throw new Error(`${unit} is stopped — a stopped unit is not rung; its mail waits in its inbox`);
+	const listing = listSessions(exec);
+	if (!listing) throw new Error(`could not read the state of ${unit}'s background session ${short} — claude agents --json --all gave no listing; nothing was stopped`);
+	const session = listing.find((s) => s.id === short);
+	if (!session) throw new Error(`${unit}'s background session ${short} is gone — it no longer exists in Claude Code's listing`);
+	if (session.state === "blocked") throw new Error(`${unit} is waiting on a person — its background session ${short} is blocked, so it was not rung; open it with claude attach ${short}`);
+	if (session.status === "busy") throw new Error(`${unit} is busy — its background session ${short} is running a turn, so it was not rung`);
+	if (session.status !== "idle") throw new Error(`${unit}'s background session ${short} is not idle (status ${session.status ?? "absent"}, state ${session.state}), so it was not rung`);
+	if (exec("claude", ["stop", short]) === null) throw new Error(`claude stop ${short} failed, so ${unit} was not rung: ${exec.lastError ?? "non-zero exit"}`);
+	const out = exec("claude", [
+		"--bg",
+		"--resume",
+		session.sessionId,
+		text
+	]);
+	if (out === null) throw new Error(`${unit} was not woken — claude --bg --resume failed: ${exec.lastError ?? "non-zero exit"}`);
+	if (!(!/started a copy/.test(out) && (out.includes(`woke session ${short}`) || new RegExp(`backgrounded\\s*·\\s*${short}`).test(out)))) throw new Error(`${unit} was not woken — claude --bg --resume did not wake session ${short}: ${out}`);
+}
+const ESC = String.fromCharCode(27);
+/** OSC (`ESC ] … BEL|ST`), CSI (`ESC [ … final`), and the two-byte escapes. */
+const CONTROL_SEQUENCE = new RegExp(`${ESC}\\][\\s\\S]*?(?:${String.fromCharCode(7)}|${ESC}\\\\)|${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}[()][0-9A-Za-z]|${ESC}[@-Z\\\\-_]`, "g");
+/** C0 controls other than tab and newline, and DEL — what is left of a terminal stream once its
+* sequences are gone (a carriage return, a bell). */
+const CONTROL_CHAR = new RegExp(`[${String.fromCharCode(0)}-${String.fromCharCode(8)}\\v-${String.fromCharCode(31, 127)}]`, "g");
+/** Remove terminal control sequences from a raw terminal stream. */
+function stripControl(text) {
+	return text.replace(CONTROL_SEQUENCE, "").replace(CONTROL_CHAR, "");
+}
+/** A background-hosted unit's recent output: `claude logs`, stripped of control sequences, then
+* bounded to the last `lines` lines. Throws naming the session when the log cannot be read. */
+function readLog(exec, rec, lines) {
+	const short = backgroundId(rec);
+	const out = exec("claude", ["logs", short]);
+	if (out === null) throw new Error(`could not read the log of unit "${rec.handle}"'s background session ${short}: ${exec.lastError ?? "claude logs exited non-zero"}`);
+	const clean = stripControl(out);
+	return lines && lines > 0 ? clean.split("\n").slice(-lines).join("\n") : clean;
+}
+/**
+* Stop a background-hosted unit's session and confirm it from the listing: a stopped session is gone
+* from it or listed with no `status` (no process), whatever its `state` — one that finished its turn
+* keeps `done`. `verified` is false when the listing cannot be read afterwards. Throws when the entry
+* still carries a `status`. `claude rm` is not run, so the conversation is kept.
+*/
+function stopSession(exec, rec) {
+	const short = backgroundId(rec);
+	exec("claude", ["stop", short]);
+	const listing = listSessions(exec);
+	if (!listing) return { verified: false };
+	const session = listing.find((s) => s.id === short);
+	if (session?.status !== void 0) throw new Error(`stop did not take effect — Claude Code still lists unit "${rec.handle}"'s background session ${short} as ${session.status}; its record is unchanged`);
+	return { verified: true };
+}
+/** Stop and delete a background-hosted unit's session at close. Failures are tolerated: the session
+* may already be stopped or gone. */
+function removeSession(exec, short) {
+	exec("claude", ["stop", short]);
+	exec("claude", ["rm", short]);
+}
+/** The refusal for an operation the background backend does not support (focus, clear, restart,
+* rebind). Built before anything is run. */
+function unsupported(rec, verb, why = "") {
+	const short = backgroundId(rec);
+	return /* @__PURE__ */ new Error(`unit "${rec.handle}" runs in a Claude background session (${BACKGROUND} ${short}) — unit ${verb} is unsupported on the background session backend${why}`);
+}
+//#endregion
 //#region src/mux-env.ts
 /**
 * Transitional env-normalization seam (mux.feature: "a pane carrying only the legacy fast-path vars
@@ -7139,7 +7283,9 @@ function isPrunable(rec) {
 function sessionLive(ctx, rec) {
 	if (rec.status === "exited" || rec.status === "stopped") return false;
 	if (!rec.pane) return true;
-	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec);
+	const exec = ctx.exec ?? realExec;
+	if (rec.pane.mux === "claude-bg") return !sessionGone(listSessions(exec), rec.pane.id);
+	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(exec);
 	if (panes.length === 0) return true;
 	const id = rec.pane.id;
 	return panes.some((p) => p.id === id);
@@ -7246,15 +7392,22 @@ function paneGone(exec, pane, lists) {
 /** Mark agents whose session is gone as exited. Reconcile-culls against the current mux's live set
 * first, then judges each remaining record (covers the other mux and sessions outside any
 * multiplexer pane): a pane-bound record by its pane alone — a live or unprobeable pane keeps it
-* whatever its last-seen — and a pane-less record by the staleness timer, its only signal. */
+* whatever its last-seen — a background-hosted record by Claude Code's session listing alone (read at
+* most once; an unreadable one keeps it), and a pane-less record by the staleness timer, its only
+* signal. */
 function prune(ctx) {
 	const exec = ctx.exec ?? realExec;
 	const now = ctx.now?.() ?? Date.now();
 	const changed = reconcile(ctx);
 	const lists = /* @__PURE__ */ new Map();
+	let sessions;
+	const backgroundGone = (short) => {
+		sessions ??= { listing: listSessions(exec) };
+		return sessionGone(sessions.listing, short);
+	};
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue;
-		if (rec.pane ? paneGone(exec, rec.pane, lists) : now - new Date(rec.lastSeen).getTime() > STALE_MS) {
+		if (!rec.pane ? now - new Date(rec.lastSeen).getTime() > STALE_MS : rec.pane.mux === "claude-bg" ? backgroundGone(rec.pane.id) : paneGone(exec, rec.pane, lists)) {
 			rec.status = "exited";
 			saveAgent(ctx.store, rec);
 			changed.push(rec);
@@ -7560,6 +7713,10 @@ function paneOf(store, id) {
 * The adapter is resolved lazily via `getAdapter`, invoked only once a pane to ring is confirmed and
 * inside the same swallowing try — so a session with no mux backend (where `selectSessionAdapter`
 * throws) is just a no-op wake, never a failed send.
+*
+* A peer or presence hosted in a Claude background session has no pane: it is rung through its own
+* session (`background.ts`), chosen from its record and never from the sender's multiplexer. A stopped
+* one is not rung; a busy, blocked, or gone one is a warning.
 */
 async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpts) {
 	if (input.noNudge) return { rung: false };
@@ -7568,6 +7725,7 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 	let pane;
 	let harness;
 	let focusGated = false;
+	let ringee;
 	let spawnWarning;
 	if (recipient.kind === "standing") {
 		let presenceUnit = presenceOf(store, recipient);
@@ -7587,6 +7745,7 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 			spawnWarning = homeSpawnWarning(recipient.handle, err);
 		}
 		if (presenceUnit) {
+			ringee = presenceUnit;
 			pane = paneOf(store, presenceUnit.id);
 			harness = presenceUnit.harness;
 		} else {
@@ -7594,6 +7753,7 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 			focusGated = true;
 		}
 	} else {
+		ringee = recipient;
 		pane = paneOf(store, recipient.id);
 		harness = recipient.harness;
 	}
@@ -7604,6 +7764,7 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		warning: result.warning ? `${spawnWarning}; ${result.warning}` : spawnWarning
 	};
 	async function ringResolved() {
+		if (ringee && backgroundId(ringee)) return ringBackground(ringee);
 		if (!pane) return { rung: false };
 		if (pane === paneOf(store, input.fromId)) return { rung: false };
 		if (focusGated) {
@@ -7634,6 +7795,25 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 			return {
 				rung: false,
 				pane,
+				warning: err instanceof Error ? err.message : String(err)
+			};
+		}
+	}
+	/** Ring a background-hosted recipient through its own session (`background.ts`). A stopped unit stays
+	* stopped and is not rung; every ring that fails is a warning carrying the ring's own reason. */
+	function ringBackground(rec) {
+		const short = backgroundId(rec);
+		if (rec.id === input.fromId || rec.status === "stopped") return { rung: false };
+		try {
+			ringSession(exec, rec, DELIVERY_DOORBELL);
+			return {
+				rung: true,
+				pane: short
+			};
+		} catch (err) {
+			return {
+				rung: false,
+				pane: short,
 				warning: err instanceof Error ? err.message : String(err)
 			};
 		}
@@ -7810,7 +7990,24 @@ function stuck(where) {
 * `screen`) falls through to the plain "no backend" refusal, unchanged from before the migration.
 */
 function selectSessionAdapter(env, exec = realExec) {
+	return adapterFor(probeMultiplexer(exec, normalizeMuxEnv(env)));
+}
+/**
+* Spawn's backend, keyed on the unit's harness as well as the environment (ADR-0036): a detected tmux
+* or herdr wins; with no multiplexer at all, a `claude` unit runs in a Claude background session;
+* anything else is `selectSessionAdapter`'s refusal. The background session is the fallback for NO
+* multiplexer, not for an unsupported one — a detected wezterm or zellij is still refused. Kept apart
+* from `selectSessionAdapter`, which stays multiplexer-only (`mux mode` reports `none` outside one).
+*/
+function selectSpawnBackend(env, exec, harness) {
 	const probe = probeMultiplexer(exec, normalizeMuxEnv(env));
+	if (probe.mux === "none" && harness === "claude") return { kind: "claude-bg" };
+	return {
+		kind: "mux",
+		adapter: adapterFor(probe)
+	};
+}
+function adapterFor(probe) {
 	if (probe.mux === "tmux") return tmuxMuxAdapter;
 	if (probe.mux === "herdr") return herdrMuxAdapter;
 	if (probe.mux === "wezterm" || probe.mux === "zellij") throw new Error(`spawn detected ${probe.mux}, a backend unit/registry cannot store a pane locator under (only tmux and herdr) — refusing before opening anything`);
@@ -8078,6 +8275,9 @@ function resolveSpawnBase(exec, primaryRoot, base) {
 * Launch a new peer session as a genuine sibling unit: lease a git worktree distinct from the primary
 * checkout (refuse the primary checkout), open a session backend (tmux or herdr) with its cwd set to
 * that worktree, pre-register the peer, and drop its brief as a file — never typed into its prompt.
+* With no multiplexer, a claude unit runs instead as a Claude background session (`background.ts`,
+* ADR-0036), started with the spawn wake as its first prompt; a session that fails to start leaves
+* no record, and the worktree it would have run in is given back.
 * Nothing loads that file for the peer: it is the spawn wake that tells the peer to go read it, naming
 * its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a peer sitting idle
 * with its brief unread, which is why callers want `spawnAndWake`.
@@ -8096,18 +8296,24 @@ async function spawn(ctx, input) {
 	ctx.store.ensureMarker();
 	const env = ctx.env ?? process.env;
 	const exec = ctx.exec ?? realExec;
-	const sessionAdapter = selectSessionAdapter(env, exec);
 	const normalizedEnv = normalizeMuxEnv(env);
 	const harness = input.harness;
 	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`spawn needs a --harness in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")})`);
+	const backend = selectSpawnBackend(env, exec, harness);
+	const sessionAdapter = backend.kind === "mux" ? backend.adapter : void 0;
+	const launch = input.command ?? LAUNCH_MAP[harness];
+	if (!sessionAdapter) {
+		if (input.noWake) throw refuseNoWake();
+		assertClaudeLaunch(launch);
+	}
 	const brief = resolveBrief(input);
 	if (brief == null) throw new Error("spawn needs a brief — pass --task <text>, --task - (stdin), or --brief-file <path>");
 	if (input.cwd && (input.branch || input.worktreePath || input.repo || input.base)) throw new Error("--cwd cannot combine with the worktree-creating flags --branch/--worktree-path/--repo/--base");
 	const id = randomId();
 	const primaryRoot$1 = input.cwd !== void 0 && input.cwdOwnRepo === true ? primaryRootOf$1(exec, input.cwd) : input.repo ? await primaryRootOfRepo(exec, input.repo) : await primaryRoot({ exec: asyncExec(exec) });
-	const launch = input.command ?? LAUNCH_MAP[harness];
-	const launchLine = () => composeLaunchLine(ctx, sessionAdapter.name, id, launch);
-	const from = callerPane(sessionAdapter, normalizedEnv);
+	const muxName = sessionAdapter?.name ?? "claude-bg";
+	const launchLine = () => composeLaunchLine(ctx, muxName, id, launch);
+	const from = sessionAdapter ? callerPane(sessionAdapter, normalizedEnv) : void 0;
 	let cwd;
 	let worktree;
 	let base;
@@ -8119,7 +8325,7 @@ async function spawn(ctx, input) {
 		if (primaryRoot$1 !== void 0) assertDistinctFromPrimary(cwd, primaryRoot$1);
 		worktree = null;
 		const at = input.at ?? "tab";
-		target = sessionAdapter.open(exec, {
+		target = sessionAdapter?.open(exec, {
 			cwd,
 			launch: launchLine(),
 			at,
@@ -8133,7 +8339,7 @@ async function spawn(ctx, input) {
 		if (input.worktreePath) assertDistinctFromPrimary(resolve(input.worktreePath), primaryRoot$1);
 		base = resolveSpawnBase(exec, primaryRoot$1, input.base);
 		const label = labelFor(at, input, brief, id);
-		const atomic = at === "workspace" ? sessionAdapter.worktree : void 0;
+		const atomic = at === "workspace" ? sessionAdapter?.worktree : void 0;
 		let opened;
 		const create = atomic ? async (req) => {
 			const made = atomic.createInWorkspace(exec, {
@@ -8192,7 +8398,7 @@ async function spawn(ctx, input) {
 			path: root,
 			launch: launchLine(),
 			...label
-		}).target : sessionAdapter.open(exec, {
+		}).target : sessionAdapter?.open(exec, {
 			cwd,
 			launch: launchLine(),
 			at,
@@ -8200,35 +8406,80 @@ async function spawn(ctx, input) {
 			...label
 		}));
 	}
+	const handle = input.handle ?? id.slice(0, 6);
+	const briefFile = paths.briefFile(ctx.store.root, id);
+	let pane;
+	if (target) pane = muxName === "tmux" || muxName === "herdr" ? {
+		mux: muxName,
+		id: target.id
+	} : null;
+	else {
+		ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions));
+		try {
+			pane = {
+				mux: BACKGROUND,
+				id: startSession(exec, cwd, backgroundScript(ctx, id, cwd, launch, handle, briefFile))
+			};
+		} catch (err) {
+			await rollbackBackgroundSpawn(ctx, exec, id, worktree);
+			throw err;
+		}
+	}
 	const ts = new Date(ctx.now?.() ?? Date.now()).toISOString();
-	const muxName = sessionAdapter.name;
 	const rec = {
 		id,
-		handle: input.handle ?? id.slice(0, 6),
+		handle,
 		harness,
 		cwd,
 		worktree,
-		pane: muxName === "tmux" || muxName === "herdr" ? {
-			mux: muxName,
-			id: target.id
-		} : null,
+		pane,
 		status: "active",
 		createdAt: ts,
 		lastSeen: ts,
-		brief: paths.briefFile(ctx.store.root, id),
+		brief: briefFile,
 		launch,
 		...resolveSelfId(ctx) ? { spawnedBy: resolveSelfId(ctx) } : {}
 	};
 	saveAgent(ctx.store, rec);
-	ctx.store.putPaneIndex(target.id, id);
-	ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions));
+	if (target) {
+		ctx.store.putPaneIndex(target.id, id);
+		ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions));
+	}
 	return {
 		agent: rec,
-		pane: target.id,
+		pane: target?.id ?? pane?.id,
 		launch,
 		...base ? { base } : {},
 		...reused !== void 0 ? { reused } : {}
 	};
+}
+/**
+* The shell line that starts a unit's background session: in the unit's folder, with the unit's id
+* and the CLI shim in its environment, named after the unit's handle, and with the spawn wake as its
+* first prompt — the first turn a pane gets from a ring.
+*/
+function backgroundScript(ctx, id, cwd, launch, handle, briefFile) {
+	const command = `CYBERLEGION_AGENT_ID=${shellQuote$1(id)} ${launch} --bg --name ${shellQuote$1(handle)} ${shellQuote$1(spawnDoorbell(briefFile))}`;
+	return `cd ${shellQuote$1(cwd)} && ${composeLaunchLine(ctx, BACKGROUND, id, command)}`;
+}
+/** Undo what a background spawn made before its session failed to start: the unit's data (its brief
+* and shim), and the worktree — its lease released, or a `--worktree-path` worktree removed. A `--cwd`
+* folder was not made here and is left alone. */
+async function rollbackBackgroundSpawn(ctx, exec, id, worktree) {
+	ctx.store.removeAgentData(id);
+	if (!worktree) return;
+	if (worktree.lease) await libraryLeases.release({
+		worktree: worktree.root,
+		...worktree.lease
+	}, { exec: asyncExec(exec) });
+	else if (worktree.primaryRoot) exec("git", [
+		"-C",
+		worktree.primaryRoot,
+		"worktree",
+		"remove",
+		"--force",
+		worktree.root
+	]);
 }
 /**
 * `unit spawn` end to end: open the peer, then deliver its first turn.
@@ -8251,7 +8502,10 @@ async function spawn(ctx, input) {
 * reported as `trustBlocked`, a failure the caller must surface, not a best-effort warning.
 */
 async function spawnAndWake(ctx, input, options = {}) {
-	const res = await spawn(ctx, input);
+	const res = await spawn(ctx, {
+		...input,
+		...options.noWake ? { noWake: true } : {}
+	});
 	const trust = await settleSpawnTrust(ctx, res, options);
 	if (trust.trustBlocked) return {
 		...res,
@@ -8269,6 +8523,10 @@ async function spawnAndWake(ctx, input, options = {}) {
 * this folder (a standing owner's registered home), so its prompt is accepted as a worktree spawn's is.
 */
 async function settleSpawnTrust(ctx, res, options) {
+	if (backgroundId(res.agent)) return {
+		rung: false,
+		trust: "none"
+	};
 	const trust = await settleTrust(ctx, res, options.trustOpts, options.trustFolder);
 	if (trust.state === "needs-human" || trust.state === "stuck") return {
 		rung: false,
@@ -8283,6 +8541,10 @@ async function settleSpawnTrust(ctx, res, options) {
 /** Ring a just-spawned unit's first turn once its trust prompt has settled — the second half of
 * `spawnAndWake`. */
 async function ringSpawnFirstTurn(ctx, res, trust, options) {
+	if (backgroundId(res.agent)) return {
+		rung: true,
+		trust: trust.trust
+	};
 	const env = ctx.env ?? process.env;
 	const exec = ctx.exec ?? realExec;
 	const briefPath = res.agent.brief;
@@ -8448,6 +8710,7 @@ function paneTargetOf(ctx, ref) {
 */
 function focusUnit(ctx, ref) {
 	const { agent, target } = paneTargetOf(ctx, ref);
+	if (backgroundId(agent)) throw unsupported(agent, "focus", ` — there is no view to move to; open it with claude attach ${target.id}`);
 	const exec = ctx.exec ?? realExec;
 	selectSessionAdapter(ctx.env ?? process.env, exec).focus(exec, target);
 	return {
@@ -8466,6 +8729,15 @@ async function nudgeUnit(ctx, ref, options = {}) {
 	const { agent, target } = paneTargetOf(ctx, ref);
 	const exec = ctx.exec ?? realExec;
 	const message = options.message || "You have unread mail — check your inbox.";
+	if (backgroundId(agent)) {
+		ringSession(exec, agent, message);
+		return {
+			agent,
+			pane: target.id,
+			message,
+			resubmits: 0
+		};
+	}
 	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec);
 	const result = await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, message, options.nudgeOpts), {
 		...options.guardOpts,
@@ -8483,6 +8755,11 @@ async function nudgeUnit(ctx, ref, options = {}) {
 function readUnit(ctx, ref, options = {}) {
 	const { agent, target } = paneTargetOf(ctx, ref);
 	const exec = ctx.exec ?? realExec;
+	if (backgroundId(agent)) return {
+		agent,
+		pane: target.id,
+		output: readLog(exec, agent, options.lines)
+	};
 	const output = selectSessionAdapter(ctx.env ?? process.env, exec).read(exec, target, { lines: options.lines }).text;
 	return {
 		agent,
@@ -8501,6 +8778,7 @@ function readUnit(ctx, ref, options = {}) {
 */
 async function clearUnit(ctx, ref, options = {}) {
 	const { agent, target } = paneTargetOf(ctx, ref);
+	if (backgroundId(agent)) throw unsupported(agent, "clear");
 	const pane = target.id;
 	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`);
 	const command = resetCommandFor(agent.harness);
@@ -8958,7 +9236,8 @@ async function decommission(ctx, input) {
 	if (worktreeRoot && primaryRoot && resolve(worktreeRoot) === resolve(primaryRoot)) throw new Error(`refusing to decommission "${input.id}" — its worktree is the primary checkout; neither --force nor --keep-worktree overrides this`);
 	const removesWorktree = worktreeExists && !input.keepWorktree && !held;
 	if (removesWorktree && !input.force && isDirty(exec, worktreeRoot)) throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`);
-	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id);
+	const short = backgroundId(rec);
+	const pane = short ? void 0 : rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id);
 	if (worktreeRoot && !worktreeExists && primaryRoot && existsSync(primaryRoot)) exec("git", [
 		"-C",
 		primaryRoot,
@@ -8975,6 +9254,7 @@ async function decommission(ctx, input) {
 	} catch (err) {
 		throw new Error(`decommission "${input.id}" aborted — worktree removal failed, record left intact for retry: ${err instanceof Error ? err.message : String(err)}`);
 	}
+	if (short) removeSession(exec, short);
 	if (pane) try {
 		selectSessionAdapter(env, exec).teardown(exec, { id: pane });
 	} catch {}
@@ -8987,7 +9267,7 @@ async function decommission(ctx, input) {
 		worktreeRoot,
 		retainedWorktree: worktreeExists && (input.keepWorktree || held) ? worktreeRoot : void 0,
 		...lease ? { lease } : {},
-		pane
+		pane: short ?? pane
 	};
 }
 /**
@@ -10511,6 +10791,21 @@ function stopUnit(ctx, ref) {
 		verified: true,
 		alreadyStopped: true
 	};
+	const short = backgroundId(rec);
+	if (short) {
+		const { verified } = stopSession(ctx.exec ?? realExec, rec);
+		const stopped = {
+			...rec,
+			status: "stopped"
+		};
+		saveAgent(ctx.store, stopped);
+		return {
+			agent: stopped,
+			pane: short,
+			verified,
+			alreadyStopped: false
+		};
+	}
 	return {
 		...stopRuntime(ctx, rec),
 		alreadyStopped: false
@@ -10530,6 +10825,7 @@ function stopUnit(ctx, ref) {
 */
 async function restartUnit(ctx, ref, options = {}) {
 	const rec = resolveAgent(ctx.store, ref);
+	if (backgroundId(rec)) throw unsupported(rec, "restart");
 	assertHasRuntime(rec, ref);
 	assertNotSelf(ctx, rec, "restart");
 	const harness = rec.harness;
@@ -10602,6 +10898,12 @@ function probeLiveness(ctx, rec) {
 	if (rec.kind === "standing" || rec.kind === "service") return "none";
 	if (rec.status === "stopped") return "stopped";
 	if (rec.status === "exited") return "exited";
+	const short = backgroundId(rec);
+	if (short) {
+		const listing = listSessions(ctx.exec ?? realExec);
+		if (!listing) return "unknown";
+		return sessionGone(listing, short) ? "gone" : "live";
+	}
 	const pane = runtimePane(ctx, rec);
 	const adapter = pane ? paneAdapter(ctx, rec) : void 0;
 	if (!pane || !adapter) return "unknown";
@@ -10618,6 +10920,7 @@ function probeLiveness(ctx, rec) {
 function rebindUnit(ctx, ref) {
 	const rec = resolveAgent(ctx.store, ref);
 	assertHasRuntime(rec, ref);
+	if (backgroundId(rec)) throw unsupported(rec, "rebind");
 	const cur = storablePane(ctx.env ?? process.env);
 	if (!cur) throw new Error("unit rebind needs to run inside a tmux or herdr pane — there is no pane to bind");
 	const oldPane = runtimePane(ctx, rec);
@@ -10654,6 +10957,12 @@ function hasHonestReset(harness) {
 * pane's display name, which any session can set. */
 function controlsFor(ctx, rec, liveness) {
 	if (liveness === "none") return [];
+	if (backgroundId(rec)) return liveness === "live" ? [
+		"nudge",
+		"read",
+		"stop",
+		"close"
+	] : ["close"];
 	const controls = [];
 	if (liveness === "live") {
 		controls.push("focus", "nudge", "read");
@@ -11055,7 +11364,7 @@ function reportBaseFallback(res) {
 	if (res.base?.fallback) console.error(`base: fell back to local HEAD — ${res.base.fallback}`);
 }
 function defineSpawn(cmd) {
-	return syncsUnits(withSpawnOptions(cmd)).description("launch a new peer session in its own git worktree (tmux or herdr)").action(async (opts) => {
+	return syncsUnits(withSpawnOptions(cmd)).description("launch a new peer session in its own git worktree (tmux or herdr; with neither, a claude unit runs as a Claude background session)").action(async (opts) => {
 		const ctx = ctxOf(opts);
 		touch(ctx);
 		let spawnInput;

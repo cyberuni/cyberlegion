@@ -7,6 +7,7 @@ import {
 	type NudgeOptions,
 	tmuxMuxAdapter,
 } from 'cyber-mux'
+import { backgroundId, listSessions, sessionGone, stopSession, unsupported } from './background.ts'
 import { wakeSpawn } from './console/doorbell.ts'
 import {
 	type AgentRecord,
@@ -119,6 +120,14 @@ export function stopUnit(ctx: RuntimeContext, ref: string): StopResult {
 	assertHasRuntime(rec, ref)
 	assertNotSelf(ctx, rec, 'stop')
 	if (rec.status === 'stopped') return { agent: rec, verified: true, alreadyStopped: true }
+	const short = backgroundId(rec)
+	if (short) {
+		// A background unit keeps its locator through a stop, so `unit close` can still delete the session.
+		const { verified } = stopSession(ctx.exec ?? realExec, rec)
+		const stopped: AgentRecord = { ...rec, status: 'stopped' }
+		saveAgent(ctx.store, stopped)
+		return { agent: stopped, pane: short, verified, alreadyStopped: false }
+	}
 	return { ...stopRuntime(ctx, rec), alreadyStopped: false }
 }
 
@@ -152,6 +161,7 @@ export async function restartUnit(
 	options: { noWake?: boolean; fresh?: boolean; nudgeOpts?: NudgeOptions } = {},
 ): Promise<RestartResult> {
 	const rec = resolveAgent(ctx.store, ref)
+	if (backgroundId(rec)) throw unsupported(rec, 'restart')
 	assertHasRuntime(rec, ref)
 	assertNotSelf(ctx, rec, 'restart')
 	const harness = rec.harness as Harness | undefined
@@ -241,6 +251,12 @@ function probeLiveness(ctx: RuntimeContext, rec: AgentRecord): Liveness {
 	if (rec.kind === 'standing' || rec.kind === 'service') return 'none'
 	if (rec.status === 'stopped') return 'stopped'
 	if (rec.status === 'exited') return 'exited'
+	const short = backgroundId(rec)
+	if (short) {
+		const listing = listSessions(ctx.exec ?? realExec)
+		if (!listing) return 'unknown'
+		return sessionGone(listing, short) ? 'gone' : 'live'
+	}
 	const pane = runtimePane(ctx, rec)
 	const adapter = pane ? paneAdapter(ctx, rec) : undefined
 	if (!pane || !adapter) return 'unknown'
@@ -258,6 +274,9 @@ function probeLiveness(ctx: RuntimeContext, rec: AgentRecord): Liveness {
 export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 	const rec = resolveAgent(ctx.store, ref)
 	assertHasRuntime(rec, ref)
+	// Binding the caller's pane would replace the locator and leave the background session with
+	// nothing that can delete it.
+	if (backgroundId(rec)) throw unsupported(rec, 'rebind')
 	const cur = storablePane(ctx.env ?? process.env)
 	if (!cur) throw new Error('unit rebind needs to run inside a tmux or herdr pane — there is no pane to bind')
 
@@ -323,6 +342,7 @@ function hasHonestReset(harness: string | undefined): boolean {
  * pane's display name, which any session can set. */
 function controlsFor(ctx: RuntimeContext, rec: AgentRecord, liveness: Liveness): Control[] {
 	if (liveness === 'none') return []
+	if (backgroundId(rec)) return liveness === 'live' ? ['nudge', 'read', 'stop', 'close'] : ['close']
 	const controls: Control[] = []
 	if (liveness === 'live') {
 		controls.push('focus', 'nudge', 'read')

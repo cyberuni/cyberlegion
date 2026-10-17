@@ -509,9 +509,10 @@ describe('spawn errors', () => {
 		expect(sent).toEqual([])
 		expect(store.listAgents()).toEqual([])
 	})
-	it('errors when neither tmux nor herdr is detected', async () => {
+	// A claude spawn with no multiplexer runs in a Claude background session instead (background.test.ts).
+	it('errors when neither tmux nor herdr is detected for a non-claude harness', async () => {
 		const noBackend: IdContext = { store, env: {}, exec: fakeExec }
-		await expect(spawn(noBackend, { harness: 'claude', task: 't' })).rejects.toThrow(/tmux/)
+		await expect(spawn(noBackend, { harness: 'cursor', task: 't' })).rejects.toThrow(/tmux/)
 	})
 })
 

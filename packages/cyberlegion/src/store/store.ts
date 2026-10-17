@@ -40,9 +40,14 @@ export interface AgentRecord {
 		primaryRoot?: string
 		lease?: { leaseId: string; holder: string }
 	} | null
-	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
-	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
-	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null
+	/** Where this session lives, tagged with its backend so `prune` runs the right liveness check: a
+	 * tmux or herdr pane, or `claude-bg` for a Claude Code background session, whose `id` is the short
+	 * id `claude --bg` printed (`background.ts`). `null` for a session in no pane and for a standing
+	 * record. `window`/`session` are tmux-only. */
+	pane?:
+		| { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string }
+		| { mux: 'claude-bg'; id: string }
+		| null
 	pid?: number
 	/** A record migrated from an older hub (`admin migrate`) may carry a status this version no
 	 * longer writes — the retired `spawning` is the known case. **Reads preserve it verbatim**: no

@@ -1,4 +1,4 @@
-import { herdrMuxAdapter, type MuxAdapter, probeMultiplexer, tmuxMuxAdapter } from 'cyber-mux'
+import { herdrMuxAdapter, type MuxAdapter, type MuxProbe, probeMultiplexer, tmuxMuxAdapter } from 'cyber-mux'
 import { type Exec, realExec } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 
@@ -15,7 +15,27 @@ import { normalizeMuxEnv } from './mux-env.ts'
  * `screen`) falls through to the plain "no backend" refusal, unchanged from before the migration.
  */
 export function selectSessionAdapter(env: NodeJS.ProcessEnv, exec: Exec = realExec): MuxAdapter {
+	return adapterFor(probeMultiplexer(exec, normalizeMuxEnv(env)))
+}
+
+/** Where `unit spawn` hosts a new unit's session: a multiplexer's adapter, or a Claude background
+ * session (`background.ts`). */
+export type SpawnBackend = { kind: 'mux'; adapter: MuxAdapter } | { kind: 'claude-bg' }
+
+/**
+ * Spawn's backend, keyed on the unit's harness as well as the environment (ADR-0036): a detected tmux
+ * or herdr wins; with no multiplexer at all, a `claude` unit runs in a Claude background session;
+ * anything else is `selectSessionAdapter`'s refusal. The background session is the fallback for NO
+ * multiplexer, not for an unsupported one — a detected wezterm or zellij is still refused. Kept apart
+ * from `selectSessionAdapter`, which stays multiplexer-only (`mux mode` reports `none` outside one).
+ */
+export function selectSpawnBackend(env: NodeJS.ProcessEnv, exec: Exec, harness: string): SpawnBackend {
 	const probe = probeMultiplexer(exec, normalizeMuxEnv(env))
+	if (probe.mux === 'none' && harness === 'claude') return { kind: 'claude-bg' }
+	return { kind: 'mux', adapter: adapterFor(probe) }
+}
+
+function adapterFor(probe: MuxProbe): MuxAdapter {
 	if (probe.mux === 'tmux') return tmuxMuxAdapter
 	if (probe.mux === 'herdr') return herdrMuxAdapter
 	if (probe.mux === 'wezterm' || probe.mux === 'zellij') {

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { primaryRoot as libraryPrimaryRoot, type ReleaseResult } from '@cyberuni/agent-harness/worktrees'
 import { gitWorktreeAdapter } from 'cyber-mux/worktree'
+import { backgroundId, removeSession } from './background.ts'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, realExec } from './identity.ts'
 import { deleteMailbox } from './message.ts'
 import { selectSessionAdapter } from './mux-select.ts'
@@ -93,7 +94,8 @@ export async function decommission(ctx: IdContext, input: DecommissionInput): Pr
 		throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`)
 	}
 
-	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id)
+	const short = backgroundId(rec)
+	const pane = short ? undefined : (rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id))
 
 	// A worktree whose directory is gone may still be registered with git — a removal interrupted
 	// after the directory went. Clear that registration where it lives so the branch is not held by a
@@ -120,6 +122,9 @@ export async function decommission(ctx: IdContext, input: DecommissionInput): Pr
 		}
 	}
 
+	// Only now, past every refusal and the worktree's removal, is the session torn down: a refused or
+	// failed close leaves it for the retry.
+	if (short) removeSession(exec, short)
 	if (pane) {
 		try {
 			selectSessionAdapter(env, exec).teardown(exec, { id: pane })
@@ -141,7 +146,7 @@ export async function decommission(ctx: IdContext, input: DecommissionInput): Pr
 		worktreeRoot,
 		retainedWorktree: worktreeExists && (input.keepWorktree || held) ? (worktreeRoot as string) : undefined,
 		...(lease ? { lease } : {}),
-		pane,
+		pane: short ?? pane,
 	}
 }
 

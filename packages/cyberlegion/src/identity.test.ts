@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { fakeClaude, listed } from './fake-claude.test-util.ts'
 import {
 	type AgentRecord,
 	claimPresence,
@@ -236,6 +237,55 @@ describe('spec:cyberlegion/identity', () => {
 			expect(loadAgent(store, rec.id)?.status).toBe('active')
 		})
 
+		// A background unit (unit/background) is judged by Claude Code's session listing — boundary level,
+		// the listing answered at the `Exec` seam.
+		const bgRecord = (): AgentRecord => {
+			const rec: AgentRecord = {
+				id: 'bg1',
+				handle: 'bg1',
+				harness: 'claude',
+				cwd: '/repo',
+				pane: { mux: 'claude-bg', id: '9f8e7d6c' },
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: new Date(FRESH).toISOString(),
+			}
+			saveAgent(store, rec)
+			return rec
+		}
+
+		it('prune marks a background unit exited when Claude Code no longer lists its session', () => {
+			const rec = bgRecord()
+			const { exec } = fakeClaude({ listing: [listed('0a0b0c0d', { status: 'busy', state: 'working' })] })
+			const changed = prune({ store, env: {}, exec, now: () => FRESH })
+			expect(loadAgent(store, rec.id)?.status).toBe('exited')
+			expect(changed.map((r) => r.id)).toContain(rec.id)
+		})
+
+		it("prune marks a background unit exited when Claude Code's session listing is empty", () => {
+			const rec = bgRecord()
+			const { exec } = fakeClaude({ listing: [] })
+			const changed = prune({ store, env: {}, exec, now: () => FRESH })
+			expect(loadAgent(store, rec.id)?.status).toBe('exited')
+			expect(changed.map((r) => r.id)).toContain(rec.id)
+		})
+
+		it('prune leaves a background unit whose session is listed untouched however stale its last-seen', () => {
+			const rec = bgRecord()
+			const { exec } = fakeClaude({ listing: [listed('9f8e7d6c', { status: 'idle', state: 'done' })] })
+			const changed = prune({ store, env: {}, exec, now: () => STALE })
+			expect(loadAgent(store, rec.id)?.status).toBe('active')
+			expect(changed).toEqual([])
+		})
+
+		it("prune leaves a background unit untouched when Claude Code's session listing cannot be read", () => {
+			const rec = bgRecord()
+			const { exec } = fakeClaude({ listing: 'unreadable' })
+			const changed = prune({ store, env: {}, exec, now: () => STALE })
+			expect(loadAgent(store, rec.id)?.status).toBe('active')
+			expect(changed).toEqual([])
+		})
+
 		it('prune leaves a stopped unit untouched however stale its last-seen', () => {
 			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'paused' }), { handle: 'paused', harness: 'claude' })
 			saveAgent(store, { ...(loadAgent(store, rec.id) as AgentRecord), status: 'stopped', pane: null })
@@ -292,6 +342,26 @@ describe('spec:cyberlegion/identity', () => {
 			const changed = reconcile({ store, env: tmuxEnv, exec: tmuxListExec([]), now: () => FRESH })
 			expect(changed.map((r) => r.id)).not.toContain(herdrRec.id)
 			expect(loadAgent(store, herdrRec.id)?.status).toBe('active')
+		})
+
+		it('reconcile from a multiplexer pane never culls a background unit', () => {
+			const rec: AgentRecord = {
+				id: 'bg1',
+				handle: 'bg1',
+				harness: 'claude',
+				cwd: '/repo',
+				pane: { mux: 'claude-bg', id: '9f8e7d6c' },
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			}
+			saveAgent(store, rec)
+			const e = { TMUX: 't', TMUX_PANE: '%7' }
+			reconcile(
+				{ store, env: e, exec: tmuxListExec(['%7 claude /repo', '%8 zsh /home']), now: () => FRESH },
+				{ adopt: true },
+			)
+			expect(loadAgent(store, rec.id)?.status).toBe('active')
 		})
 
 		it('reconcile never touches a standing record', () => {

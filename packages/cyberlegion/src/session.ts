@@ -7,7 +7,17 @@ import {
 } from '@cyberuni/agent-harness/worktrees'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, resolvePrimaryRoot } from 'cyber-mux/worktree'
-import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
+import {
+	assertClaudeLaunch,
+	BACKGROUND,
+	backgroundId,
+	readLog,
+	refuseNoWake,
+	ringSession,
+	startSession,
+	unsupported,
+} from './background.ts'
+import { DELIVERY_DOORBELL, isRingText, spawnDoorbell, wakeSpawn } from './console/doorbell.ts'
 import { type DraftGuardOptions, withDraftGuard } from './console/prompt-guard.ts'
 import { ringTurn } from './console/ring.ts'
 import { answerTrustPrompt, type TrustOptions, type TrustOutcome } from './console/trust.ts'
@@ -23,7 +33,7 @@ import {
 	saveAgent,
 } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
-import { selectSessionAdapter } from './mux-select.ts'
+import { selectSessionAdapter, selectSpawnBackend } from './mux-select.ts'
 import { ensureMarker, paths } from './paths.ts'
 import { deriveWorkspaceLabel } from './workspace-label.ts'
 import { asyncExec, LEASE_IGNORE, leaseHolder, libraryLeases } from './worktree-lease.ts'
@@ -107,8 +117,12 @@ export interface SpawnInput {
 	 * origin's default branch, falling back to local HEAD (and saying so) when it cannot. Named
 	 * explicitly, it is used as given and nothing is fetched. */
 	base?: string
-	/** Placement relative to the caller; defaults to 'tab'. */
+	/** Placement relative to the caller; defaults to 'tab'. Read by nothing on a background session,
+	 * which has no space to place. */
 	at?: MuxPlacement
+	/** The caller will not ring the first turn (`--no-wake`). A background session takes its first turn
+	 * from the prompt it starts with, so a background spawn refuses this before creating anything. */
+	noWake?: boolean
 	/** With `cwd`: keep the unit out of the primary checkout of the repository **containing `cwd`**,
 	 * not the caller's, and allow a `cwd` in no repository at all. For a spawn whose caller may run
 	 * anywhere — the delivery doorbell's spawn into a standing owner's home, sent from a cron job in
@@ -147,6 +161,7 @@ interface SpawnBase {
 
 export interface SpawnResult {
 	agent: AgentRecord
+	/** The new session's pane id, or a background session's short id. */
 	pane: string
 	launch: string
 	/** Absent for a `--cwd` spawn, which creates no worktree. */
@@ -177,6 +192,9 @@ function resolveSpawnBase(exec: Exec, primaryRoot: string, base?: string): Spawn
  * Launch a new peer session as a genuine sibling unit: lease a git worktree distinct from the primary
  * checkout (refuse the primary checkout), open a session backend (tmux or herdr) with its cwd set to
  * that worktree, pre-register the peer, and drop its brief as a file — never typed into its prompt.
+ * With no multiplexer, a claude unit runs instead as a Claude background session (`background.ts`,
+ * ADR-0036), started with the spawn wake as its first prompt; a session that fails to start leaves
+ * no record, and the worktree it would have run in is given back.
  * Nothing loads that file for the peer: it is the spawn wake that tells the peer to go read it, naming
  * its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a peer sitting idle
  * with its brief unread, which is why callers want `spawnAndWake`.
@@ -195,12 +213,19 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 	ctx.store.ensureMarker()
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
-	const sessionAdapter = selectSessionAdapter(env, exec)
 	const normalizedEnv = normalizeMuxEnv(env)
 
 	const harness = input.harness as Harness | undefined
 	if (!harness || !(harness in LAUNCH_MAP)) {
 		throw new Error(`spawn needs a --harness in the launch map (${Object.keys(LAUNCH_MAP).join(' | ')})`)
+	}
+	const backend = selectSpawnBackend(env, exec, harness)
+	// Undefined on a background session, which has no pane to open (`background.ts`).
+	const sessionAdapter = backend.kind === 'mux' ? backend.adapter : undefined
+	const launch = input.command ?? LAUNCH_MAP[harness]
+	if (!sessionAdapter) {
+		if (input.noWake) throw refuseNoWake()
+		assertClaudeLaunch(launch)
 	}
 	const brief = resolveBrief(input)
 	if (brief == null) {
@@ -220,21 +245,22 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		: input.repo
 			? await primaryRootOfRepo(exec, input.repo)
 			: await libraryPrimaryRoot({ exec: asyncExec(exec) })
-	const launch = input.command ?? LAUNCH_MAP[harness]
+	const muxName = sessionAdapter?.name ?? BACKGROUND
 	// Called only past every refusal, right before a session opens: a refused spawn leaves no shim
 	// behind, and the harness — which boots the moment its pane does — finds it on its first call.
-	const launchLine = (): string => composeLaunchLine(ctx, sessionAdapter.name, id, launch)
+	const launchLine = (): string => composeLaunchLine(ctx, muxName, id, launch)
 	// A pane placement splits the CALLER's own pane, never whichever pane the backend defaults to —
 	// each backend's own default tracks the pane a HUMAN is looking at, which diverges exactly when a
 	// program is driving, which spawn always is (mux.feature: "a pane placement splits the calling
 	// pane, not whichever pane is active"). Ignored by tab/workspace opens, which split nothing.
-	const from = callerPane(sessionAdapter, normalizedEnv)
+	const from = sessionAdapter ? callerPane(sessionAdapter, normalizedEnv) : undefined
 
 	let cwd: string
 	let worktree: AgentRecord['worktree']
 	let base: SpawnBase | undefined
 	let reused: boolean | undefined
-	let target: MuxTarget
+	// Undefined until a pane opens, and for good on a background session.
+	let target: MuxTarget | undefined
 	if (input.cwd) {
 		if (!existsSync(input.cwd)) {
 			throw new Error(`--cwd directory must already exist: ${input.cwd}`)
@@ -245,7 +271,7 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
 		// the caller opted into an existing dir, not into carving out an isolated space.
 		const at = input.at ?? 'tab'
-		target = sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
+		target = sessionAdapter?.open(exec, { cwd, launch: launchLine(), at, from, ...labelFor(at, input, brief, id) })
 	} else {
 		if (primaryRoot === undefined) throw new Error('a worktree spawn needs a primary checkout')
 		const branch = input.branch ?? `cyberlegion/unit-${id}`
@@ -266,7 +292,7 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		// organizational improvement (herdr nests the worktree under its source workspace) over a
 		// separate worktree-add followed by a disconnected open(). Handed to the library as its
 		// creator, so herdr still binds the worktrees it creates while the library picks their path.
-		const atomic = at === 'workspace' ? sessionAdapter.worktree : undefined
+		const atomic = at === 'workspace' ? sessionAdapter?.worktree : undefined
 		let opened: MuxTarget | undefined
 		const create: WorktreeCreator = atomic
 			? async (req) => {
@@ -313,36 +339,88 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 			(atomic
 				? // A recycled worktree already exists, so the atomic route opens it in a bound workspace.
 					atomic.openInWorkspace(exec, { primaryRoot, path: root, launch: launchLine(), ...label }).target
-				: sessionAdapter.open(exec, { cwd, launch: launchLine(), at, from, ...label }))
+				: sessionAdapter?.open(exec, { cwd, launch: launchLine(), at, from, ...label }))
+	}
+
+	const handle = input.handle ?? id.slice(0, 6)
+	const briefFile = paths.briefFile(ctx.store.root, id)
+	let pane: AgentRecord['pane']
+	if (target) {
+		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
+		pane = muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null
+	} else {
+		// A background session reads its brief on its first turn, so the brief is on disk before it starts.
+		ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions))
+		try {
+			pane = { mux: BACKGROUND, id: startSession(exec, cwd, backgroundScript(ctx, id, cwd, launch, handle, briefFile)) }
+		} catch (err) {
+			await rollbackBackgroundSpawn(ctx, exec, id, worktree)
+			throw err
+		}
 	}
 
 	const ts = new Date(ctx.now?.() ?? Date.now()).toISOString()
-	const muxName = sessionAdapter.name
 	const rec: AgentRecord = {
 		id,
-		handle: input.handle ?? id.slice(0, 6),
+		handle,
 		harness,
 		cwd,
 		worktree,
-		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
-		pane: muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null,
+		pane,
 		status: 'active',
 		createdAt: ts,
 		lastSeen: ts,
-		brief: paths.briefFile(ctx.store.root, id),
+		brief: briefFile,
 		launch,
 		...(resolveSelfId(ctx) ? { spawnedBy: resolveSelfId(ctx) } : {}),
 	}
 	saveAgent(ctx.store, rec)
-	ctx.store.putPaneIndex(target.id, id)
-	ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions))
+	if (target) {
+		ctx.store.putPaneIndex(target.id, id)
+		ctx.store.writeBrief(id, composeBrief(brief, input.briefInstructions))
+	}
 
 	return {
 		agent: rec,
-		pane: target.id,
+		pane: target?.id ?? (pane?.id as string),
 		launch,
 		...(base ? { base } : {}),
 		...(reused !== undefined ? { reused } : {}),
+	}
+}
+
+/**
+ * The shell line that starts a unit's background session: in the unit's folder, with the unit's id
+ * and the CLI shim in its environment, named after the unit's handle, and with the spawn wake as its
+ * first prompt — the first turn a pane gets from a ring.
+ */
+function backgroundScript(
+	ctx: IdContext,
+	id: string,
+	cwd: string,
+	launch: string,
+	handle: string,
+	briefFile: string,
+): string {
+	const command = `CYBERLEGION_AGENT_ID=${shellQuote(id)} ${launch} --bg --name ${shellQuote(handle)} ${shellQuote(spawnDoorbell(briefFile))}`
+	return `cd ${shellQuote(cwd)} && ${composeLaunchLine(ctx, BACKGROUND, id, command)}`
+}
+
+/** Undo what a background spawn made before its session failed to start: the unit's data (its brief
+ * and shim), and the worktree — its lease released, or a `--worktree-path` worktree removed. A `--cwd`
+ * folder was not made here and is left alone. */
+async function rollbackBackgroundSpawn(
+	ctx: IdContext,
+	exec: Exec,
+	id: string,
+	worktree: AgentRecord['worktree'],
+): Promise<void> {
+	ctx.store.removeAgentData(id)
+	if (!worktree) return
+	if (worktree.lease) {
+		await libraryLeases.release({ worktree: worktree.root, ...worktree.lease }, { exec: asyncExec(exec) })
+	} else if (worktree.primaryRoot) {
+		exec('git', ['-C', worktree.primaryRoot, 'worktree', 'remove', '--force', worktree.root])
 	}
 }
 
@@ -371,7 +449,7 @@ export async function spawnAndWake(
 	input: SpawnInput,
 	options: { noWake?: boolean; nudgeOpts?: NudgeOptions; trustOpts?: TrustOptions } = {},
 ): Promise<SpawnResult & FirstTurn> {
-	const res = await spawn(ctx, input)
+	const res = await spawn(ctx, { ...input, ...(options.noWake ? { noWake: true } : {}) })
 	const trust = await settleSpawnTrust(ctx, res, options)
 	if (trust.trustBlocked) return { ...res, ...trust }
 	return { ...res, ...(await ringSpawnFirstTurn(ctx, res, trust, options)) }
@@ -404,6 +482,9 @@ export async function settleSpawnTrust(
 	res: SpawnResult,
 	options: { trustOpts?: TrustOptions; trustFolder?: boolean },
 ): Promise<SpawnTrust> {
+	// Claude Code refuses to start a background session in a folder it does not trust, so a started one
+	// shows no prompt.
+	if (backgroundId(res.agent)) return { rung: false, trust: 'none' }
 	const trust = await settleTrust(ctx, res, options.trustOpts, options.trustFolder)
 	if (trust.state === 'needs-human' || trust.state === 'stuck') {
 		return { rung: false, trust: trust.state, trustBlocked: trust.message }
@@ -419,6 +500,8 @@ export async function ringSpawnFirstTurn(
 	trust: SpawnTrust,
 	options: { noWake?: boolean; nudgeOpts?: NudgeOptions },
 ): Promise<FirstTurn> {
+	// A background session started with the spawn wake as its prompt: its first turn is already taken.
+	if (backgroundId(res.agent)) return { rung: true, trust: trust.trust }
 	const env = ctx.env ?? process.env
 	const exec = ctx.exec ?? realExec
 	// `spawn` always records where it wrote the brief. The guard is not defensive padding: a doorbell
@@ -622,6 +705,9 @@ function paneTargetOf(ctx: IdContext, ref: string): { agent: AgentRecord; target
  */
 export function focusUnit(ctx: IdContext, ref: string): { agent: AgentRecord; pane: string } {
 	const { agent, target } = paneTargetOf(ctx, ref)
+	if (backgroundId(agent)) {
+		throw unsupported(agent, 'focus', ` — there is no view to move to; open it with claude attach ${target.id}`)
+	}
 	const exec = ctx.exec ?? realExec
 	selectSessionAdapter(ctx.env ?? process.env, exec).focus(exec, target)
 	return { agent, pane: target.id }
@@ -642,6 +728,10 @@ export async function nudgeUnit(
 	const { agent, target } = paneTargetOf(ctx, ref)
 	const exec = ctx.exec ?? realExec
 	const message = options.message || DELIVERY_DOORBELL
+	if (backgroundId(agent)) {
+		ringSession(exec, agent, message)
+		return { agent, pane: target.id, message, resubmits: 0 }
+	}
 	const adapter = selectSessionAdapter(ctx.env ?? process.env, exec)
 	const result = await withDraftGuard(
 		adapter,
@@ -665,6 +755,7 @@ export function readUnit(
 ): { agent: AgentRecord; pane: string; output: string } {
 	const { agent, target } = paneTargetOf(ctx, ref)
 	const exec = ctx.exec ?? realExec
+	if (backgroundId(agent)) return { agent, pane: target.id, output: readLog(exec, agent, options.lines) }
 	const output = selectSessionAdapter(ctx.env ?? process.env, exec).read(exec, target, { lines: options.lines }).text
 	return { agent, pane: target.id, output }
 }
@@ -684,6 +775,7 @@ export async function clearUnit(
 	options: { guardOpts?: DraftGuardOptions } = {},
 ): Promise<ClearResult> {
 	const { agent, target } = paneTargetOf(ctx, ref)
+	if (backgroundId(agent)) throw unsupported(agent, 'clear')
 	const pane = target.id
 	if (!agent.harness) throw new Error(`unit "${ref}" has no harness on record — cannot resolve its reset command`)
 	// Resolve (and validate) the reset command before sending anything — a false-friend or

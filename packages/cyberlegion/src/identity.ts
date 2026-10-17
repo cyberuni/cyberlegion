@@ -9,6 +9,7 @@ import {
 	probeMultiplexer,
 	tmuxMuxAdapter,
 } from 'cyber-mux'
+import { BACKGROUND, listSessions, sessionGone } from './background.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { sanitizePane } from './paths.ts'
 import type { AgentRecord, Harness, StandingHome, Store } from './store/store.ts'
@@ -449,7 +450,9 @@ function isPrunable(rec: AgentRecord): boolean {
 export function sessionLive(ctx: IdContext, rec: AgentRecord): boolean {
 	if (rec.status === 'exited' || rec.status === 'stopped') return false
 	if (!rec.pane) return true
-	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec)
+	const exec = ctx.exec ?? realExec
+	if (rec.pane.mux === BACKGROUND) return !sessionGone(listSessions(exec), rec.pane.id)
+	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(exec)
 	if (panes.length === 0) return true
 	const id = rec.pane.id
 	return panes.some((p) => p.id === id)
@@ -549,7 +552,11 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
  * that answers no list at all (server down, a failed query) leaves the pane undecided — never gone.
  * The list is read at most once per mux per call.
  */
-function paneGone(exec: Exec, pane: NonNullable<AgentRecord['pane']>, lists: Map<string, LivePane[]>): boolean {
+function paneGone(
+	exec: Exec,
+	pane: { mux: keyof typeof PANE_ADAPTERS; id: string },
+	lists: Map<string, LivePane[]>,
+): boolean {
 	const adapter = PANE_ADAPTERS[pane.mux]
 	if (adapter.paneExists(exec, { id: pane.id })) return false
 	let panes = lists.get(pane.mux)
@@ -563,15 +570,26 @@ function paneGone(exec: Exec, pane: NonNullable<AgentRecord['pane']>, lists: Map
 /** Mark agents whose session is gone as exited. Reconcile-culls against the current mux's live set
  * first, then judges each remaining record (covers the other mux and sessions outside any
  * multiplexer pane): a pane-bound record by its pane alone — a live or unprobeable pane keeps it
- * whatever its last-seen — and a pane-less record by the staleness timer, its only signal. */
+ * whatever its last-seen — a background-hosted record by Claude Code's session listing alone (read at
+ * most once; an unreadable one keeps it), and a pane-less record by the staleness timer, its only
+ * signal. */
 export function prune(ctx: IdContext): AgentRecord[] {
 	const exec = ctx.exec ?? realExec
 	const now = ctx.now?.() ?? Date.now()
 	const changed: AgentRecord[] = reconcile(ctx)
 	const lists = new Map<string, LivePane[]>()
+	let sessions: { listing: ReturnType<typeof listSessions> } | undefined
+	const backgroundGone = (short: string): boolean => {
+		sessions ??= { listing: listSessions(exec) }
+		return sessionGone(sessions.listing, short)
+	}
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
-		const dead = rec.pane ? paneGone(exec, rec.pane, lists) : now - new Date(rec.lastSeen).getTime() > STALE_MS
+		const dead = !rec.pane
+			? now - new Date(rec.lastSeen).getTime() > STALE_MS
+			: rec.pane.mux === BACKGROUND
+				? backgroundGone(rec.pane.id)
+				: paneGone(exec, rec.pane, lists)
 		if (dead) {
 			rec.status = 'exited'
 			saveAgent(ctx.store, rec)

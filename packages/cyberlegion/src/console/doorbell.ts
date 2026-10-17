@@ -1,4 +1,5 @@
 import type { MuxAdapter, MuxTarget, NudgeOptions } from 'cyber-mux'
+import { backgroundId, ringSession } from '../background.ts'
 import { type AgentRecord, type Exec, loadAgent, presenceOf } from '../identity.ts'
 import type { PresenceSpawn } from '../presence-spawn.ts'
 import type { Store } from '../store/store.ts'
@@ -115,6 +116,10 @@ function paneOf(store: Store, id: string): string | undefined {
  * The adapter is resolved lazily via `getAdapter`, invoked only once a pane to ring is confirmed and
  * inside the same swallowing try — so a session with no mux backend (where `selectSessionAdapter`
  * throws) is just a no-op wake, never a failed send.
+ *
+ * A peer or presence hosted in a Claude background session has no pane: it is rung through its own
+ * session (`background.ts`), chosen from its record and never from the sender's multiplexer. A stopped
+ * one is not rung; a busy, blocked, or gone one is a warning.
  */
 export async function wakeRecipient(
 	store: Store,
@@ -137,6 +142,9 @@ export async function wakeRecipient(
 	// is a human's session with no record to name its harness; the guard tries every known shape there.
 	let harness: string | undefined
 	let focusGated = false
+	// The record whose session is rung — a peer, or a standing owner's live presence. Its locator, never
+	// the sender's multiplexer, says whether that is a pane or a Claude background session.
+	let ringee: AgentRecord | undefined
 	// A failed spawn into the owner's home, carried onto whatever the fallback ring reports.
 	let spawnWarning: string | undefined
 	if (recipient.kind === 'standing') {
@@ -166,6 +174,7 @@ export async function wakeRecipient(
 			}
 		}
 		if (presenceUnit) {
+			ringee = presenceUnit
 			pane = paneOf(store, presenceUnit.id)
 			harness = presenceUnit.harness
 		} else {
@@ -173,6 +182,7 @@ export async function wakeRecipient(
 			focusGated = true
 		}
 	} else {
+		ringee = recipient
 		pane = paneOf(store, recipient.id)
 		harness = recipient.harness
 	}
@@ -181,6 +191,7 @@ export async function wakeRecipient(
 	return { ...result, warning: result.warning ? `${spawnWarning}; ${result.warning}` : spawnWarning }
 
 	async function ringResolved(): Promise<WakeResult> {
+		if (ringee && backgroundId(ringee)) return ringBackground(ringee)
 		if (!pane) return { rung: false }
 		// Never ring the sender's own pane (a self-addressed send resolves the recipient onto the sender).
 		if (pane === paneOf(store, input.fromId)) return { rung: false }
@@ -209,6 +220,19 @@ export async function wakeRecipient(
 			return { rung: true, pane }
 		} catch (err) {
 			return { rung: false, pane, warning: err instanceof Error ? err.message : String(err) }
+		}
+	}
+
+	/** Ring a background-hosted recipient through its own session (`background.ts`). A stopped unit stays
+	 * stopped and is not rung; every ring that fails is a warning carrying the ring's own reason. */
+	function ringBackground(rec: AgentRecord): WakeResult {
+		const short = backgroundId(rec)
+		if (rec.id === input.fromId || rec.status === 'stopped') return { rung: false }
+		try {
+			ringSession(exec, rec, DELIVERY_DOORBELL)
+			return { rung: true, pane: short }
+		} catch (err) {
+			return { rung: false, pane: short, warning: err instanceof Error ? err.message : String(err) }
 		}
 	}
 }

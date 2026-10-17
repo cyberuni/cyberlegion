@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { tmuxMuxAdapter } from 'cyber-mux'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { wakeRecipient } from './console/doorbell.ts'
+import { spawnDoorbell, wakeRecipient } from './console/doorbell.ts'
+import { fakeClaude } from './fake-claude.test-util.ts'
 import {
 	type AgentRecord,
 	type Exec,
@@ -331,6 +332,25 @@ describe('spec:cyberlegion/mail/doorbell — a standing owner with a home gets a
 		expect(res.warning).toContain('keeper')
 		expect(res.warning).toContain('no presence could be spawned')
 		expect(res.warning).toContain('CYBER_MUX')
+	})
+
+	// Boundary level: Claude Code answers at the `Exec` seam (`fake-claude.test-util.ts`); the start line
+	// is checked for the prompt it carries.
+	it("a sender outside any multiplexer spawns a claude home's presence as a background session", async () => {
+		const desk = folder('keeper-desk')
+		keeperWithHome({ harness: 'claude' }, desk)
+		const fake = fakeClaude({ start: { stdout: 'backgrounded · 9f8e7d6c · keeper' } })
+		const ctx = senderCtx({}, fake.exec)
+		const res = await send(ctx)
+		const units = spawnedUnits()
+		expect(units).toHaveLength(1)
+		expect(units[0]?.cwd).toBe(desk)
+		expect(units[0]?.pane).toEqual({ mux: 'claude-bg', id: '9f8e7d6c' })
+		expect(keeper()?.presence).toBe(units[0]?.id)
+		expect(res.spawned).toBe(units[0]?.id)
+		const [start] = fake.starts()
+		const prompt = spawnDoorbell(units[0]?.brief as string)
+		expect(start?.endsWith(` '${prompt}'`)).toBe(true)
 	})
 
 	it('a sender outside any pane that names a running multiplexer spawns the presence', async () => {

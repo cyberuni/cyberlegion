@@ -401,7 +401,9 @@ function reportBaseFallback(res: { base?: { fallback?: string } }): void {
 
 function defineSpawn(cmd: Command): Command {
 	return syncsUnits(withSpawnOptions(cmd))
-		.description('launch a new peer session in its own git worktree (tmux or herdr)')
+		.description(
+			'launch a new peer session in its own git worktree (tmux or herdr; with neither, a claude unit runs as a Claude background session)',
+		)
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
 			touch(ctx)
