@@ -158,7 +158,7 @@ sees its instructions only once something makes it read the brief.
 ### Worktree
 
 With no `--worktree-path`, spawn leases its worktree from the worktree library
-([`@cyberuni/agent-harness/worktrees`](https://github.com/cyberuni/agent-harness)) instead of making a
+([`cyber-agentkit/worktrees`](https://github.com/cyber-uni/cyber-agentkit)) instead of making a
 fresh checkout per unit. When a closed unit released a worktree that is idle, clean, and whose branch
 has landed, spawn recycles it onto the new unit's branch. Otherwise it creates the next slot beside
 the primary checkout, `<parent>/<repo>.worktrees/<repo>-<n>`. The library picks the name, so the

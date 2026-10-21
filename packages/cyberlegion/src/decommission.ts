@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { primaryRoot as libraryPrimaryRoot, type ReleaseResult } from '@cyberuni/agent-harness/worktrees'
+import { primaryRoot as libraryPrimaryRoot, type ReleaseResult } from 'cyber-agentkit/worktrees'
 import { gitWorktreeAdapter } from 'cyber-mux/worktree'
 import { type AgentRecord, type Exec, type IdContext, loadAgent, realExec } from './identity.ts'
 import { deleteMailbox } from './message.ts'

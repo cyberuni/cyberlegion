@@ -6,7 +6,7 @@ import {
 	type Lease,
 	type ReleaseResult,
 	release,
-} from '@cyberuni/agent-harness/worktrees'
+} from 'cyber-agentkit/worktrees'
 import type { Exec } from './identity.ts'
 import { WORKTREE_MARKER } from './paths.ts'
 
