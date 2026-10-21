@@ -1,5 +1,17 @@
 # cyberlegion
 
+## 1.6.0
+
+### Minor Changes
+
+- 85417a3: Move the worktree library dependency from `@cyberuni/agent-harness` to `cyber-agentkit` 1.0.0. The worktree lease marker is now `cyber-agentkit`; 1.x still recognises leases written with the old marker. Release together with cyber-mux.
+- 5ecfa33: Update runtime dependencies.
+- 5ecfa33: Update runtime dependencies.
+
+### Patch Changes
+
+- 6fd551f: Each skill's `scripts/cyberlegion.mjs` is now a self-contained script that `plugin build` compiles from `src/skill-script.ts`, instead of a launcher that reached up three levels to `bin/cyberlegion.mjs` and fell back to `npx`. A skill linked or copied on its own, including one linked out of `node_modules` by pnpm, runs the CLI it shipped with and needs no package, no `node_modules`, and no TypeScript at runtime. cynapse stays an optional peer: the compiled script loads it at runtime when it resolves and runs without it otherwise.
+
 ## 1.5.0
 
 ### Minor Changes
