@@ -23,3 +23,5 @@ jobs:
     uses: cyberuni/.github/.github/workflows/pnpm-publish-gate.yml@main
     permissions:
       contents: read
+    with:
+      allowed-new-dependencies: cyber-agentkit
