@@ -51,7 +51,7 @@ cleanly — the deterministic inverse pair:
     created worktree (or, on the atomic route, the pane) back. A `--worktree-path` **outside** the
     primary checkout is accepted and the worktree created there.
   - **Where the worktree lands, and on which branch** — with no `--worktree-path`, the worktree is
-    **leased** from the worktree library (`@cyberuni/agent-harness/worktrees`, `acquire`): an idle
+    **leased** from the worktree library (`cyber-agentkit/worktrees`, `acquire`): an idle
     worktree a closed unit released is recycled onto the new branch, and only when none is idle is a
     new one created, at the library's own slot path `<parent>/<repo>.worktrees/<repo>-<n>` — a
     **sibling** of the primary checkout, never nested inside the primary's own tree. The lease is

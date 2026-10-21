@@ -247,7 +247,7 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And that path is not nested inside the primary checkout
 
   # ── A worktree spawn leases its worktree from the worktree library ──
-  # The worktree comes from @cyberuni/agent-harness/worktrees' acquire, not a fresh checkout per unit:
+  # The worktree comes from cyber-agentkit/worktrees' acquire, not a fresh checkout per unit:
   # an idle worktree a closed unit released is recycled onto the new unit's branch, and only when none
   # is idle is a new slot created. The lease is git's own lock on the worktree, so it is observed in
   # git, and the unit holds it until close releases it.

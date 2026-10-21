@@ -1,10 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
-import {
-	gitWorktreeCreator,
-	primaryRoot as libraryPrimaryRoot,
-	type WorktreeCreator,
-} from '@cyberuni/agent-harness/worktrees'
+import { gitWorktreeCreator, primaryRoot as libraryPrimaryRoot, type WorktreeCreator } from 'cyber-agentkit/worktrees'
 import { callerPane, type MuxPlacement, type MuxTarget, type NudgeOptions } from 'cyber-mux'
 import { assertDistinctFromPrimary, resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { DELIVERY_DOORBELL, isRingText, wakeSpawn } from './console/doorbell.ts'
@@ -181,7 +177,7 @@ function resolveSpawnBase(exec: Exec, primaryRoot: string, base?: string): Spawn
  * its path (`spawnAndWake` below, and ADR-0032). `spawn` alone therefore leaves a peer sitting idle
  * with its brief unread, which is why callers want `spawnAndWake`.
  *
- * The worktree comes from the worktree library's `acquire` (`@cyberuni/agent-harness/worktrees`): an
+ * The worktree comes from the worktree library's `acquire` (`cyber-agentkit/worktrees`): an
  * idle worktree a closed unit released is recycled onto the new branch, and only when none is idle is
  * a new one created, at the library's own slot path (`<parent>/<repo>.worktrees/<repo>-<n>`) — a
  * sibling of the primary checkout, never nested inside it. The unit holds the lease until `unit close`
