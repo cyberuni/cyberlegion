@@ -225,8 +225,8 @@ importers:
         specifier: ^1.0.0
         version: 1.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
       cyber-mux:
-        specifier: 0.10.0
-        version: 0.10.0(js-yaml@4.3.2)
+        specifier: 0.10.1
+        version: 0.10.1(js-yaml@4.3.2)
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -2223,8 +2223,8 @@ packages:
       clibuilder:
         optional: true
 
-  cyber-mux@0.10.0:
-    resolution: {integrity: sha512-QnBnenL1hfOhL7mXGpRcg54N6wQNpFAbJGceHYIgSAFJkTKgwejZZKIyXT58C/KDiwB4/0rFjkOff94Veqr8fw==}
+  cyber-mux@0.10.1:
+    resolution: {integrity: sha512-ZDcXtZodJSBTrCth6ckvUJkeNCyQ3EPzwmEbTb9zawwh+wlh2eVu3G7Spc5yCVCOG23haOWuV3a9iQ0KOWJVwg==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -5080,10 +5080,10 @@ snapshots:
     optionalDependencies:
       clibuilder: 12.1.0(js-yaml@4.3.2)
 
-  cyber-mux@0.10.0(js-yaml@4.3.2):
+  cyber-mux@0.10.1(js-yaml@4.3.2):
     dependencies:
-      '@cyberuni/agent-harness': 0.7.0(clibuilder@12.1.0(js-yaml@4.3.2))
       clibuilder: 12.1.0(js-yaml@4.3.2)
+      cyber-agentkit: 1.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
     transitivePeerDependencies:
       - js-yaml
 
