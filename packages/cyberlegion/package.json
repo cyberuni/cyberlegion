@@ -50,7 +50,7 @@
 	"dependencies": {
 		"commander": "^15.0.0",
 		"cyber-agentkit": "^1.0.0",
-		"cyber-mux": "0.10.0"
+		"cyber-mux": "0.10.1"
 	},
 	"peerDependencies": {
 		"cynapse": "^0.1.0"
