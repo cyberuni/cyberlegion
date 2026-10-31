@@ -37,7 +37,8 @@
 		".plugin",
 		"skills",
 		"hooks",
-		"agents"
+		"agents",
+		"CHANGELOG.md"
 	],
 	"scripts": {
 		"build": "tsdown",
