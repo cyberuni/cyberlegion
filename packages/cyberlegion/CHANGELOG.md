@@ -1,5 +1,11 @@
 # cyberlegion
 
+## 1.6.1
+
+### Patch Changes
+
+- 014c464: Update runtime dependencies.
+
 ## 1.6.0
 
 ### Minor Changes
