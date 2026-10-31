@@ -182,8 +182,8 @@ importers:
         specifier: ^2.3.1
         version: 2.3.1(@biomejs/biome@2.5.9)
       cyber-sdd:
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.7.1
+        version: 0.7.1
       husky:
         specifier: ^9.1.7
         version: 9.1.7
@@ -659,15 +659,6 @@ packages:
   '@ctrl/tinycolor@4.2.0':
     resolution: {integrity: sha512-kzyuwOAQnXJNLS9PSyrk0CWk35nWJW/zl/6KvnTBMFK65gm7U1/Z5BqjxeapjZCIhQcM/DsrEmcbRwDyXyXK4A==}
     engines: {node: '>=14'}
-
-  '@cucumber/gherkin@41.0.0':
-    resolution: {integrity: sha512-pKGx1EzNjtWbpw74kEevKDMj71dF3ZSaFJpLYuWVvRZKe+Cwoq5iEkuMaELIg1jxIu8jH/A2HPMpMR8UBvdG0w==}
-
-  '@cucumber/messages@33.0.4':
-    resolution: {integrity: sha512-i6P1a0bnmhecOHfvIW0rhMxv/gMKfBKwDMxmD9/Uo1HSqpQ17ocHms1JwWW6uTMLAopqqWlcz7l6Pax+qUOTzg==}
-
-  '@cucumber/messages@34.2.1':
-    resolution: {integrity: sha512-aj2iCAG9ZOpMVcMxcgShifv5fbR96b7SMgdWcPXXh2QbFp7OEcAnQ5MC5YfWUDSDasmw7FU5NJEsOrXdTQOU1A==}
 
   '@cyberuni/agent-harness@0.7.0':
     resolution: {integrity: sha512-d3I2Z2sg3JeRcOM6LGO2oPA7dGGxAeRzjEihx8SDkAWzXjOLtMf3umApsu7iej5FxsHkXJpiag7+UubbJdDHsA==}
@@ -2183,8 +2174,8 @@ packages:
     engines: {node: '>=22'}
     hasBin: true
 
-  cyber-sdd@0.7.0:
-    resolution: {integrity: sha512-Ibb/YUHgNJdzbiyztRFV7F5/1Cu4xgQwr/OGrc0NEOCESBTmdVDpRFZqH4FvRJC5MoQ4B+W5bniqNgJO2H5J/g==}
+  cyber-sdd@0.7.1:
+    resolution: {integrity: sha512-pnRFNoDYNI0oQ3zpqDKjtQWszPXFrTZqSAw1bU1zS0KlGZxmEwECIiFiDA9PExjp+LZHu+jCAU9HtmWcy6Y/tg==}
     engines: {node: '>=22.11'}
     hasBin: true
 
@@ -2377,11 +2368,6 @@ packages:
   get-tsconfig@5.0.0-beta.6:
     resolution: {integrity: sha512-X6fBC0pmImC70gvX2zm56go9hx0MyoGVdG0tUCkg/D+Xnh5TJsOZ7iDbOdI3PvmtrDxnu1YdDufpK2QJX1Meqw==}
     engines: {node: '>=20.20.0'}
-
-  gherkin-cli@0.2.1:
-    resolution: {integrity: sha512-t8aK1bEauKziHYMkjc1nhiSmnGLYmgBAIZllZi5wUdVHPTQWkZLN9TvovPCHj0OI9CtmtgiUl8B9dBV0F5Iedw==}
-    engines: {node: '>=22'}
-    hasBin: true
 
   github-slugger@2.0.0:
     resolution: {integrity: sha512-IaOQ9puYtjrkq7Y0Ygl9KDZnrf/aiUJYUpVf89y8kyaxbRG7Y1SrX/jaumrv81vc61+kiMempujsM3Yw7w5qcw==}
@@ -3881,14 +3867,6 @@ snapshots:
 
   '@ctrl/tinycolor@4.2.0': {}
 
-  '@cucumber/gherkin@41.0.0':
-    dependencies:
-      '@cucumber/messages': 33.0.4
-
-  '@cucumber/messages@33.0.4': {}
-
-  '@cucumber/messages@34.2.1': {}
-
   '@cyberuni/agent-harness@0.7.0(clibuilder@12.1.0(js-yaml@4.3.2))':
     optionalDependencies:
       clibuilder: 12.1.0(js-yaml@4.3.2)
@@ -4971,9 +4949,7 @@ snapshots:
     transitivePeerDependencies:
       - js-yaml
 
-  cyber-sdd@0.7.0:
-    dependencies:
-      gherkin-cli: 0.2.1
+  cyber-sdd@0.7.1: {}
 
   cynapse@0.1.0:
     dependencies:
@@ -5149,12 +5125,6 @@ snapshots:
   get-tsconfig@5.0.0-beta.6:
     dependencies:
       resolve-pkg-maps: 1.0.0
-
-  gherkin-cli@0.2.1:
-    dependencies:
-      '@cucumber/gherkin': 41.0.0
-      '@cucumber/messages': 34.2.1
-      commander: 15.0.0
 
   github-slugger@2.0.0: {}
 
