@@ -218,9 +218,6 @@ importers:
 
   packages/cyberlegion:
     dependencies:
-      commander:
-        specifier: ^15.0.0
-        version: 15.0.0
       cyber-agentkit:
         specifier: ^1.0.0
         version: 1.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
@@ -231,6 +228,9 @@ importers:
       '@types/node':
         specifier: ^24.10.1
         version: 24.13.3
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
       cynapse:
         specifier: 0.1.0
         version: 0.1.0
