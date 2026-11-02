@@ -29,13 +29,14 @@ export default defineConfig([
 		// Regexes rather than bare names because `cyber-mux` and `cyber-agentkit` are imported
 		// by subpath (`cyber-mux/worktree`, `cyber-agentkit/worktrees`). Only this package's own `dependencies` need listing — those are
 		// the only ones tsdown externalizes by default, so anything they pull in transitively is
-		// inlined automatically. `onlyBundle: false` silences the "bundled a dependency" warnings
-		// that are the whole point here.
+		// inlined automatically. `commander` is a devDependency because only this entry uses it,
+		// so tsdown inlines it without a listing. `onlyBundle: false` silences the "bundled a
+		// dependency" warnings that are the whole point here.
 		...shared,
 		entry: { cli: 'src/cli.ts' },
 		dts: false,
 		deps: {
-			alwaysBundle: [/^commander(\/|$)/, /^cyber-mux(\/|$)/, /^cyber-agentkit(\/|$)/],
+			alwaysBundle: [/^cyber-mux(\/|$)/, /^cyber-agentkit(\/|$)/],
 			onlyBundle: false,
 		},
 	},
