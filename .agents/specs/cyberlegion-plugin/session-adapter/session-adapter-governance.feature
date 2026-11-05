@@ -75,7 +75,7 @@ Feature: session-adapter-governance — verify observable effect or fail loud
     Then every current SessionAdapter mutating operation appears with its effect class and its conformance status
     And nudge is enumerated unconditional and conformant as the reference pattern, submit-then-verify-then-retry that throws on the cap
     And focus is enumerated attach-relative and partial, verify-before shipped with the land-verify and no-attached-client no-op authorized as follow-up
-    And clear is enumerated unconditional and non-conformant on verify-after, its injection a raw send with the fix authorized as follow-up
+    And clear is enumerated unconditional and non-conformant on verify-after, its injection a single submit with no read-back and the fix authorized as follow-up
     And the mail-delivery doorbell is enumerated unconditional and conformant under the best-effort contract
 
   Scenario: a new mutating operation declares its class at its introducing change
