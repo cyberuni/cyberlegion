@@ -18,11 +18,13 @@ its own.
 
 ## Doorbell vs mailbox
 
-Two different primitives, never confused: a **nudge** (`unit nudge <ref>`) is a dumb doorbell —
-it rings a peer's pane and carries no content. The **payload always lives in the mailbox**
-(`mail send`, or the brief file `unit spawn` drops for a new unit) — a peer that receives a nudge
-reads its mail to learn *why* it was rung. Never encode meaning in a nudge itself; never skip the
-mailbox because a nudge already fired.
+Two different primitives, never confused: a **nudge** (`unit nudge <ref>`) is a doorbell — by
+default it rings a peer's pane with a turn that tells it to check its mail. A message's **payload
+always lives in the mailbox** (`mail send`, or the brief file `unit spawn` drops for a new unit) — a
+peer that receives a nudge reads its mail to learn *why* it was rung. Never put a message's payload
+in a nudge; never skip the mailbox because a nudge already fired. The one exception is a relayed
+decision, whose words `unit nudge --message` delivers as the turn itself; that rule belongs to
+`relay-governance`, not to this gateway.
 
 ## Classification map
 
