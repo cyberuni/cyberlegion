@@ -40,9 +40,8 @@ because only the caller's harness knows how.
 
 The subagent's **Task-result — its own final returned message** — is the verdict. There is no
 `dispatch collect`, no result file, and no schema validation step: the caller reads the return value
-its own Task tool hands back, the same way it would for any other subagent spawn. (Structured
-verdict-schema validation on that return is a deferred `mail --verdict-schema` capability, not
-present today.)
+its own Task tool hands back, the same way it would for any other subagent spawn. This CLI has no
+verdict-schema check on that return (there is no `mail --verdict-schema`).
 
 ## Mid-turn messaging is scoped by role, not by backend
 

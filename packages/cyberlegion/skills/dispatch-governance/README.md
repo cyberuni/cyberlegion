@@ -18,7 +18,7 @@ in-session on a dispatch intent, and by the `headless-legate` agent when there i
   `subagent-backend-governance`) — and executes it by composing the `cyberlegion` CLI primitives.
 - Folds in the wake-matrix decision (bounded await vs doorbell vs run-inline, gated on a verified
   multiplexer) that the CLI no longer encodes.
-- Defines the `subagent | channel` seam a dependent (SDD, ADR-0023) references by intent, never by
+- Defines the `subagent | channel` seam a dependent (e.g. SDD) references by intent, never by
   a literal command name.
 
 ## What it does not do

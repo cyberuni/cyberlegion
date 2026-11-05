@@ -99,7 +99,7 @@ sequence when this governance picked **channel**; the caller's Task tool only ru
 
 ## The `subagent | channel` seam
 
-This is the seam a dependent (e.g. SDD, ADR-0023) references **by intent** — "dispatch a role
+This is the seam a dependent (e.g. SDD) references **by intent** — "dispatch a role
 fulfillment and expect a verdict" — never by pinning `subagent` or `channel` as a literal command
 name. The dependent states its intent (role, brief, verdict schema) and this governance decides the
 mechanism; a dependent that hardcodes "always subagent" or "always channel" has broken the seam and
@@ -119,8 +119,8 @@ Every strategy resolves to one shape the caller can handle uniformly:
 }
 ```
 
-`result` is carried through unvalidated today — structured verdict-schema checking against `V` is a
-deferred capability (`mail --verdict-schema`), not present in this CLI.
+`result` is carried through unvalidated: this CLI has no verdict-schema check against `V` (there is
+no `mail --verdict-schema`).
 
 `waiting` (channel path, `--max-wait` cap hit) and `timed-out` (channel path, `--timeout` elapsed)
 are re-armable and terminal respectively — treat them the same way `mail await`'s own three
@@ -139,5 +139,5 @@ subagent), relay owns how the result or an unanswerable question gets home.
   `mail await`, `unit nudge`, and the caller's own Task tool are invoked deliberately by this
   governance (or `subagent-backend-governance`), never by a `--backend auto` flag — no such flag
   exists.
-- **No mid-flight strategy switch.** Once a strategy is picked for one dispatch, it runs to its one
-  of the three outcomes above; a failed subagent is not silently retried as a channel.
+- **No mid-flight strategy switch.** Once a strategy is picked for one dispatch, it runs to that
+  strategy's own result; a failed subagent is not silently retried as a channel.
