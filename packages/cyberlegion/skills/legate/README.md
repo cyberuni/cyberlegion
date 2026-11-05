@@ -17,6 +17,7 @@ when the request needs routing judgment.
 - Classifies the request against a fixed intent → CLI-call table (mail, session, identity, admin).
 - Hands any dispatch intent to `dispatch-governance` rather than guessing a strategy.
 - Spawns the `headless-legate` agent when there is no user channel to relay through.
-- Loads no other governance and writes no state — a front door only.
+- Loads no governance except `dispatch-governance` on a dispatch intent, and writes no state — a
+  front door only.
 
 Every mechanic is a `cyberlegion` CLI call — harness-agnostic, MCP-free.

@@ -7,9 +7,9 @@ concept: routing
 
 The front door to the Legion: the `legate` skill classifies a request against a fixed
 intent → CLI-call table and either runs the matching call directly or hands a dispatch intent to
-`dispatch/`. It is a **thin classifier**: it holds no production logic, loads no other governance,
-and writes no state. For an attended session it spawns nothing — the classifying session acts
-directly. Its only spawn is `headless-legate`, the headless realization of this same flow, summoned when
+`dispatch/`. It is a **thin classifier**: it holds no production logic, loads no governance except
+`dispatch-governance` on a dispatch intent, and writes no state. For an attended session it spawns
+nothing — the classifying session acts directly. Its only spawn is `headless-legate`, the headless realization of this same flow, summoned when
 there is no user or peer channel to relay through.
 
 ## Use Cases

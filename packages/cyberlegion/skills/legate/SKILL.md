@@ -8,7 +8,8 @@ description: "Use this skill when you need to reach another agent session — se
 The Legate — gateway skill for the Legion, the front door to agent session spawning, messaging, and dispatch.
 It **classifies** the request and either runs the matching `cyberlegion` CLI call directly or hands
 routing judgment to `dispatch-governance`. It is a **thin classifier**: it holds no production
-logic, loads no other governance, and writes no state of its own.
+logic, loads no governance except `dispatch-governance` on a dispatch intent, and writes no state of
+its own.
 
 > **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
 > this plugin ships. The path is relative to this skill's own directory, not the working directory.
