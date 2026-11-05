@@ -15,7 +15,7 @@ strategy.
 - Build the subagent instruction from the resolved def + the caller-supplied brief, and invoke the
   caller's own harness Task/subagent tool with it.
 - Take the subagent's Task-result (its own final returned message) as the verdict — no result file,
-  no schema validation (deferred to a `mail --verdict-schema` capability).
+  no schema validation.
 
 ## What it does not do
 

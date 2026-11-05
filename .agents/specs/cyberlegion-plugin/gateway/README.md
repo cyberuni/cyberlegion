@@ -7,9 +7,9 @@ concept: routing
 
 The front door to the Legion: the `legate` skill classifies a request against a fixed
 intent → CLI-call table and either runs the matching call directly or hands a dispatch intent to
-`dispatch/`. It is a **thin classifier**: it holds no production logic, loads no other governance,
-and writes no state. For an attended session it spawns nothing — the classifying session acts
-directly. Its only spawn is `headless-legate`, the headless realization of this same flow, summoned when
+`dispatch/`. It is a **thin classifier**: it holds no production logic, loads no governance except
+`dispatch-governance` on a dispatch intent, and writes no state. For an attended session it spawns
+nothing — the classifying session acts directly. Its only spawn is `headless-legate`, the headless realization of this same flow, summoned when
 there is no user or peer channel to relay through.
 
 ## Use Cases
@@ -27,4 +27,4 @@ harness's own Task/subagent tool (only `dispatch/`'s subagent path does that, vi
 | **classify a messaging intent** | "send a message to `<peer>`", "check my inbox", "wait for a reply" | runs the matching `mail`/`unit` CLI call directly |
 | **classify a dispatch intent** | "dispatch this work to fulfill `<role>`", "get a verdict from `<role>` on `<brief>`" | loads `dispatch-governance` in-session — does not pick a strategy itself |
 | **spawn `headless-legate` when headless** | the gateway is reached with no live user or peer channel (an unattended trigger, a multi-unit fan-out) | spawns the `headless-legate` agent by name, which realizes this same flow headless |
-| **doorbell vs. mailbox discipline** | any request that involves waking a peer | a nudge (`unit nudge`) never carries content; the payload always lives in the mailbox (`mail send` or a dispatch's brief/result files) |
+| **doorbell vs. mailbox discipline** | any request that involves waking a peer | a nudge (`unit nudge`) never carries a message's payload; the payload always lives in the mailbox (`mail send` or a dispatch's brief/result files). The one exception is a relayed decision, whose words `unit nudge --message` delivers as the turn, under `relay-governance` |

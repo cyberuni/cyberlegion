@@ -8,7 +8,8 @@ description: "Use this skill when you need to reach another agent session — se
 The Legate — gateway skill for the Legion, the front door to agent session spawning, messaging, and dispatch.
 It **classifies** the request and either runs the matching `cyberlegion` CLI call directly or hands
 routing judgment to `dispatch-governance`. It is a **thin classifier**: it holds no production
-logic, loads no other governance, and writes no state of its own.
+logic, loads no governance except `dispatch-governance` on a dispatch intent, and writes no state of
+its own.
 
 > **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
 > this plugin ships. The path is relative to this skill's own directory, not the working directory.
@@ -17,11 +18,13 @@ logic, loads no other governance, and writes no state of its own.
 
 ## Doorbell vs mailbox
 
-Two different primitives, never confused: a **nudge** (`unit nudge <ref>`) is a dumb doorbell —
-it rings a peer's pane and carries no content. The **payload always lives in the mailbox**
-(`mail send`, or the brief file `unit spawn` drops for a new unit) — a peer that receives a nudge
-reads its mail to learn *why* it was rung. Never encode meaning in a nudge itself; never skip the
-mailbox because a nudge already fired.
+Two different primitives, never confused: a **nudge** (`unit nudge <ref>`) is a doorbell — by
+default it rings a peer's pane with a turn that tells it to check its mail. A message's **payload
+always lives in the mailbox** (`mail send`, or the brief file `unit spawn` drops for a new unit) — a
+peer that receives a nudge reads its mail to learn *why* it was rung. Never put a message's payload
+in a nudge; never skip the mailbox because a nudge already fired. The one exception is a relayed
+decision, whose words `unit nudge --message` delivers as the turn itself; that rule belongs to
+`relay-governance`, not to this gateway.
 
 ## Classification map
 
@@ -31,6 +34,7 @@ mailbox because a nudge already fired.
 | Check inbox / read unread mail | `node scripts/cyberlegion.mjs mail inbox` — `mail read <msg-id>` to peek, `mail ack <msg-id>` once handled |
 | Spawn a new peer session | `node scripts/cyberlegion.mjs unit spawn --agent <name> ...` — cyberlegion owns worktree creation; pass `--cwd <dir>` only when the caller already has a directory to spawn into (e.g. reusing an existing worktree) |
 | Close / tear down a peer session | `node scripts/cyberlegion.mjs unit close <id>` |
+| Reset a warm peer's context to cold, keeping its pane | `node scripts/cyberlegion.mjs unit clear <ref>` — tears down nothing; use `unit close` to end the session |
 | Wait for a threaded reply | `node scripts/cyberlegion.mjs mail await --thread <id>` |
 | Watch mail as it streams in (observer, never acks) | `node scripts/cyberlegion.mjs mail watch` |
 | List addressable peers | `node scripts/cyberlegion.mjs unit who` |
