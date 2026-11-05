@@ -31,6 +31,7 @@ mailbox because a nudge already fired.
 | Check inbox / read unread mail | `node scripts/cyberlegion.mjs mail inbox` — `mail read <msg-id>` to peek, `mail ack <msg-id>` once handled |
 | Spawn a new peer session | `node scripts/cyberlegion.mjs unit spawn --agent <name> ...` — cyberlegion owns worktree creation; pass `--cwd <dir>` only when the caller already has a directory to spawn into (e.g. reusing an existing worktree) |
 | Close / tear down a peer session | `node scripts/cyberlegion.mjs unit close <id>` |
+| Reset a warm peer's context to cold, keeping its pane | `node scripts/cyberlegion.mjs unit clear <ref>` — tears down nothing; use `unit close` to end the session |
 | Wait for a threaded reply | `node scripts/cyberlegion.mjs mail await --thread <id>` |
 | Watch mail as it streams in (observer, never acks) | `node scripts/cyberlegion.mjs mail watch` |
 | List addressable peers | `node scripts/cyberlegion.mjs unit who` |
