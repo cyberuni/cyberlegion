@@ -1,5 +1,20 @@
 # cyberlegion
 
+## 1.6.1
+
+### Patch Changes
+
+- 815a927: Depend on `cyber-agentkit` 2.x. Only the `cyber-agentkit/worktrees` entry is used, and it is unchanged.
+- 89c4f2c: Describe `unit clear`'s current injection in the session-adapter conformance ledger: one `submit` behind the draft guard, still with no read-back.
+- ad2f96d: Move `commander` to `devDependencies`. Only the bundled CLI uses it, and the CLI carries its own inlined copy, so installing `cyberlegion` no longer pulls in `commander`.
+- 89c4f2c: Tighten wording in `dispatch-governance` and `subagent-backend-governance`: say plainly that this CLI has no verdict-schema check, drop an ADR number this repo does not carry, and make the no-mid-flight-switch rule unambiguous.
+- 89c4f2c: Say in the `legate` skill that it loads `dispatch-governance` on a dispatch intent, instead of claiming it loads no other governance.
+- 89c4f2c: Align the `legate` skill's doorbell rule with `relay-governance`: a nudge never carries a message's payload, but `unit nudge --message` may carry a relayed decision.
+- 89c4f2c: List `unit clear` in the `legate` skill's classification map, for resetting a warm peer's context while keeping its pane.
+- 014c464: Update runtime dependencies.
+- 014c464: Update runtime dependencies.
+- c517d8e: Include `CHANGELOG.md` in the published package.
+
 ## 1.6.0
 
 ### Minor Changes
