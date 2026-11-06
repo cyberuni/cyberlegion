@@ -220,10 +220,10 @@ importers:
     dependencies:
       cyber-agentkit:
         specifier: ^2.0.0
-        version: 2.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
+        version: 2.0.0
       cyber-mux:
-        specifier: 0.10.3
-        version: 0.10.3(clibuilder@12.1.0(js-yaml@4.3.2))
+        specifier: 0.11.0
+        version: 0.11.0
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -1575,9 +1575,6 @@ packages:
     resolution: {integrity: sha512-fCTuZK4QBa+39Oz9l4OGfJfz+GpwCp3AqO7Zch3to99xHPgstVsRFpeQ8LNd2o1Gv8raL2mCFwiaHh7bFSp5DQ==}
     engines: {node: '>=22'}
 
-  '@toon-format/toon@4.1.1':
-    resolution: {integrity: sha512-SGCkS7IjVpwRmGPgnY8ENKpAf0EdAnZDOQkvFW0d2cgOpdn9FEFl7sTgryESyypXrWr0YajHGpwsAUX4zw9ZvA==}
-
   '@turbo/darwin-64@2.10.11':
     resolution: {integrity: sha512-v3R+1R/Ysozyo+p7Ri8MCIbndOvYt3DgPFrGLhrhQHfvyvbxyH3WyJj+A/2JTNmNleuAlh3JUyCV0iSVHIONTA==}
     cpu: [x64]
@@ -1971,10 +1968,6 @@ packages:
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
-  args-minus@0.2.1:
-    resolution: {integrity: sha512-ijdDYmXdl+XomAeOnIst6re1U4ezqaP7vnS1raonj7PaxKMi4he37ZBK7nndlc6Ii/DLomsm16CnhaNCKr8Riw==}
-    engines: {node: '>=20'}
-
   argue-cli@3.1.0:
     resolution: {integrity: sha512-DhBpBfXL4SS2uC0N922MMajKR3CdrTG0u2or1PNYgXMsrSzViJrbtvT0nCLlLGUI0plam/ZZCs7aAauHtW9thw==}
     engines: {node: '>=22'}
@@ -2052,15 +2045,6 @@ packages:
   ci-info@4.4.0:
     resolution: {integrity: sha512-77PSwercCZU2Fc4sX94eF8k8Pxte6JAwL4/ICZLFjJLqegs7kCuAsqqj/70NQF6TvDpgFjkubQB2FW2ZZddvQg==}
     engines: {node: '>=8'}
-
-  clibuilder@12.1.0:
-    resolution: {integrity: sha512-DqI6o/1AaGIAnp2zs7GF4FgaMzgS1cC/oQS8Ms1WmLdFc6Uz7/f+UQbT5+SJj0fP71tVyN9KN1DfKZ8v7zg17A==}
-    engines: {node: '>= 20.19'}
-    peerDependencies:
-      js-yaml: ^4.1.0
-    peerDependenciesMeta:
-      js-yaml:
-        optional: true
 
   cliui@9.0.1:
     resolution: {integrity: sha512-k7ndgKhwoQveBL+/1tqGJYNz097I7WOvwbmmU2AR5+magtbjPWQTS1C5vzGkBC8Ym8UWRzfKUzUUqFLypY4Q+w==}
@@ -2162,12 +2146,12 @@ packages:
       clibuilder:
         optional: true
 
-  cyber-mux@0.10.3:
-    resolution: {integrity: sha512-MaQKhzWMKlv99tUsIq40rM/8+OtjaPUS+qKi+oBQVuibPAWNzVI8CRoSSqgGTUP80rQW8WQxFssi1UqjEBXJvA==}
+  cyber-mux@0.11.0:
+    resolution: {integrity: sha512-yaeTqPtwQb4GsmkhKTfyYwLPJVXitQBkloDd5X5rBVnDoSEuoJ5xRFJtfAg5Q2HxYOWPSPOSbSTsY9fcEb3GCg==}
     engines: {node: '>=22'}
     hasBin: true
     peerDependencies:
-      clibuilder: ^12.1.0
+      clibuilder: ^12.2.0
     peerDependenciesMeta:
       clibuilder:
         optional: true
@@ -4461,9 +4445,6 @@ snapshots:
 
   '@simple-libs/stream-utils@2.0.0': {}
 
-  '@toon-format/toon@4.1.1':
-    optional: true
-
   '@turbo/darwin-64@2.10.11':
     optional: true
 
@@ -4701,9 +4682,6 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  args-minus@0.2.1:
-    optional: true
-
   argue-cli@3.1.0: {}
 
   aria-query@5.3.2: {}
@@ -4841,14 +4819,6 @@ snapshots:
 
   ci-info@4.4.0: {}
 
-  clibuilder@12.1.0(js-yaml@4.3.2):
-    dependencies:
-      '@toon-format/toon': 4.1.1
-      args-minus: 0.2.1
-    optionalDependencies:
-      js-yaml: 4.3.2
-    optional: true
-
   cliui@9.0.1:
     dependencies:
       string-width: 7.2.0
@@ -4930,15 +4900,11 @@ snapshots:
     dependencies:
       css-tree: 2.2.1
 
-  cyber-agentkit@2.0.0(clibuilder@12.1.0(js-yaml@4.3.2)):
-    optionalDependencies:
-      clibuilder: 12.1.0(js-yaml@4.3.2)
+  cyber-agentkit@2.0.0: {}
 
-  cyber-mux@0.10.3(clibuilder@12.1.0(js-yaml@4.3.2)):
+  cyber-mux@0.11.0:
     dependencies:
-      cyber-agentkit: 2.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
-    optionalDependencies:
-      clibuilder: 12.1.0(js-yaml@4.3.2)
+      cyber-agentkit: 2.0.0
 
   cyber-sdd@0.7.0:
     dependencies:

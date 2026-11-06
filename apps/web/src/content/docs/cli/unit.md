@@ -362,6 +362,10 @@ unit's cwd when it has no worktree. Given together, both must match. Only live u
 A ref and a selector together are refused. A caller that starts from an issue or a pull request
 resolves it to a branch first; cyberlegion does no tracker lookup.
 
+Each focus is recorded in cyber-mux's jump history, so `cyber-mux focus --back` run in the unit's
+pane returns to the pane the focus came from. The history lives in `~/.agents/cyber-mux/jumps.json`,
+or under `$CYBER_MUX_STATE_DIR` when that is set.
+
 ## nudge
 
 ```sh
