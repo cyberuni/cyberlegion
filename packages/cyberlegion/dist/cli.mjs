@@ -10517,7 +10517,7 @@ function register(ctx, input) {
 		handle: input.handle ?? existing?.handle ?? id.slice(0, 6),
 		harness,
 		cwd: process.cwd(),
-		worktree: existing?.worktree ?? gitWorktree(exec),
+		worktree: existing?.worktree ? keptWorktree(existing.worktree, exec) : gitWorktree(exec),
 		pane: cur ? paneLocator(cur, exec, env) : null,
 		status: "active",
 		createdAt: existing?.createdAt ?? ts,
@@ -10584,16 +10584,40 @@ function writeStanding(ctx, id, input) {
 	saveAgent(ctx.store, rec);
 	return rec;
 }
+/** The checkout the cwd sits in: its root, its branch, and the repository's primary checkout — the
+* same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked worktree by
+* the repository's name rather than the worktree folder's. */
 function gitWorktree(exec) {
 	const root = exec("git", ["rev-parse", "--show-toplevel"]);
 	if (!root) return null;
+	const branch = exec("git", [
+		"rev-parse",
+		"--abbrev-ref",
+		"HEAD"
+	]) ?? void 0;
+	const primaryRoot = primaryRootHere(exec);
 	return {
 		root,
-		branch: exec("git", [
-			"rev-parse",
-			"--abbrev-ref",
-			"HEAD"
-		]) ?? void 0
+		...branch !== void 0 ? { branch } : {},
+		...primaryRoot !== void 0 ? { primaryRoot } : {}
+	};
+}
+function primaryRootHere(exec) {
+	try {
+		return resolvePrimaryRoot(exec);
+	} catch {
+		return;
+	}
+}
+/** Keep an existing record's worktree — it may carry spawn's lease — but fill in the primary root a
+* record written before register recorded one lacks, when it is still the same checkout. */
+function keptWorktree(existing, exec) {
+	if (!existing || existing.primaryRoot !== void 0) return existing;
+	const here = gitWorktree(exec);
+	if (here?.root !== existing.root || here.primaryRoot === void 0) return existing;
+	return {
+		...existing,
+		primaryRoot: here.primaryRoot
 	};
 }
 /** Pick the one live record a handle names. A standing record wins over the rest — an owner report

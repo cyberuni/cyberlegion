@@ -9,6 +9,7 @@ import {
 	probeMultiplexer,
 	tmuxMuxAdapter,
 } from 'cyber-mux'
+import { resolvePrimaryRoot } from 'cyber-mux/worktree'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { sanitizePane } from './paths.ts'
 import type { AgentRecord, Harness, StandingHome, Store } from './store/store.ts'
@@ -124,7 +125,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 		handle: input.handle ?? existing?.handle ?? id.slice(0, 6),
 		harness,
 		cwd: process.cwd(),
-		worktree: existing?.worktree ?? gitWorktree(exec),
+		worktree: existing?.worktree ? keptWorktree(existing.worktree, exec) : gitWorktree(exec),
 		pane: cur ? paneLocator(cur, exec, env) : null,
 		status: 'active',
 		createdAt: existing?.createdAt ?? ts,
@@ -205,10 +206,32 @@ function writeStanding(ctx: IdContext, id: string, input: RegisterStandingInput)
 	return rec
 }
 
-function gitWorktree(exec: Exec): { root: string; branch?: string } | null {
+/** The checkout the cwd sits in: its root, its branch, and the repository's primary checkout — the
+ * same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked worktree by
+ * the repository's name rather than the worktree folder's. */
+function gitWorktree(exec: Exec): { root: string; branch?: string; primaryRoot?: string } | null {
 	const root = exec('git', ['rev-parse', '--show-toplevel'])
 	if (!root) return null
-	return { root, branch: exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']) ?? undefined }
+	const branch = exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']) ?? undefined
+	const primaryRoot = primaryRootHere(exec)
+	return { root, ...(branch !== undefined ? { branch } : {}), ...(primaryRoot !== undefined ? { primaryRoot } : {}) }
+}
+
+function primaryRootHere(exec: Exec): string | undefined {
+	try {
+		return resolvePrimaryRoot(exec)
+	} catch {
+		return undefined
+	}
+}
+
+/** Keep an existing record's worktree — it may carry spawn's lease — but fill in the primary root a
+ * record written before register recorded one lacks, when it is still the same checkout. */
+function keptWorktree(existing: AgentRecord['worktree'], exec: Exec): AgentRecord['worktree'] {
+	if (!existing || existing.primaryRoot !== undefined) return existing
+	const here = gitWorktree(exec)
+	if (here?.root !== existing.root || here.primaryRoot === undefined) return existing
+	return { ...existing, primaryRoot: here.primaryRoot }
 }
 
 /** Pick the one live record a handle names. A standing record wins over the rest — an owner report
