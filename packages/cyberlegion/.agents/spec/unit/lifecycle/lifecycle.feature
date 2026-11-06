@@ -936,6 +936,58 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And then lands input focus on that pane
     And the attached view ends on the peer's pane rather than no-opping in the caller's current workspace
 
+  # ── focus by a unit's worktree: --branch / --repo pick the unit by its record ──
+  # A caller that knows the branch or repo (a PR's head branch, say) need not look the handle up.
+  # The selector matches live records only, and never picks among several.
+
+  Scenario: focus --branch focuses the single live unit whose worktree is on that branch
+    Given two live units with session panes, one on worktree branch "fix/login" and one on another branch
+    When a caller runs unit focus --branch fix/login
+    Then the session adapter focuses the pane of the unit on "fix/login"
+    And the other unit's pane is not focused
+
+  Scenario: focus --repo focuses the single live unit in that repository
+    Given two live units with session panes, one whose worktree's primary checkout is named "color-map" and one in another repository
+    When a caller runs unit focus --repo color-map
+    Then the session adapter focuses the pane of the unit in "color-map"
+    And the other unit's pane is not focused
+
+  Scenario: focus --repo matches a unit with no worktree by the folder it runs in
+    Given a live unit with a session pane and no worktree, whose cwd folder is named "color-map"
+    When a caller runs unit focus --repo color-map
+    Then the session adapter focuses that unit's pane
+
+  Scenario: focus --repo and --branch together focus only the unit matching both
+    Given two live units in repository "color-map", one on branch "fix/login" and one on another branch
+    When a caller runs unit focus --repo color-map --branch fix/login
+    Then the session adapter focuses the pane of the unit on "fix/login"
+
+  Scenario: focus by a selector that matches more than one live unit fails with the candidates
+    Given two live units with session panes, both on worktree branch "fix/login"
+    When a caller runs unit focus --branch fix/login
+    Then it throws that the selector matches more than one unit
+    And the error lists each matching unit's id
+    And no pane is focused
+
+  Scenario: focus by a selector that matches no live unit fails naming the selector
+    Given live units with session panes, none on worktree branch "fix/login"
+    And an exited unit on worktree branch "fix/login"
+    When a caller runs unit focus --branch fix/login
+    Then it throws that no live unit matches --branch "fix/login"
+    And no pane is focused
+
+  Scenario: focus refuses a ref given together with a selector
+    Given a registered peer with a live session pane
+    When a caller runs unit focus <ref> --branch fix/login
+    Then it throws that a ref and a selector cannot be combined
+    And no pane is focused
+
+  Scenario: focus with neither a ref nor a selector fails
+    Given a registered peer with a live session pane
+    When a caller runs unit focus with no ref, no --repo, and no --branch
+    Then it throws that a ref, --repo, or --branch is required
+    And no pane is focused
+
   Scenario: nudge delivers a default check-mail doorbell message to a peer's session
     Given a registered peer with a live session pane
     When a caller runs unit nudge <ref>

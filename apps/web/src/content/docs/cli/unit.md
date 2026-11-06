@@ -346,9 +346,21 @@ a fresh session plus a rebrief. A unit whose worktree or cwd is gone needs a new
 
 ```sh
 npx cyberlegion unit focus <ref>
+npx cyberlegion unit focus [--repo <name>] [--branch <name>]
 ```
 
-Move input focus to a peer's session.
+Move input focus to a peer's session. `<ref>` is a unit id, handle, or worktree branch/CR ref.
+
+Without a ref, `--repo` and `--branch` pick the unit by its record. `--branch` matches the unit's
+worktree branch. `--repo` matches the folder name of the worktree's primary checkout, or of the
+unit's cwd when it has no worktree. Given together, both must match. Only live units count.
+
+- One match: focus moves to that unit's pane, and the output names the unit by its id.
+- More than one match: the command fails and lists each candidate. It never picks one.
+- No match: the command fails and names the selector.
+
+A ref and a selector together are refused. A caller that starts from an issue or a pull request
+resolves it to a branch first; cyberlegion does no tracker lookup.
 
 ## nudge
 
