@@ -50,7 +50,7 @@
 	},
 	"dependencies": {
 		"cyber-agentkit": "^2.0.0",
-		"cyber-mux": "0.10.2"
+		"cyber-mux": "0.10.3"
 	},
 	"peerDependencies": {
 		"cynapse": "^0.1.0"
