@@ -1,5 +1,17 @@
 # cyberlegion
 
+## 1.7.0
+
+### Minor Changes
+
+- 7f4858a: Update cyber-mux to 0.11.0. `unit focus` now records each focus in cyber-mux's jump history, so `cyber-mux focus --back` in the focused pane returns to the pane the focus came from.
+- 81b0c81: Add `--repo <name>` and `--branch <name>` to `unit focus`, so a caller can focus a unit by its worktree instead of its handle. One live match is focused; several fail listing the candidates; none fails naming the selector.
+
+### Patch Changes
+
+- 27d08e4: `unit register` now records the repository's primary checkout (`worktree.primaryRoot`) alongside the worktree root and branch, as `unit spawn` does, so `unit focus --repo` finds a registered unit in a linked worktree by the repository's name. Re-registering fills in the primary root on an older record that lacks one.
+- 067b85c: Update runtime dependencies.
+
 ## 1.6.1
 
 ### Patch Changes
