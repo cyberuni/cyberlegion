@@ -90,6 +90,12 @@ registry half of `unit` — the instance registry a unit's identity always was.
 | Trigger | `unit register [--handle <name>] [--harness <h>]` |
 | Outcome | A record (id, handle, harness, cwd, worktree, pane locator tagged with its multiplexer, status `active`, timestamps) is written; inside any multiplexer pane, a pane pointer too. The hub root is stamped with the tracked `config.json` marker on first use. |
 
+Inside a git repository the record's `worktree` carries the checkout's root, its branch, and its
+**primary root**: the repository's primary checkout, the same field `unit spawn` writes. A session
+in a linked worktree runs in a folder named after the worktree, so the primary root is what a
+lookup by repository (`unit focus --repo`) matches. Re-registering keeps an existing record's
+worktree, and fills in its primary root when an older record lacks one.
+
 Registering is **safe to repeat per pane** (idempotent): from the same pane it keeps the same id and
 refreshes the record rather than minting a second identity. Registration never happens implicitly.
 
@@ -407,10 +413,11 @@ graph TD
   RG2 -- "explicit, unrecognized" --> RG2T["throw, naming claude | cursor | codex"]
   RG2 -- "nothing detected" --> RG2X["throw, asking for --harness"]
   RG2 -- detected --> RG3{"self id resolves?"}
-  RG3 -- yes --> RG4["reuse that id; keep the existing handle, createdAt, worktree, brief, spawnedBy"]
+  RG3 -- yes --> RG4["reuse that id; keep the existing handle, createdAt, worktree, brief, spawnedBy — a kept worktree with no primary root gains this checkout's"]
   RG3 -- no --> RG5["mint a random id; handle := --handle or the id's first 6 characters"]
+  RG5 --> RG5W["worktree := the cwd's git toplevel, its branch, and its primary checkout"]
   RG4 --> RG6["write the record: status active, lastSeen now, pane locator tagged with its mux"]
-  RG5 --> RG6
+  RG5W --> RG6
   RG6 --> RG7{"in a tmux or herdr pane?"}
   RG7 -- yes --> RG8["write pane → id pointer"]
   RG7 -- no --> RG9["done; no pointer"]
@@ -652,6 +659,9 @@ adapters.
 | `RG1 -- yes` | a fresh, unmarked hub root | `register stamps the hub root with the tracked marker` |
 | `RG4` | a session already registered in the current pane | `register is idempotent for the same pane` |
 | `RG1X` | a hub root whose path is a file | `register fails cleanly when the registry cannot be written` |
+| `RG5W` linked worktree | an unregistered session in a linked worktree | `register in a linked worktree records the primary checkout and the branch` |
+| `RG5W` primary checkout | an unregistered session in a primary checkout | `register in a primary checkout records that checkout as its own primary root` |
+| `RG4` backfill | a registered session whose record lacks a primary root | `re-register fills in a primary root an older record lacks` |
 
 ### unit register --standing
 

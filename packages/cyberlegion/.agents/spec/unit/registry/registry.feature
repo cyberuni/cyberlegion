@@ -30,6 +30,28 @@ Feature: unit registry — register, discover, and prune legion units
     Then it keeps the same id
     And the registry still holds exactly one agent
 
+  # ── Register records which repository a worktree belongs to ──
+  # A session in a linked worktree runs in a folder named after the worktree, not the repository.
+  # The record carries the primary checkout so a lookup by repository finds it, as spawn's does.
+
+  Scenario: register in a linked worktree records the primary checkout and the branch
+    Given an unregistered session whose cwd is a linked worktree of a repository, on branch "fix/login"
+    When it runs unit register --harness claude
+    Then the record's worktree root is the linked worktree
+    And the record's worktree primary root is the repository's primary checkout
+    And the record's worktree branch is "fix/login"
+
+  Scenario: register in a primary checkout records that checkout as its own primary root
+    Given an unregistered session whose cwd is a repository's primary checkout
+    When it runs unit register --harness claude
+    Then the record's worktree root and worktree primary root are both that checkout
+
+  Scenario: re-register fills in a primary root an older record lacks
+    Given a session already registered in the current pane, in a linked worktree, whose record's worktree carries no primary root
+    When it runs unit register --harness claude again
+    Then the record's worktree primary root is the repository's primary checkout
+    And it keeps the same id
+
   Scenario: register fails cleanly when the registry cannot be written
     Given a hub root that cannot be created or written (its path is already a file)
     When a session runs unit register --handle a --harness claude

@@ -20,6 +20,7 @@ import {
 	resolveRecipient,
 	resolveSelfId,
 	saveAgent,
+	selectAgent,
 	sessionLive,
 	standingId,
 	touch,
@@ -73,6 +74,61 @@ describe('spec:cyberlegion/identity', () => {
 			const b = register(ctx(e), { harness: 'claude' })
 			expect(b.id).toBe(a.id)
 			expect(listAgents(store)).toHaveLength(1)
+		})
+
+		/** git, answered as if the cwd were `root`, a checkout of the repository at `primary`. */
+		const gitExec =
+			(root: string, primary: string, branch = 'fix/login'): Exec =>
+			(cmd, args) => {
+				if (cmd !== 'git') return null
+				if (args.includes('--show-toplevel')) return root
+				if (args.includes('--abbrev-ref')) return branch
+				if (args.includes('--git-common-dir')) return `${primary}/.git`
+				return null
+			}
+		const LINKED = '/src/color-map.worktrees/color-map-2'
+		const PRIMARY = '/src/color-map'
+
+		it('register in a linked worktree records the primary checkout and the branch', () => {
+			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			expect(loadAgent(store, rec.id)?.worktree).toEqual({ root: LINKED, branch: 'fix/login', primaryRoot: PRIMARY })
+			// ...which is what a lookup by repository matches: the repo's name, not the worktree folder's
+			expect(selectAgent(store, { repo: 'color-map' }).id).toBe(rec.id)
+		})
+
+		it('register in a primary checkout records that checkout as its own primary root', () => {
+			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }, gitExec(PRIMARY, PRIMARY, 'main')), {
+				harness: 'claude',
+			})
+			expect(loadAgent(store, rec.id)?.worktree).toMatchObject({ root: PRIMARY, primaryRoot: PRIMARY })
+		})
+
+		it('re-register fills in a primary root an older record lacks', () => {
+			const e = { TMUX: 't', TMUX_PANE: '%3' }
+			const first = register(ctx(e, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			// a record written before register recorded a primary root
+			const old = loadAgent(store, first.id) as AgentRecord
+			saveAgent(store, { ...old, worktree: { root: LINKED, branch: 'fix/login' } })
+			const again = register(ctx(e, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			expect(again.id).toBe(first.id)
+			expect(loadAgent(store, first.id)?.worktree?.primaryRoot).toBe(PRIMARY)
+		})
+
+		it('re-register keeps the rest of an existing worktree, lease included', () => {
+			const e = { TMUX: 't', TMUX_PANE: '%3' }
+			const first = register(ctx(e, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			const lease = { leaseId: 'l1', holder: 'cyberlegion:x' }
+			saveAgent(store, {
+				...(loadAgent(store, first.id) as AgentRecord),
+				worktree: { root: LINKED, branch: 'b', lease },
+			})
+			register(ctx(e, gitExec(LINKED, PRIMARY, 'other')), { harness: 'claude' })
+			expect(loadAgent(store, first.id)?.worktree).toEqual({ root: LINKED, branch: 'b', lease, primaryRoot: PRIMARY })
+		})
+
+		it('register outside any repository records no worktree', () => {
+			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }), { harness: 'claude' })
+			expect(loadAgent(store, rec.id)?.worktree).toBeNull()
 		})
 
 		it('register fails cleanly when the registry cannot be written', () => {
