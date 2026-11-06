@@ -222,8 +222,8 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
       cyber-mux:
-        specifier: 0.10.2
-        version: 0.10.2(js-yaml@4.3.2)
+        specifier: 0.10.3
+        version: 0.10.3(clibuilder@12.1.0(js-yaml@4.3.2))
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -672,6 +672,7 @@ packages:
   '@cyberuni/agent-harness@0.7.0':
     resolution: {integrity: sha512-d3I2Z2sg3JeRcOM6LGO2oPA7dGGxAeRzjEihx8SDkAWzXjOLtMf3umApsu7iej5FxsHkXJpiag7+UubbJdDHsA==}
     engines: {node: '>=22'}
+    deprecated: Renamed to cyber-agentkit
     hasBin: true
     peerDependencies:
       clibuilder: ^12.0.0
@@ -2168,16 +2169,6 @@ packages:
     resolution: {integrity: sha512-0LrrStPOdJj+SPCCrGhzryycLjwcgUSHBtxNA8aIDxf0GLsRh1cKYhB00Gd1lDOS4yGH69+SNn13+TWbVHETFQ==}
     engines: {node: ^10 || ^12.20.0 || ^14.13.0 || >=15.0.0, npm: '>=7.0.0'}
 
-  cyber-agentkit@1.0.0:
-    resolution: {integrity: sha512-95fpujPJiR4hvt6klML0tEUwrlmHZ4s4XDaSZHnmyyGsZgWiHARpfr+RSWX2oiVwQtJRbELRsuIL0k/z51kWjw==}
-    engines: {node: '>=22'}
-    hasBin: true
-    peerDependencies:
-      clibuilder: ^12.0.0
-    peerDependenciesMeta:
-      clibuilder:
-        optional: true
-
   cyber-agentkit@2.0.0:
     resolution: {integrity: sha512-+errwcKErS+ZJ+lImtofk8etwcobxYaNRm4Q6V+cL8GM09eN8FJtNePmJGG4xv+V+cq0ptuH3hekv20dmY7Tww==}
     engines: {node: '>=22'}
@@ -2188,10 +2179,15 @@ packages:
       clibuilder:
         optional: true
 
-  cyber-mux@0.10.2:
-    resolution: {integrity: sha512-kp2pA67ht9pPnwOUvViffYh4J8Qcp3Bn7Hb44LIc7VA5MKpW1d5gtH57plXoDFw73JTu4yzF7AW3bg7D1qlebg==}
+  cyber-mux@0.10.3:
+    resolution: {integrity: sha512-MaQKhzWMKlv99tUsIq40rM/8+OtjaPUS+qKi+oBQVuibPAWNzVI8CRoSSqgGTUP80rQW8WQxFssi1UqjEBXJvA==}
     engines: {node: '>=22'}
     hasBin: true
+    peerDependencies:
+      clibuilder: ^12.1.0
+    peerDependenciesMeta:
+      clibuilder:
+        optional: true
 
   cyber-sdd@0.7.0:
     resolution: {integrity: sha512-Ibb/YUHgNJdzbiyztRFV7F5/1Cu4xgQwr/OGrc0NEOCESBTmdVDpRFZqH4FvRJC5MoQ4B+W5bniqNgJO2H5J/g==}
@@ -4743,7 +4739,8 @@ snapshots:
 
   argparse@2.0.1: {}
 
-  args-minus@0.2.1: {}
+  args-minus@0.2.1:
+    optional: true
 
   argue-cli@3.1.0: {}
 
@@ -4888,6 +4885,7 @@ snapshots:
       args-minus: 0.2.1
     optionalDependencies:
       js-yaml: 4.3.2
+    optional: true
 
   cliui@9.0.1:
     dependencies:
@@ -4970,20 +4968,15 @@ snapshots:
     dependencies:
       css-tree: 2.2.1
 
-  cyber-agentkit@1.0.0(clibuilder@12.1.0(js-yaml@4.3.2)):
-    optionalDependencies:
-      clibuilder: 12.1.0(js-yaml@4.3.2)
-
   cyber-agentkit@2.0.0(clibuilder@12.1.0(js-yaml@4.3.2)):
     optionalDependencies:
       clibuilder: 12.1.0(js-yaml@4.3.2)
 
-  cyber-mux@0.10.2(js-yaml@4.3.2):
+  cyber-mux@0.10.3(clibuilder@12.1.0(js-yaml@4.3.2)):
     dependencies:
+      cyber-agentkit: 2.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
+    optionalDependencies:
       clibuilder: 12.1.0(js-yaml@4.3.2)
-      cyber-agentkit: 1.0.0(clibuilder@12.1.0(js-yaml@4.3.2))
-    transitivePeerDependencies:
-      - js-yaml
 
   cyber-sdd@0.7.0:
     dependencies:
