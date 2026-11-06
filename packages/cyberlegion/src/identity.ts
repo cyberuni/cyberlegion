@@ -408,6 +408,46 @@ export function resolveAgent(store: Store, ref: string): AgentRecord {
 	throw unaddressable(ref, dead, 'id, handle, and worktree branch/CR')
 }
 
+/** Pick a unit by its worktree rather than by a ref: `branch` matches `worktree.branch`, `repo` the
+ * folder name of `worktree.primaryRoot`, else of `cwd`. Every given field must match. */
+export interface UnitSelector {
+	repo?: string
+	branch?: string
+}
+
+function repoNameOf(rec: AgentRecord): string {
+	return basename(rec.worktree?.primaryRoot ?? rec.cwd)
+}
+
+/**
+ * Resolve the one live unit a selector matches, or throw. Never picks among several: an ambiguous
+ * selector fails listing every candidate, so the caller narrows it or falls back to an id. An exited
+ * unit is never a candidate — it has no session to act on.
+ */
+export function selectAgent(store: Store, selector: UnitSelector): AgentRecord {
+	const { repo, branch } = selector
+	if (repo === undefined && branch === undefined) throw new Error('a ref, --repo, or --branch is required')
+	const named = [
+		...(repo !== undefined ? [`--repo "${repo}"`] : []),
+		...(branch !== undefined ? [`--branch "${branch}"`] : []),
+	].join(' ')
+	const matches = listAgents(store).filter(
+		(a) =>
+			a.status !== 'exited' &&
+			(branch === undefined || a.worktree?.branch === branch) &&
+			(repo === undefined || repoNameOf(a) === repo),
+	)
+	const [only] = matches
+	if (!only) throw new Error(`no live unit matches ${named}`)
+	if (matches.length > 1) {
+		const list = matches
+			.map((a) => `${a.id} (${a.handle}${a.worktree?.branch ? `, ${a.worktree.branch}` : ''}, ${repoNameOf(a)})`)
+			.join(', ')
+		throw new Error(`${named} matches ${matches.length} units — ${list} — address one by its id`)
+	}
+	return only
+}
+
 export function bumpLastSeen(ctx: IdContext, id: string): void {
 	const rec = loadAgent(ctx.store, id)
 	if (!rec) return

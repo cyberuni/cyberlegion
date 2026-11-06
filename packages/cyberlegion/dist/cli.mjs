@@ -7103,6 +7103,27 @@ function resolveAgent(store, ref) {
 	if (byBranch) return byBranch;
 	throw unaddressable(ref, [...exited, ...byBranchAll.filter((a) => a.status === "exited")].filter((a, i, all) => all.findIndex((b) => b.id === a.id) === i), "id, handle, and worktree branch/CR");
 }
+function repoNameOf(rec) {
+	return basename(rec.worktree?.primaryRoot ?? rec.cwd);
+}
+/**
+* Resolve the one live unit a selector matches, or throw. Never picks among several: an ambiguous
+* selector fails listing every candidate, so the caller narrows it or falls back to an id. An exited
+* unit is never a candidate — it has no session to act on.
+*/
+function selectAgent(store, selector) {
+	const { repo, branch } = selector;
+	if (repo === void 0 && branch === void 0) throw new Error("a ref, --repo, or --branch is required");
+	const named = [...repo !== void 0 ? [`--repo "${repo}"`] : [], ...branch !== void 0 ? [`--branch "${branch}"`] : []].join(" ");
+	const matches = listAgents(store).filter((a) => a.status !== "exited" && (branch === void 0 || a.worktree?.branch === branch) && (repo === void 0 || repoNameOf(a) === repo));
+	const [only] = matches;
+	if (!only) throw new Error(`no live unit matches ${named}`);
+	if (matches.length > 1) {
+		const list = matches.map((a) => `${a.id} (${a.handle}${a.worktree?.branch ? `, ${a.worktree.branch}` : ""}, ${repoNameOf(a)})`).join(", ");
+		throw new Error(`${named} matches ${matches.length} units — ${list} — address one by its id`);
+	}
+	return only;
+}
 function bumpLastSeen(ctx, id) {
 	const rec = loadAgent(ctx.store, id);
 	if (!rec) return;
@@ -8429,16 +8450,17 @@ function shellQuote$1(s) {
 * keyed by its id (a herdr peer stores its pane only in that index).
 */
 function paneTargetOf(ctx, ref) {
-	const agent = resolveAgent(ctx.store, ref);
+	const agent = typeof ref === "string" ? resolveAgent(ctx.store, ref) : selectAgent(ctx.store, ref);
 	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id);
-	if (!pane) throw new Error(`unit "${ref}" has no known session pane`);
+	if (!pane) throw new Error(`unit "${typeof ref === "string" ? ref : agent.id}" has no known session pane`);
 	return {
 		agent,
 		target: { id: pane }
 	};
 }
 /**
-* Move input focus to a peer's session. The adapter beams the attached view all the way there —
+* Move input focus to a peer's session, named by a ref or picked by a `UnitSelector` (its worktree's
+* branch or repo — exactly one live match, never a pick among several). The adapter beams the attached view all the way there —
 * across workspace and tab — rather than no-opping when the peer sits outside the caller's current
 * workspace, and surfaces a backend failure instead of reporting a false success.
 *
@@ -11191,17 +11213,23 @@ withGlobals(unit.command("show")).description("show a unit's runtime: where it i
 		json: view
 	});
 });
-withGlobals(unit.command("focus")).description("move input focus to a peer's session").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+withGlobals(unit.command("focus")).description("move input focus to a peer's session, named by a ref or picked by its worktree's repo/branch").argument("[ref]", "unit id, handle, or worktree branch/CR ref").option("--repo <name>", "pick the one live unit in this repository (its primary checkout's folder name, else its cwd's)").option("--branch <name>", "pick the one live unit whose worktree is on this branch").action((ref, opts) => {
+	const selector = {
+		repo: opts.repo,
+		branch: opts.branch
+	};
+	if (ref !== void 0 && (selector.repo !== void 0 || selector.branch !== void 0)) fail("a ref and --repo/--branch cannot be combined — pass one or the other");
 	const ctx = ctxOf(opts);
 	touch(ctx);
-	const { pane } = focusUnit(ctx, ref);
+	const { agent, pane } = focusUnit(ctx, ref ?? selector);
+	const focused = ref ?? agent.id;
 	emit(formatOf(opts), {
 		toon: toonObject({
-			focused: ref,
+			focused,
 			pane
 		}),
 		json: {
-			ref,
+			ref: focused,
 			pane
 		}
 	});

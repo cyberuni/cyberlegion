@@ -13,6 +13,7 @@ import { FileStore } from './store/file-store.ts'
 // exported, so the bodies execute here and a dropped or inverted flag fails.
 const spawnAndWake = vi.fn()
 const nudgeUnit = vi.fn()
+const focusUnit = vi.fn()
 const readUnit = vi.fn()
 const decommission = vi.fn()
 
@@ -20,6 +21,7 @@ vi.mock('./session.ts', async () => ({
 	...(await vi.importActual<typeof import('./session.ts')>('./session.ts')),
 	spawnAndWake: (...a: unknown[]) => spawnAndWake(...a),
 	nudgeUnit: (...a: unknown[]) => nudgeUnit(...a),
+	focusUnit: (...a: unknown[]) => focusUnit(...a),
 	readUnit: (...a: unknown[]) => readUnit(...a),
 }))
 const listCursorModels = vi.fn((): string[] => [])
@@ -37,6 +39,7 @@ beforeEach(() => {
 	decommission.mockReturnValue({ id: 'p1', worktreeRemoved: false, paneTornDown: false })
 	nudgeUnit.mockResolvedValue({ agent: { id: 'p1' }, pane: '%9', message: 'x', resubmits: 0 })
 	readUnit.mockReturnValue({ agent: { id: 'p1' }, pane: '%9', output: SCRAPE })
+	focusUnit.mockReturnValue({ agent: { id: 'p1' }, pane: '%9' })
 })
 
 /** The scrape a mocked `readUnit` hands back — distinctive, so its presence on stdout is a real
@@ -101,6 +104,24 @@ describe('spec:cyberlegion/unit/lifecycle CLI option wires', () => {
 		nudgeUnit.mockResolvedValue({ agent: { id: 'p1' }, pane: '%9', message: 'x', resubmits: 0 })
 		await cli(['unit', 'nudge', 'p1'])
 		expect(nudgeUnit.mock.calls[0]?.[2]).toMatchObject({ message: DELIVERY_DOORBELL })
+	})
+
+	it('--repo and --branch reach focus as a selector, and the focused unit is named by its id', async () => {
+		const log = captureStdout()
+		await cli(['unit', 'focus', '--repo', 'color-map', '--branch', 'fix/login'])
+		expect(focusUnit.mock.calls[0]?.[1]).toEqual({ repo: 'color-map', branch: 'fix/login' })
+		expect(printed(log)).toBe('focused: p1\npane: %9')
+		// ...and a bare ref still reaches focus as the ref itself, not as an empty selector
+		vi.clearAllMocks()
+		focusUnit.mockReturnValue({ agent: { id: 'p1' }, pane: '%9' })
+		await cli(['unit', 'focus', 'peer'])
+		expect(focusUnit.mock.calls[0]?.[1]).toBe('peer')
+	})
+
+	it('focus with a ref and a selector together never reaches focus', async () => {
+		vi.spyOn(console, 'error').mockImplementation(() => {})
+		await expect(cli(['unit', 'focus', 'peer', '--branch', 'fix/login'])).rejects.toThrow(/process\.exit/)
+		expect(focusUnit).not.toHaveBeenCalled()
 	})
 
 	it('--force reaches close, and its absence does not', async () => {

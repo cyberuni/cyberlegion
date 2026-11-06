@@ -324,6 +324,17 @@ cleanly — the deterministic inverse pair:
   false success**: if the recorded pane no longer resolves to a live pane in the backend, focus throws
   that it could not beam there and switches nothing — never reporting `focused` on a silent no-op.
   (The unresolvable-ref / no-known-pane cases fail loud earlier still, at ref resolution — see below.)
+  - **focus can pick the unit by its worktree instead of a ref** — `unit focus --branch <name>` and
+    `unit focus --repo <name>` select the unit by its record, so a caller that knows a PR's head
+    branch or a repository need not look the handle up first. `--branch` matches
+    `worktree.branch`; `--repo` matches the folder name of `worktree.primaryRoot`, else of `cwd` for
+    a unit with no recorded primary checkout. Given together, both must match. Only live records
+    are candidates (an exited unit has no session to focus). **Exactly one match** is focused,
+    through the same pane prelude and the same cyber-mux session adapter as a ref, so whatever
+    cyber-mux records about a focus it records here too. **More than one** fails listing each
+    candidate's id, and never picks one. **None** fails naming the selector it was given. A ref and
+    a selector together, or neither, is refused before anything is resolved. Issue and PR lookup
+    stays out of cyberlegion: `--branch` is where a tracker-aware caller meets it.
 - **nudge rings a peer's session — a doorbell that carries a message, robust to the harness boot
   race** — `unit nudge <ref>` delivers a message as a turn to the peer's pane through the session
   adapter (a live agent session only acts on real input; an empty keystroke is a no-op). The default
@@ -606,6 +617,13 @@ graph TD
 
 ```mermaid
 graph TD
+  FS0["unit focus [ref] [--repo r] [--branch b]"] --> FS1{"exactly one of: a ref, or a selector?"}
+  FS1 -- no --> FS1X["throw: a ref and a selector cannot combine / one is required; nothing resolved"]
+  FS1 -- "a ref" --> PT1
+  FS1 -- "a selector" --> FS2{"how many live units match every given selector?"}
+  FS2 -- none --> FS2X["throw naming the selector; the adapter is never touched"]
+  FS2 -- "more than one" --> FS2M["throw listing each candidate's id; never pick one"]
+  FS2 -- one --> PT2
   PT0["unit focus|nudge|read|clear ref"] --> PT1{"ref resolves to a unit? (id, handle, worktree branch/CR ref)"}
   PT1 -- no --> PT1X["throw naming the ref; the adapter is never touched"]
   PT1 -- yes --> PT2{"a pane resolved — the record's own locator, else the pane index?"}
@@ -892,6 +910,19 @@ column records. They are not gaps.
 | `RD1 -- no` → `RD1N` | the same, no --lines | `read with no --lines takes the backend's own default capture` |
 | `RD2 -- yes` → `RD2Y` | a peer whose pane holds some output, --format json | `read --format json wraps the scrape in an envelope naming the ref and the pane` |
 | `RD2 -- no` → `RD2N` | the same, no --format | `read in the default format prints the raw scrape alone` |
+
+### focus picks a unit by its worktree
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `FS2 -- one` by branch | two live units on different branches | `focus --branch focuses the single live unit whose worktree is on that branch` |
+| `FS2 -- one` by repo | two live units in different repositories | `focus --repo focuses the single live unit in that repository` |
+| `FS2 -- one` by cwd | a live unit with no worktree | `focus --repo matches a unit with no worktree by the folder it runs in` |
+| `FS2 -- one` both | two live units in one repository, different branches | `focus --repo and --branch together focus only the unit matching both` |
+| `FS2 -- more than one` → `FS2M` | two live units on one branch | `focus by a selector that matches more than one live unit fails with the candidates` |
+| `FS2 -- none` → `FS2X` | live units on other branches, an exited unit on the branch | `focus by a selector that matches no live unit fails naming the selector` |
+| `FS1 -- no` both | a ref and a selector | `focus refuses a ref given together with a selector` |
+| `FS1 -- no` neither | no ref and no selector | `focus with neither a ref nor a selector fails` |
 
 ### focus, nudge, read: error cases
 

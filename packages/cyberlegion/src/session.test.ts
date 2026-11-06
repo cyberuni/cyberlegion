@@ -1848,6 +1848,128 @@ describe('spec:cyberlegion/unit/lifecycle focus, nudge and read a live peer', ()
 	})
 })
 
+// spec: unit/lifecycle/lifecycle.feature — focus by a unit's worktree (--branch / --repo).
+describe('spec:cyberlegion/unit/lifecycle focus picks a unit by its worktree', () => {
+	/** Live tmux units, each in its own session/window, plus a fake exec driving the real adapter. */
+	function unitsCtx(units: Array<Partial<AgentRecord> & { id: string; pane?: AgentRecord['pane'] }>) {
+		const calls: string[][] = []
+		const locations = units
+			.filter((u) => u.pane)
+			.map((u, i) => `${u.pane?.id} s${i} @${i}`)
+			.join('\n')
+		const exec: Exec = (cmd, args) => {
+			calls.push([cmd, ...args])
+			if (cmd !== 'tmux') return null
+			if (tmuxVerb(args) === 'list-panes') {
+				return args.includes('#{pane_id} #{session_name} #{window_id}')
+					? locations
+					: locations
+							.split('\n')
+							.map((l) => l.split(' ')[0])
+							.join('\n')
+			}
+			if (tmuxVerb(args) === 'has-session') return ''
+			return null
+		}
+		for (const u of units) {
+			saveAgent(store, {
+				handle: u.id,
+				harness: 'claude',
+				cwd: '/tmp',
+				status: 'active',
+				createdAt: 'x',
+				lastSeen: 'x',
+				...u,
+			})
+		}
+		return { calls, ctx: { store, env: { TMUX: 't', CYBERLEGION_AGENT_ID: 'caller' }, exec } as IdContext }
+	}
+	const tmux = (id: string): AgentRecord['pane'] => ({ mux: 'tmux', id })
+	const wt = (branch: string, primaryRoot = '/src/other') => ({ root: `/wt/${branch}`, branch, primaryRoot })
+	const focused = (calls: string[][]) =>
+		calls.filter((c) => c[0] === 'tmux' && tmuxVerb(c.slice(1)) === 'select-pane').map((c) => c[c.indexOf('-t') + 1])
+
+	it('focus --branch focuses the single live unit whose worktree is on that branch', () => {
+		const { calls, ctx } = unitsCtx([
+			{ id: 'login1', pane: tmux('%1'), worktree: wt('fix/login') },
+			{ id: 'other1', pane: tmux('%2'), worktree: wt('feat/other') },
+		])
+		const res = focusUnit(ctx, { branch: 'fix/login' })
+		expect(res.agent.id).toBe('login1')
+		expect(res.pane).toBe('%1')
+		expect(focused(calls)).toEqual(['%1'])
+	})
+
+	it('focus --repo focuses the single live unit in that repository', () => {
+		const { calls, ctx } = unitsCtx([
+			{ id: 'cmap1', pane: tmux('%1'), worktree: wt('fix/a', '/src/color-map') },
+			{ id: 'other1', pane: tmux('%2'), worktree: wt('fix/b', '/src/cyberlegion') },
+		])
+		expect(focusUnit(ctx, { repo: 'color-map' }).agent.id).toBe('cmap1')
+		expect(focused(calls)).toEqual(['%1'])
+	})
+
+	it('focus --repo matches a unit with no worktree by the folder it runs in', () => {
+		const { calls, ctx } = unitsCtx([
+			{ id: 'cwd1', pane: tmux('%1'), cwd: '/src/color-map', worktree: null },
+			{ id: 'other1', pane: tmux('%2'), cwd: '/src/cyberlegion' },
+		])
+		expect(focusUnit(ctx, { repo: 'color-map' }).agent.id).toBe('cwd1')
+		expect(focused(calls)).toEqual(['%1'])
+	})
+
+	it('focus --repo prefers the primary checkout over the cwd of a worktree unit', () => {
+		// a worktree's own folder (color-map-2) is not the repository's name
+		const { ctx } = unitsCtx([
+			{ id: 'wt1', pane: tmux('%1'), cwd: '/src/color-map.worktrees/color-map-2', worktree: wt('x', '/src/color-map') },
+		])
+		expect(focusUnit(ctx, { repo: 'color-map' }).agent.id).toBe('wt1')
+		expect(() => focusUnit(ctx, { repo: 'color-map-2' })).toThrow(/no live unit matches --repo "color-map-2"/)
+	})
+
+	it('focus --repo and --branch together focus only the unit matching both', () => {
+		const { calls, ctx } = unitsCtx([
+			{ id: 'login1', pane: tmux('%1'), worktree: wt('fix/login', '/src/color-map') },
+			{ id: 'other1', pane: tmux('%2'), worktree: wt('feat/other', '/src/color-map') },
+			{ id: 'elsewhere', pane: tmux('%3'), worktree: wt('fix/login', '/src/cyberlegion') },
+		])
+		expect(focusUnit(ctx, { repo: 'color-map', branch: 'fix/login' }).agent.id).toBe('login1')
+		expect(focused(calls)).toEqual(['%1'])
+	})
+
+	it('focus by a selector that matches more than one live unit fails with the candidates', () => {
+		const { calls, ctx } = unitsCtx([
+			{ id: 'dupaaa1', pane: tmux('%1'), worktree: wt('fix/login') },
+			{ id: 'dupbbb2', pane: tmux('%2'), worktree: wt('fix/login') },
+		])
+		let message = ''
+		try {
+			focusUnit(ctx, { branch: 'fix/login' })
+		} catch (err) {
+			message = (err as Error).message
+		}
+		expect(message).toMatch(/matches 2 units/)
+		expect(message).toContain('dupaaa1')
+		expect(message).toContain('dupbbb2')
+		expect(focused(calls)).toEqual([])
+	})
+
+	it('focus by a selector that matches no live unit fails naming the selector', () => {
+		const { calls, ctx } = unitsCtx([
+			{ id: 'other1', pane: tmux('%1'), worktree: wt('feat/other') },
+			{ id: 'dead1', pane: tmux('%2'), worktree: wt('fix/login'), status: 'exited' },
+		])
+		expect(() => focusUnit(ctx, { branch: 'fix/login' })).toThrow(/no live unit matches --branch "fix\/login"/)
+		expect(focused(calls)).toEqual([])
+	})
+
+	it('focus with an empty selector fails', () => {
+		const { calls, ctx } = unitsCtx([{ id: 'other1', pane: tmux('%1'), worktree: wt('feat/other') }])
+		expect(() => focusUnit(ctx, {})).toThrow(/a ref, --repo, or --branch is required/)
+		expect(focused(calls)).toEqual([])
+	})
+})
+
 describe('the spawned session can invoke the CLI that spawned it', () => {
 	// The caller's own invocation — the node binary, its loader flags, and the entry script — as the
 	// CLI records it from its own process (`selfInvocation`).

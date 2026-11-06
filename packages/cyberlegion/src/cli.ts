@@ -571,13 +571,23 @@ withGlobals(unit.command('show'))
 	})
 
 withGlobals(unit.command('focus'))
-	.description("move input focus to a peer's session")
-	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
-	.action((ref, opts) => {
+	.description("move input focus to a peer's session, named by a ref or picked by its worktree's repo/branch")
+	.argument('[ref]', 'unit id, handle, or worktree branch/CR ref')
+	.option(
+		'--repo <name>',
+		"pick the one live unit in this repository (its primary checkout's folder name, else its cwd's)",
+	)
+	.option('--branch <name>', 'pick the one live unit whose worktree is on this branch')
+	.action((ref: string | undefined, opts) => {
+		const selector = { repo: opts.repo as string | undefined, branch: opts.branch as string | undefined }
+		if (ref !== undefined && (selector.repo !== undefined || selector.branch !== undefined)) {
+			fail('a ref and --repo/--branch cannot be combined — pass one or the other')
+		}
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const { pane } = focusUnit(ctx, ref)
-		emit(formatOf(opts), { toon: toonObject({ focused: ref, pane }), json: { ref, pane } })
+		const { agent, pane } = focusUnit(ctx, ref ?? selector)
+		const focused = ref ?? agent.id
+		emit(formatOf(opts), { toon: toonObject({ focused, pane }), json: { ref: focused, pane } })
 	})
 
 // The doorbell must carry a message: a live agent session only takes a turn when it receives

@@ -398,6 +398,30 @@ describe('spec:cyberlegion/unit', () => {
 			expect(stderr).toMatch(/no known session pane/)
 		})
 
+		it('focus refuses a ref given together with a selector', () => {
+			const { stderr } = legionOut(['unit', 'focus', 'ghost', '--branch', 'fix/login'])
+			expect(() => legion(['unit', 'focus', 'ghost', '--branch', 'fix/login'])).toThrow()
+			expect(stderr).toMatch(/a ref and --repo\/--branch cannot be combined/)
+		})
+
+		it('focus with neither a ref nor a selector fails', () => {
+			const { stderr } = legionOut(['unit', 'focus'])
+			expect(() => legion(['unit', 'focus'])).toThrow()
+			expect(stderr).toMatch(/a ref, --repo, or --branch is required/)
+		})
+
+		it('focus --branch on a branch no live unit is on fails naming the selector', () => {
+			const { stderr } = legionOut(['unit', 'focus', '--branch', 'fix/login'])
+			expect(() => legion(['unit', 'focus', '--branch', 'fix/login'])).toThrow()
+			expect(JSON.parse(stderr).error).toBe('no live unit matches --branch "fix/login"')
+		})
+
+		it('focus --repo on a repo no live unit is in fails naming the selector', () => {
+			const { stderr } = legionOut(['unit', 'focus', '--repo', 'color-map'])
+			expect(() => legion(['unit', 'focus', '--repo', 'color-map'])).toThrow()
+			expect(JSON.parse(stderr).error).toBe('no live unit matches --repo "color-map"')
+		})
+
 		it('nudge on an unresolvable ref errors and delivers nothing', () => {
 			const { stderr } = legionOut(['unit', 'nudge', 'ghost'])
 			expect(() => legion(['unit', 'nudge', 'ghost'])).toThrow()

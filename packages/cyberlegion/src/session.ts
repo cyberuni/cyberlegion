@@ -17,6 +17,8 @@ import {
 	resolveAgent,
 	resolveSelfId,
 	saveAgent,
+	selectAgent,
+	type UnitSelector,
 } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
@@ -600,15 +602,16 @@ export interface ClearResult {
  * focus/nudge/read agree on what "addressable" means — a record's own pane, else a pane pointer
  * keyed by its id (a herdr peer stores its pane only in that index).
  */
-function paneTargetOf(ctx: IdContext, ref: string): { agent: AgentRecord; target: MuxTarget } {
-	const agent = resolveAgent(ctx.store, ref)
+function paneTargetOf(ctx: IdContext, ref: string | UnitSelector): { agent: AgentRecord; target: MuxTarget } {
+	const agent = typeof ref === 'string' ? resolveAgent(ctx.store, ref) : selectAgent(ctx.store, ref)
 	const pane = agent.pane?.id ?? ctx.store.findPaneByAgentId(agent.id)
-	if (!pane) throw new Error(`unit "${ref}" has no known session pane`)
+	if (!pane) throw new Error(`unit "${typeof ref === 'string' ? ref : agent.id}" has no known session pane`)
 	return { agent, target: { id: pane } }
 }
 
 /**
- * Move input focus to a peer's session. The adapter beams the attached view all the way there —
+ * Move input focus to a peer's session, named by a ref or picked by a `UnitSelector` (its worktree's
+ * branch or repo — exactly one live match, never a pick among several). The adapter beams the attached view all the way there —
  * across workspace and tab — rather than no-opping when the peer sits outside the caller's current
  * workspace, and surfaces a backend failure instead of reporting a false success.
  *
@@ -616,7 +619,7 @@ function paneTargetOf(ctx: IdContext, ref: string): { agent: AgentRecord; target
  * call site it took a hardcoded `realExec`, so the operation could not be driven with an injected
  * exec and its success path was unreachable from a test.
  */
-export function focusUnit(ctx: IdContext, ref: string): { agent: AgentRecord; pane: string } {
+export function focusUnit(ctx: IdContext, ref: string | UnitSelector): { agent: AgentRecord; pane: string } {
 	const { agent, target } = paneTargetOf(ctx, ref)
 	const exec = ctx.exec ?? realExec
 	selectSessionAdapter(ctx.env ?? process.env, exec).focus(exec, target)
