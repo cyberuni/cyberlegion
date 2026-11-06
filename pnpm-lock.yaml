@@ -197,8 +197,8 @@ importers:
         specifier: ^2.10.8
         version: 2.10.11
       universal-plugin:
-        specifier: ^0.16.0
-        version: 0.16.0(clibuilder@12.1.0(js-yaml@4.3.2))
+        specifier: ^0.17.0
+        version: 0.17.1
 
   apps/web:
     dependencies:
@@ -665,17 +665,6 @@ packages:
 
   '@cucumber/messages@34.2.1':
     resolution: {integrity: sha512-aj2iCAG9ZOpMVcMxcgShifv5fbR96b7SMgdWcPXXh2QbFp7OEcAnQ5MC5YfWUDSDasmw7FU5NJEsOrXdTQOU1A==}
-
-  '@cyberuni/agent-harness@0.7.0':
-    resolution: {integrity: sha512-d3I2Z2sg3JeRcOM6LGO2oPA7dGGxAeRzjEihx8SDkAWzXjOLtMf3umApsu7iej5FxsHkXJpiag7+UubbJdDHsA==}
-    engines: {node: '>=22'}
-    deprecated: Renamed to cyber-agentkit
-    hasBin: true
-    peerDependencies:
-      clibuilder: ^12.0.0
-    peerDependenciesMeta:
-      clibuilder:
-        optional: true
 
   '@emnapi/core@1.11.1':
     resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
@@ -3159,8 +3148,8 @@ packages:
   unist-util-visit@5.1.0:
     resolution: {integrity: sha512-m+vIdyeCOpdr/QeQCu2EzxX/ohgS8KbnPDgFni4dQsfSCtpz8UqDyY5GjRru8PDKuYn7Fq19j1CQ+nJSsGKOzg==}
 
-  universal-plugin@0.16.0:
-    resolution: {integrity: sha512-57m57Y3DfwBu2D2XmRdyMgwqEQveD05KEVZ9OKJ0znesXod8xM37vwwHJrgY7rJX5L40y4Ridy/q5ts2PxbpuQ==}
+  universal-plugin@0.17.1:
+    resolution: {integrity: sha512-pLKkNaS9CWMdz1B8XYPHZDbrXTt3QQr6Y4lfEyezeYsmcaeWd+GLcWtc4Z0zuWfkWkexTUKoqDPxB68d4/CEQw==}
     engines: {node: '>=22'}
     hasBin: true
 
@@ -3873,10 +3862,6 @@ snapshots:
 
   '@cucumber/messages@34.2.1': {}
 
-  '@cyberuni/agent-harness@0.7.0(clibuilder@12.1.0(js-yaml@4.3.2))':
-    optionalDependencies:
-      clibuilder: 12.1.0(js-yaml@4.3.2)
-
   '@emnapi/core@1.11.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
@@ -4476,7 +4461,8 @@ snapshots:
 
   '@simple-libs/stream-utils@2.0.0': {}
 
-  '@toon-format/toon@4.1.1': {}
+  '@toon-format/toon@4.1.1':
+    optional: true
 
   '@turbo/darwin-64@2.10.11':
     optional: true
@@ -6170,16 +6156,10 @@ snapshots:
       unist-util-is: 6.0.1
       unist-util-visit-parents: 6.0.2
 
-  universal-plugin@0.16.0(clibuilder@12.1.0(js-yaml@4.3.2)):
+  universal-plugin@0.17.1:
     dependencies:
-      '@cyberuni/agent-harness': 0.7.0(clibuilder@12.1.0(js-yaml@4.3.2))
       '@repobuddy/upx': 0.2.0
-      '@toon-format/toon': 4.1.1
-      commander: 15.0.0
       rolldown: 1.2.14
-      semver: 7.8.5
-    transitivePeerDependencies:
-      - clibuilder
 
   unstorage@1.17.5:
     dependencies:
