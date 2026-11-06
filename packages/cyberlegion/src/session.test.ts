@@ -1963,6 +1963,42 @@ describe('spec:cyberlegion/unit/lifecycle focus picks a unit by its worktree', (
 		expect(focused(calls)).toEqual([])
 	})
 
+	// cyber-mux (>=0.11.0) wraps every adapter it exports so a focus records target ← the caller's
+	// pane in its jump history, which `cyber-mux focus --back` follows. The recorder reads the
+	// caller's pane from process.env, so the stub sets it there; the file lands in a throwaway dir.
+	describe('the focus is recorded in cyber-mux jump history', () => {
+		function jumpsAfter(focus: (ctx: IdContext) => unknown, ctx: IdContext) {
+			const dir = mkdtempSync(join(tmpdir(), 'cl-jumps-'))
+			vi.stubEnv('CYBER_MUX_STATE_DIR', dir)
+			vi.stubEnv('TMUX', '/tmp/tmux-1000/default,4242,0')
+			vi.stubEnv('TMUX_PANE', '%0')
+			try {
+				focus(ctx)
+			} finally {
+				vi.unstubAllEnvs()
+			}
+			return JSON.parse(readFileSync(join(dir, 'jumps.json'), 'utf8'))
+		}
+
+		it('focus by ref records a jump into the peer pane from the caller pane', () => {
+			const { ctx } = unitsCtx([{ id: 'peer1', pane: tmux('%1'), worktree: wt('fix/login') }])
+			const jumps = jumpsAfter((c) => focusUnit(c, 'peer1'), ctx)
+			expect(jumps.servers).toHaveLength(1)
+			expect(jumps.servers[0]).toMatchObject({ mux: 'tmux', home: '/tmp/tmux-1000/default', run: '4242' })
+			expect(jumps.servers[0].links['%1']).toMatchObject({ from: '%0' })
+		})
+
+		it('focus --branch records a jump into the selected unit pane', () => {
+			const { ctx } = unitsCtx([
+				{ id: 'login1', pane: tmux('%1'), worktree: wt('fix/login') },
+				{ id: 'other1', pane: tmux('%2'), worktree: wt('feat/other') },
+			])
+			const jumps = jumpsAfter((c) => focusUnit(c, { branch: 'fix/login' }), ctx)
+			expect(Object.keys(jumps.servers[0].links)).toEqual(['%1'])
+			expect(jumps.servers[0].links['%1']).toMatchObject({ from: '%0' })
+		})
+	})
+
 	it('focus with an empty selector fails', () => {
 		const { calls, ctx } = unitsCtx([{ id: 'other1', pane: tmux('%1'), worktree: wt('feat/other') }])
 		expect(() => focusUnit(ctx, {})).toThrow(/a ref, --repo, or --branch is required/)
