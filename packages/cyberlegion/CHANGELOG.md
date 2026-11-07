@@ -1,5 +1,11 @@
 # cyberlegion
 
+## 1.8.0
+
+### Minor Changes
+
+- 999b959: Update runtime dependencies.
+
 ## 1.7.0
 
 ### Minor Changes
