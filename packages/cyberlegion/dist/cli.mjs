@@ -2963,7 +2963,7 @@ function useColor() {
 }
 new Command();
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.11.0/node_modules/cyber-mux/dist/exec-Bmdcg_T7.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/exec-Bmdcg_T7.mjs
 const nodeExec$1 = (cmd, args) => {
 	try {
 		const out = execFileSync(cmd, args, {
@@ -2991,7 +2991,7 @@ function withReason(exec, message) {
 	return exec.lastError ? `${message} — ${exec.lastError}` : message;
 }
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.11.0/node_modules/cyber-mux/dist/backend-D3VSsev4.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/backend-D3VSsev4.mjs
 const KNOWN_MUX = [
 	"tmux",
 	"rmux",
@@ -10248,7 +10248,7 @@ async function exists(path) {
 	}
 }
 //#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.11.0/node_modules/cyber-mux/dist/worktree.mjs
+//#region ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/worktree.mjs
 /**
 * This module's own refusals and failures — plain cyber-mux prose, never a dependency's raw words.
 * `reportWorktreeFailure` (`cli.ts`) forwards a `WorktreeGitError`'s message onto stdout verbatim

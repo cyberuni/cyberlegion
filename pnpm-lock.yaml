@@ -222,8 +222,8 @@ importers:
         specifier: ^2.0.0
         version: 2.0.0
       cyber-mux:
-        specifier: 0.11.0
-        version: 0.11.0
+        specifier: 0.12.0
+        version: 0.12.0
     devDependencies:
       '@types/node':
         specifier: ^24.10.1
@@ -2338,8 +2338,8 @@ packages:
       clibuilder:
         optional: true
 
-  cyber-mux@0.11.0:
-    resolution: {integrity: sha512-yaeTqPtwQb4GsmkhKTfyYwLPJVXitQBkloDd5X5rBVnDoSEuoJ5xRFJtfAg5Q2HxYOWPSPOSbSTsY9fcEb3GCg==}
+  cyber-mux@0.12.0:
+    resolution: {integrity: sha512-sEStYZyDsPE3sEFWvYK0FnXcE5P79pPoNQOt+EMxiOsEPm/ERg8MdFKjxZYDNNePWqhVNmjaDV7hCzWdwsCL2Q==}
     engines: {node: '>=22'}
     hasBin: true
     peerDependencies:
@@ -5240,7 +5240,7 @@ snapshots:
 
   cyber-agentkit@2.0.0: {}
 
-  cyber-mux@0.11.0:
+  cyber-mux@0.12.0:
     dependencies:
       cyber-agentkit: 2.0.0
 
