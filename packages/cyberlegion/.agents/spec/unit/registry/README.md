@@ -231,7 +231,7 @@ record — errors.
 |---|---|
 | Actor / goal | A controller or peer wants the units it can address. |
 | Trigger | `unit who [--all] [--reconcile]`; top-level `who` is a plain alias |
-| Outcome | A TOON list `units[N]{id,handle,harness,status,pane}:` plus a `<N> units` aggregate line, exit 0. |
+| Outcome | A TOON list `units[N]{id,handle,harness,status,pane,shared}:` plus a `<N> units` aggregate line, exit 0. `shared` is the root of the unit's shared worktree, else `-`; `--format json` lists the full records. |
 
 `unit who` is the single list command: the old `session list` folded in here (CR-2 resolution #1).
 
@@ -413,11 +413,17 @@ graph TD
   RG2 -- "explicit, unrecognized" --> RG2T["throw, naming claude | cursor | codex"]
   RG2 -- "nothing detected" --> RG2X["throw, asking for --harness"]
   RG2 -- detected --> RG3{"self id resolves?"}
-  RG3 -- yes --> RG4["reuse that id; keep the existing handle, createdAt, worktree, brief, spawnedBy — a kept worktree with no primary root gains this checkout's"]
+  RG3 -- yes --> RG4["reuse that id; keep the existing handle, createdAt, worktree, sharedWorktree, brief, spawnedBy — a kept worktree with no primary root gains this checkout's"]
   RG3 -- no --> RG5["mint a random id; handle := --handle or the id's first 6 characters"]
-  RG5 --> RG5W["worktree := the cwd's git toplevel, its branch, and its primary checkout"]
+  RG5 --> RGS
+  RG4 --> RGK{"the record owns a worktree?"}
+  RGK -- yes --> RG6
+  RGK -- no --> RGS{"the record shares a worktree, or another unit's record owns the cwd's checkout?"}
+  RGS -- no --> RG5W["worktree := the cwd's git toplevel, its branch, and its primary checkout"]
+  RGS -- yes --> RG5S["worktree := none; sharedWorktree := the cwd's checkout, naming the unit that owns it, if any"]
   RG4 --> RG6["write the record: status active, lastSeen now, pane locator tagged with its mux"]
   RG5W --> RG6
+  RG5S --> RG6
   RG6 --> RG7{"in a tmux or herdr pane?"}
   RG7 -- yes --> RG8["write pane → id pointer"]
   RG7 -- no --> RG9["done; no pointer"]
@@ -522,7 +528,7 @@ graph TD
   WH2R --> WH3{"--all?"}
   WH3 -- yes --> WH4["every record, any kind and status"]
   WH3 -- no --> WH5["every record except exited, any kind"]
-  WH4 --> WH6["print units list (id, handle, harness, status, pane) and 'N units'; exit 0"]
+  WH4 --> WH6["print units list (id, handle, harness, status, pane, shared) and 'N units'; exit 0"]
   WH5 --> WH6
 ```
 
@@ -662,6 +668,8 @@ adapters.
 | `RG5W` linked worktree | an unregistered session in a linked worktree | `register in a linked worktree records the primary checkout and the branch` |
 | `RG5W` primary checkout | an unregistered session in a primary checkout | `register in a primary checkout records that checkout as its own primary root` |
 | `RG4` backfill | a registered session whose record lacks a primary root | `re-register fills in a primary root an older record lacks` |
+| `RGS -- yes` → `RG5S` owned by another | an unregistered session in a linked worktree another unit's record owns | `register in a worktree another unit owns records it as shared, not as its own` |
+| `RGS -- yes` → `RG5S` already shared | a registered session whose record shares a worktree no unit owns any more | `re-register of a unit holding a shared worktree keeps it shared, never owned` |
 
 ### unit register --standing
 
@@ -738,6 +746,7 @@ adapters.
 |---|---|---|
 | `WH6` | two registered units | `who lists every non-exited unit with a definitive aggregate line` |
 | `WH6` empty | an empty registry | `who reports a definitive empty state when nothing is registered` |
+| `WH6` shared | a unit sharing a worktree and one sharing none | `who shows the worktree a unit shares, and "-" for a unit that shares none` |
 | `WH5` then `WH4` | one active agent and one exited agent | `who excludes exited agents by default, --all includes them` |
 | `WH0` alias | a registered agent | `the top-level who command behaves like unit who` |
 

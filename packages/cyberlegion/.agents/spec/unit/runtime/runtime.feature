@@ -419,6 +419,21 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     And the output's status is "active"
     And the output's controls include stop and rebind and exclude focus, nudge, and read
 
+  Scenario: show reports the worktree a unit shares apart from the one it owns
+    Given a registered unit whose record has no worktree of its own and shares a worktree another unit owns
+    When a caller runs unit show <id> --format json
+    Then the output's worktree is null
+    And the output's shared worktree is the recorded one, with its root, branch, and owner
+    When a caller runs unit show <id>
+    Then the TOON output's shared field is the shared worktree's root
+
+  Scenario: show reports no shared worktree for a record that lacks one
+    Given a registered unit whose record carries no shared worktree
+    When a caller runs unit show <id> --format json
+    Then the output's shared worktree is null
+    When a caller runs unit show <id>
+    Then the TOON output's shared field is "-"
+
   Scenario: show reports unknown liveness for a unit with no pane
     Given a registered unit with status active whose record carries no pane locator
     And no pane pointer names the unit

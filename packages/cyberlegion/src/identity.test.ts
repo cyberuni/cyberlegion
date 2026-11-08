@@ -129,6 +129,65 @@ describe('spec:cyberlegion/identity', () => {
 		it('register outside any repository records no worktree', () => {
 			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }), { harness: 'claude' })
 			expect(loadAgent(store, rec.id)?.worktree).toBeNull()
+			expect(loadAgent(store, rec.id)?.sharedWorktree).toBeUndefined()
+		})
+
+		/** A unit whose record owns the linked worktree, as a worktree spawn leaves it. */
+		const owner = (): AgentRecord => {
+			const rec: AgentRecord = {
+				id: 'owner1',
+				handle: 'owner',
+				harness: 'claude',
+				cwd: LINKED,
+				worktree: { root: LINKED, branch: 'fix/login', primaryRoot: PRIMARY, lease: { leaseId: 'l1', holder: 'h' } },
+				pane: null,
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			}
+			saveAgent(store, rec)
+			return rec
+		}
+
+		it('register in a worktree another unit owns records it as shared, not as its own', () => {
+			owner()
+			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			const saved = loadAgent(store, rec.id)
+			expect(saved?.worktree).toBeNull()
+			expect(saved?.sharedWorktree).toEqual({
+				root: LINKED,
+				branch: 'fix/login',
+				primaryRoot: PRIMARY,
+				owner: 'owner1',
+			})
+			// the owner's record is untouched
+			expect(loadAgent(store, 'owner1')?.worktree?.lease).toEqual({ leaseId: 'l1', holder: 'h' })
+		})
+
+		it('re-register of a unit holding a shared worktree keeps it shared, never owned', () => {
+			const e = { TMUX: 't', TMUX_PANE: '%3' }
+			// a --cwd spawn's record: no worktree of its own, a shared one whose owner has since gone
+			store.putPaneIndex('%3', 'shared1')
+			saveAgent(store, {
+				id: 'shared1',
+				handle: 'shared',
+				harness: 'claude',
+				cwd: LINKED,
+				worktree: null,
+				sharedWorktree: { root: LINKED, branch: 'fix/login', primaryRoot: PRIMARY, owner: 'gone1' },
+				pane: { mux: 'tmux', id: '%3' },
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			})
+			const rec = register(ctx(e, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			expect(rec.id).toBe('shared1')
+			expect(loadAgent(store, 'shared1')?.worktree).toBeNull()
+			expect(loadAgent(store, 'shared1')?.sharedWorktree).toEqual({
+				root: LINKED,
+				branch: 'fix/login',
+				primaryRoot: PRIMARY,
+			})
 		})
 
 		it('register fails cleanly when the registry cannot be written', () => {

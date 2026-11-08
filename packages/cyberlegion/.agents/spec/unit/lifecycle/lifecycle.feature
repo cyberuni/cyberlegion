@@ -478,6 +478,21 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And the session opens in that directory
     And the peer is registered with that directory as its cwd and no created worktree
 
+  Scenario: --cwd into a worktree another unit owns records it as a shared worktree naming its owner
+    Given a registered unit whose record owns a linked worktree
+    And a caller running unit spawn --cwd <a directory inside that worktree> --harness claude --task t
+    When unit spawn runs
+    Then the peer's record has no worktree of its own
+    And the peer's record carries that worktree's root as its shared worktree
+    And the shared worktree names the owning unit's id as its owner
+    And the owning unit's record is unchanged
+
+  Scenario: --cwd into a directory in no repository records no shared worktree
+    Given a caller running unit spawn --cwd <an existing directory in no git repository> --harness claude --task t
+    When unit spawn runs
+    Then the peer's record has no worktree of its own
+    And the peer's record carries no shared worktree
+
   Scenario: --cwd requires the directory to already exist
     Given a caller running unit spawn --cwd pointed at a path that does not exist
     When unit spawn runs
@@ -733,6 +748,15 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And the directory the caller supplied still exists on disk
     And the session pane is torn down
     And the unit's registry record, pane pointer, and stored data are gone
+
+  Scenario: close never touches a shared worktree or its owner's lease
+    Given a registered unit that owns no worktree and whose record shares a worktree another unit holds a lease on
+    And that shared worktree has uncommitted changes
+    When a caller runs unit close <id> --force
+    Then no git command is run against the shared worktree
+    And the shared worktree still exists on disk
+    And the owning unit's record still carries its worktree and lease
+    And the closed unit's registry record is gone
 
   # ── Closes a unit on the primary checkout without touching the checkout ──
 
