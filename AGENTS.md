@@ -116,8 +116,8 @@ but not those channels. The skills never rely on `bin/` being on PATH; they run 
 from the repo, and no harness runs a build after the copy, so the bundled CLI has to be in the
 checkout for the installed `bin` to run. `pnpm check:bundle` fails when a build changes the tracked
 copy; it runs in `pnpm verify` and in the pre-commit hook, so after a change under `src/` (or a
-dependency bump) stage the rebuilt `dist/cli.mjs` with it. Renovate PRs get it rebuilt by the
-`renovate-changeset` workflow.
+dependency bump) stage the rebuilt `dist/cli.mjs` with it. Renovate PRs get it rebuilt by the shared
+`dep-changeset` gate, called from `.github/workflows/code.yml` (its `rebuild-command` input).
 
 `.claude-plugin/marketplace.json` at the **repo root** lists the plugin with a local directory
 source (`./packages/cyberlegion`), so a marketplace install tracks the repo rather than the
