@@ -459,12 +459,9 @@ syncsUnits(withGlobals(unit.command('close')))
 	.argument('<id>', 'unit id, handle, or worktree branch/CR ref')
 	.option(
 		'--force',
-		'discard uncommitted changes in a worktree close removes (never overrides refusing the primary checkout)',
+		'discard uncommitted changes in a worktree close removes (refused for a unit on the primary checkout)',
 	)
-	.option(
-		'--keep-worktree',
-		'leave the worktree on disk for reuse and reap everything else (skips the dirty check; never overrides refusing the primary checkout)',
-	)
+	.option('--keep-worktree', 'leave the worktree on disk for reuse and reap everything else (skips the dirty check)')
 	.action(async (ref, opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)

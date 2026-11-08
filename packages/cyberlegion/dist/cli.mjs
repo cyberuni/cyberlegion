@@ -12612,8 +12612,7 @@ function deleteMailbox(store, id) {
 //#endregion
 //#region src/decommission.ts
 /**
-* Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses
-* the primary checkout (absolute — neither `--force` nor `--keep-worktree` overrides it) and a
+* Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses a
 * dirty worktree unless `--force`. Teardown always precedes reap: an already-gone worktree or pane
 * is tolerated, but a genuine worktree-removal failure aborts and leaves the record intact so the
 * operation is retryable.
@@ -12630,6 +12629,12 @@ function deleteMailbox(store, id) {
 * discarded, so neither the dirty refusal nor `--force` applies — a dirty worktree is skipped by the
 * next `acquire` rather than lost. Release precedes the pane teardown, so a release that throws leaves
 * everything for a retry, as a failed removal does.
+*
+* A unit whose worktree is its repository's primary checkout — a seat registered on a main checkout —
+* is closed without touching the checkout: its session ends and its record, brief and mailbox are
+* reaped, but nothing is removed, reset or cleaned, so no dirty check applies and no `--force` is
+* needed. `--force` is refused there, since it asks to discard changes in the checkout. The checkout
+* is not reported as retained: it is no pool path a next unit could be spawned into.
 */
 async function decommission(ctx, input) {
 	const rec = loadAgent(ctx.store, input.id);
@@ -12641,8 +12646,9 @@ async function decommission(ctx, input) {
 	const worktreeExists = worktreeRoot != null && existsSync(worktreeRoot);
 	const primaryRoot = worktreeExists ? await primaryRootOf(exec, worktreeRoot) : rec.worktree?.primaryRoot;
 	const held = rec.worktree?.lease;
-	if (worktreeRoot && primaryRoot && resolve(worktreeRoot) === resolve(primaryRoot)) throw new Error(`refusing to decommission "${input.id}" — its worktree is the primary checkout; neither --force nor --keep-worktree overrides this`);
-	const removesWorktree = worktreeExists && !input.keepWorktree && !held;
+	const onPrimary = worktreeRoot != null && primaryRoot != null && resolve(worktreeRoot) === resolve(primaryRoot);
+	if (onPrimary && input.force) throw new Error(`refusing to close "${input.id}" with --force — its worktree is the primary checkout, which close never alters; close it without --force to end its session and reap its record`);
+	const removesWorktree = worktreeExists && !input.keepWorktree && !held && !onPrimary;
 	if (removesWorktree && !input.force && isDirty(exec, worktreeRoot)) throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`);
 	const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(input.id);
 	if (worktreeRoot && !worktreeExists && primaryRoot && existsSync(primaryRoot)) exec("git", [
@@ -12671,7 +12677,7 @@ async function decommission(ctx, input) {
 	return {
 		agent: rec,
 		worktreeRoot,
-		retainedWorktree: worktreeExists && (input.keepWorktree || held) ? worktreeRoot : void 0,
+		retainedWorktree: worktreeExists && !onPrimary && (input.keepWorktree || held) ? worktreeRoot : void 0,
 		...lease ? { lease } : {},
 		pane
 	};
@@ -14785,7 +14791,7 @@ function defineSpawn(cmd) {
 	});
 }
 defineSpawn(unit.command("spawn"));
-syncsUnits(withGlobals(unit.command("close"))).description("release the unit's worktree lease (or remove a worktree it holds no lease on), tear down its session, and reap its state (the inverse of spawn)").argument("<id>", "unit id, handle, or worktree branch/CR ref").option("--force", "discard uncommitted changes in a worktree close removes (never overrides refusing the primary checkout)").option("--keep-worktree", "leave the worktree on disk for reuse and reap everything else (skips the dirty check; never overrides refusing the primary checkout)").action(async (ref, opts) => {
+syncsUnits(withGlobals(unit.command("close"))).description("release the unit's worktree lease (or remove a worktree it holds no lease on), tear down its session, and reap its state (the inverse of spawn)").argument("<id>", "unit id, handle, or worktree branch/CR ref").option("--force", "discard uncommitted changes in a worktree close removes (refused for a unit on the primary checkout)").option("--keep-worktree", "leave the worktree on disk for reuse and reap everything else (skips the dirty check)").action(async (ref, opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
 	const agent = resolveAgent(ctx.store, ref);

@@ -10,12 +10,12 @@ import { asyncExec, libraryLeases } from './worktree-lease.ts'
 
 export interface DecommissionInput {
 	id: string
-	/** Discard uncommitted changes in the worktree. Never overrides refusing the primary checkout. */
+	/** Discard uncommitted changes in the worktree. Refused for a unit on the primary checkout, which close never alters. */
 	force?: boolean
 	/**
 	 * Reap the unit but leave its worktree on disk, so a pool can detach it and hand it to the next
-	 * unit — far cheaper than a fresh checkout per unit. Never overrides refusing the primary
-	 * checkout: that guard is about identity, not destructiveness.
+	 * unit — far cheaper than a fresh checkout per unit. A unit on the primary checkout is closed this
+	 * way with or without the flag.
 	 */
 	keepWorktree?: boolean
 }
@@ -36,8 +36,7 @@ export interface DecommissionResult {
 }
 
 /**
- * Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses
- * the primary checkout (absolute — neither `--force` nor `--keep-worktree` overrides it) and a
+ * Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses a
  * dirty worktree unless `--force`. Teardown always precedes reap: an already-gone worktree or pane
  * is tolerated, but a genuine worktree-removal failure aborts and leaves the record intact so the
  * operation is retryable.
@@ -54,6 +53,12 @@ export interface DecommissionResult {
  * discarded, so neither the dirty refusal nor `--force` applies — a dirty worktree is skipped by the
  * next `acquire` rather than lost. Release precedes the pane teardown, so a release that throws leaves
  * everything for a retry, as a failed removal does.
+ *
+ * A unit whose worktree is its repository's primary checkout — a seat registered on a main checkout —
+ * is closed without touching the checkout: its session ends and its record, brief and mailbox are
+ * reaped, but nothing is removed, reset or cleaned, so no dirty check applies and no `--force` is
+ * needed. `--force` is refused there, since it asks to discard changes in the checkout. The checkout
+ * is not reported as retained: it is no pool path a next unit could be spawned into.
  */
 export async function decommission(ctx: IdContext, input: DecommissionInput): Promise<DecommissionResult> {
 	const rec = loadAgent(ctx.store, input.id)
@@ -77,17 +82,20 @@ export async function decommission(ctx: IdContext, input: DecommissionInput): Pr
 	const primaryRoot = worktreeExists ? await primaryRootOf(exec, worktreeRoot as string) : rec.worktree?.primaryRoot
 	const held = rec.worktree?.lease
 
-	if (worktreeRoot && primaryRoot && resolve(worktreeRoot) === resolve(primaryRoot)) {
+	const onPrimary = worktreeRoot != null && primaryRoot != null && resolve(worktreeRoot) === resolve(primaryRoot)
+
+	if (onPrimary && input.force) {
 		throw new Error(
-			`refusing to decommission "${input.id}" — its worktree is the primary checkout; ` +
-				'neither --force nor --keep-worktree overrides this',
+			`refusing to close "${input.id}" with --force — its worktree is the primary checkout, which close never ` +
+				'alters; close it without --force to end its session and reap its record',
 		)
 	}
 	// Under keepWorktree nothing is removed, so there is no removal to guard: the dirty check exists
 	// only to stop `git worktree remove` from discarding uncommitted work. Keeping it here would
 	// refuse a close that destroys nothing, and push the operator toward `--force` — the strictly
 	// more destructive flag — to get the strictly less destructive outcome. So it is relaxed.
-	const removesWorktree = worktreeExists && !input.keepWorktree && !held
+	// The primary checkout is never removed, so it falls under the same relaxation.
+	const removesWorktree = worktreeExists && !input.keepWorktree && !held && !onPrimary
 
 	if (removesWorktree && !input.force && isDirty(exec, worktreeRoot as string)) {
 		throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`)
@@ -139,7 +147,8 @@ export async function decommission(ctx: IdContext, input: DecommissionInput): Pr
 	return {
 		agent: rec,
 		worktreeRoot,
-		retainedWorktree: worktreeExists && (input.keepWorktree || held) ? (worktreeRoot as string) : undefined,
+		retainedWorktree:
+			worktreeExists && !onPrimary && (input.keepWorktree || held) ? (worktreeRoot as string) : undefined,
 		...(lease ? { lease } : {}),
 		pane,
 	}
