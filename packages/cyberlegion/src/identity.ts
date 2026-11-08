@@ -301,6 +301,23 @@ export function resolveOwnerMailbox(store: Store, ref: string): string {
 	return resolveStandingOwner(store, ref)
 }
 
+/** Resolve the unit whose mailbox `mail inbox --unit` reads, by id or handle. Unlike a recipient, an
+ * exited unit resolves: the caller is deciding about that unit (a sweep asking whether a dead unit left
+ * unread mail), not writing to it. A live holder of the handle wins; several exited holders and no live
+ * one fail rather than picking one. */
+export function resolveUnitMailbox(store: Store, ref: string): AgentRecord {
+	const byId = loadAgent(store, ref)
+	if (byId) return byId
+	const { live, exited } = matchHandle(listAgents(store), ref)
+	const byHandle = pickLive(ref, live)
+	if (byHandle) return byHandle
+	if (exited.length > 1) {
+		throw new Error(`"${ref}" names ${exited.length} exited units — pass an id (${exited.map((a) => a.id).join(', ')})`)
+	}
+	if (exited[0]) return exited[0]
+	throw new Error(`no unit addressable as "${ref}" (tried id and handle)`)
+}
+
 /**
  * Bind the caller's own unit as a standing owner's presence — the live unit standing in for a
  * durable record that has no session of its own. Order matters: resolve the standing record first

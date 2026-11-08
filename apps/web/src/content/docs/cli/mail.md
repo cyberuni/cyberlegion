@@ -46,7 +46,7 @@ session. `--no-nudge` spawns nothing.
 ## inbox
 
 ```sh
-npx cyberlegion mail inbox [--unread] [--from <id>] [--thread <id>] [--owner <ref>]
+npx cyberlegion mail inbox [--unread] [--from <id>] [--thread <id>] [--owner <ref> | --unit <ref>]
 ```
 
 List your mail. Also available as the top-level alias `cyberlegion inbox` (without `--owner`).
@@ -57,9 +57,28 @@ List your mail. Also available as the top-level alias `cyberlegion inbox` (witho
 | `--from <id>` | filter by sender |
 | `--thread <id>` | filter to messages carrying this thread id |
 | `--owner <ref>` | target a standing owner's mailbox (by handle) or a service endpoint's (by id or unique handle) instead of this session's own |
+| `--unit <ref>` | list another unit's mailbox read-only, by id or handle; exited units resolve too |
 
 Output: a `messages` table (`id`, `from`, `subject`, `read`) with an aggregate `<N> messages (<U>
 unread)`. Suggests `mail read <id>` on the first unread message as a next step.
+
+With `--unit`, the command acks nothing and needs no identity, so a cleanup sweep can ask whether a
+unit left unread mail. Before the table it prints `unit`, `handle`, and a `mailbox` state:
+
+| `mailbox` | Meaning |
+|---|---|
+| `none` | mail was never delivered to the unit; the summary reads `no mailbox` |
+| `present` | the mailbox was read; the table may be empty |
+| `unreadable` | the mailbox or one of its messages could not be read; `error` names the cause and the command exits 1 |
+
+A handle resolves to its live holder first. A handle that only exited units hold resolves to that unit,
+and a handle that several exited units hold errors and lists their ids. `--unit` cannot be combined
+with `--owner`.
+
+```sh
+npx cyberlegion mail inbox --unit pod-42 --unread --format json
+# {"unit":"…","handle":"pod-42","mailbox":"present","messages":[…]}
+```
 
 ## read
 

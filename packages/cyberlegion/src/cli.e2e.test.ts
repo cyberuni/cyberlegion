@@ -773,6 +773,81 @@ describe('mail group', () => {
 	})
 })
 
+describe("another unit's mail — mail inbox --unit", () => {
+	/** Register a session unit and return its record; `exited` flips it to exited on disk. */
+	function unitRec(handle: string, exited = false): { id: string } {
+		const rec = JSON.parse(legion(['unit', 'register', '--harness', 'claude', '--handle', handle, '--format', 'json']))
+		if (exited) {
+			const store = new FileStore(space)
+			const r = store.getAgent(rec.id)
+			if (r) store.putAgent({ ...r, status: 'exited' })
+		}
+		return rec
+	}
+
+	it('lists an exited unit’s unread mail by handle without acking it or needing an identity', () => {
+		unitRec('alice')
+		const bob = unitRec('bob')
+		legion(['mail', 'send', '--from', 'alice', '--to', 'bob', '--subject', 'left behind', '--body', 'hello'])
+		const store = new FileStore(space)
+		const r = store.getAgent(bob.id)
+		if (r) store.putAgent({ ...r, status: 'exited' })
+		const res = legionOut(['mail', 'inbox', '--unit', 'bob', '--unread'], { CYBERLEGION_AGENT_ID: undefined })
+		expect(res.status).toBe(0)
+		expect(res.stdout).toContain(`unit: ${bob.id}`)
+		expect(res.stdout).toContain('mailbox: present')
+		expect(res.stdout).toContain('left behind')
+		expect(res.stdout).toContain('1 messages (1 unread)')
+		expect(store.listInbox(bob.id).unread).toHaveLength(1)
+	})
+
+	it('reports a unit that never received mail as having no mailbox, in TOON and JSON', () => {
+		const bob = unitRec('bob', true)
+		const toon = legion(['mail', 'inbox', '--unit', bob.id, '--unread'])
+		expect(toon).toContain('mailbox: none')
+		expect(toon).toContain('no mailbox')
+		const json = JSON.parse(legion(['mail', 'inbox', '--unit', bob.id, '--unread', '--format', 'json']))
+		expect(json).toEqual({ unit: bob.id, handle: 'bob', mailbox: 'none', messages: [] })
+	})
+
+	it('reports a present mailbox with no unread mail as present and empty', () => {
+		unitRec('alice')
+		const bob = unitRec('bob')
+		const sent = JSON.parse(
+			legion(['mail', 'send', '--from', 'alice', '--to', 'bob', '--body', 'x', '--no-nudge', '--format', 'json']),
+		)
+		legion(['mail', 'ack', sent.id], { CYBERLEGION_AGENT_ID: bob.id })
+		const json = JSON.parse(legion(['mail', 'inbox', '--unit', 'bob', '--unread', '--format', 'json']))
+		expect(json).toMatchObject({ unit: bob.id, mailbox: 'present', messages: [] })
+		expect(legion(['mail', 'inbox', '--unit', 'bob', '--unread'])).toContain('0 messages (0 unread)')
+	})
+
+	it('reports an unreadable mailbox as its own state and exits non-zero', () => {
+		unitRec('alice')
+		const bob = unitRec('bob')
+		legion(['mail', 'send', '--from', 'alice', '--to', 'bob', '--body', 'x'])
+		writeFileSync(join(space, 'inbox', bob.id, '2-bad.json'), '{ torn')
+		const res = legionOut(['mail', 'inbox', '--unit', 'bob', '--unread', '--format', 'json'])
+		expect(res.status).toBe(1)
+		const json = JSON.parse(res.stdout)
+		expect(json).toMatchObject({ unit: bob.id, mailbox: 'unreadable', messages: [] })
+		expect(json.error).toMatch(/2-bad\.json/)
+	})
+
+	it('errors on a ref that names no unit', () => {
+		const res = legionOut(['mail', 'inbox', '--unit', 'ghost'])
+		expect(res.status).toBe(1)
+		expect(res.stderr).toContain('no unit addressable as \\"ghost\\"')
+	})
+
+	it('refuses --unit together with --owner', () => {
+		legion(['unit', 'register', '--standing', '--handle', 'homa'])
+		unitRec('bob')
+		const res = legionOut(['mail', 'inbox', '--unit', 'bob', '--owner', 'homa'])
+		expect(res.status).not.toBe(0)
+	})
+})
+
 describe('the standing owner mailbox — mail --owner', () => {
 	it('mail send --to <owner> delivers exactly one message to the standing owner inbox', () => {
 		legion(['unit', 'register', '--standing', '--handle', 'homa'])
