@@ -234,19 +234,38 @@ describe('a unit no pane can be resolved for', () => {
 	})
 })
 
-describe('refusing the primary checkout', () => {
-	it('refuses a unit whose worktree root equals the primary checkout, and reaps nothing', async () => {
+describe('closing a unit on the primary checkout', () => {
+	it('ends a live seat on the primary checkout and reaps it, leaving the checkout untouched', async () => {
 		registerUnit({ id: 'c1', worktree: { root: primaryRoot } })
-		const { exec, calls } = makeExec()
-		await expect(decommission({ store, env: { TMUX: 't' }, exec }, { id: 'c1' })).rejects.toThrow(/primary checkout/)
-		expect(store.getAgent('c1')).toBeDefined()
+		writePaneFile('%9', 'c1')
+		writeData('c1')
+		// Dirty, too: nothing is removed, so the dirty refusal has nothing to guard and no --force is needed.
+		const { exec, calls } = makeExec({ dirty: true })
+		const res = await decommission({ store, env: { TMUX: 't' }, exec }, { id: 'c1' })
 		expect(calls.worktreeRemove).toHaveLength(0)
-		// ...and its LIVE session pane is left running. The refusal protects the checkout; killing the
-		// pane on the way out would still destroy the session the operator is sitting in.
-		expect(calls.tmuxKill).toHaveLength(0)
+		expect(existsSync(primaryRoot)).toBe(true)
+		expect(calls.tmuxKill[0]).toEqual(['-u', 'kill-pane', '-t', '%9'])
+		expect(store.getAgent('c1')).toBeUndefined()
+		expect(store.resolvePaneId('%9')).toBeUndefined()
+		expect(store.readBrief('c1')).toBeUndefined()
+		// The primary checkout is no pool path: nothing is reported as reusable.
+		expect(res.retainedWorktree).toBeUndefined()
+		expect(res.worktreeRoot).toBe(primaryRoot)
 	})
 
-	it('--force does not override the refusal', async () => {
+	it('reaps an exited record pointing at the primary checkout, with no pane to tear down', async () => {
+		registerUnit({ id: 'c3', status: 'exited', worktree: { root: primaryRoot, primaryRoot }, pane: null })
+		writeData('c3')
+		const { exec, calls } = makeExec()
+		await decommission({ store, env: { TMUX: 't' }, exec }, { id: 'c3' })
+		expect(calls.worktreeRemove).toHaveLength(0)
+		expect(calls.tmuxKill).toHaveLength(0)
+		expect(existsSync(primaryRoot)).toBe(true)
+		expect(store.getAgent('c3')).toBeUndefined()
+		expect(store.readBrief('c3')).toBeUndefined()
+	})
+
+	it('--force is refused — it asks to discard changes in the primary checkout — and reaps nothing', async () => {
 		registerUnit({ id: 'c2', worktree: { root: primaryRoot } })
 		const { exec, calls } = makeExec()
 		await expect(decommission({ store, env: { TMUX: 't' }, exec }, { id: 'c2', force: true })).rejects.toThrow(
@@ -349,20 +368,17 @@ describe('keeping the worktree', () => {
 		expect(store.readBrief('k5')).toBeUndefined()
 	})
 
-	it('still refuses the primary checkout, and reaps nothing', async () => {
-		// keep-worktree relaxes destructiveness; the primary-checkout guard is not about
-		// destructiveness — closing it would also kill the session the operator is sitting in and
-		// reap the record for the primary checkout. It stays unconditional.
+	it('closes a primary-checkout unit too, keeping the checkout and reporting nothing retained', async () => {
 		registerUnit({ id: 'k6', worktree: { root: primaryRoot } })
 		writePaneFile('%9', 'k6')
 		const { exec, calls } = makeExec()
-		await expect(decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k6', keepWorktree: true })).rejects.toThrow(
-			/primary checkout/,
-		)
-		expect(store.getAgent('k6')).toBeDefined()
-		expect(store.resolvePaneId('%9')).toBe('k6')
+		const res = await decommission({ store, env: { TMUX: 't' }, exec }, { id: 'k6', keepWorktree: true })
+		expect(res.retainedWorktree).toBeUndefined()
+		expect(store.getAgent('k6')).toBeUndefined()
+		expect(store.resolvePaneId('%9')).toBeUndefined()
 		expect(calls.worktreeRemove).toHaveLength(0)
-		expect(calls.tmuxKill).toHaveLength(0)
+		expect(calls.tmuxKill).toHaveLength(1)
+		expect(existsSync(primaryRoot)).toBe(true)
 	})
 
 	it('refuses the primary checkout with --keep-worktree AND --force together', async () => {
@@ -536,14 +552,14 @@ describe('spec:cyberlegion/unit/lifecycle — closing a real git worktree', () =
 			expect(store.getAgent('x3')).toBeUndefined()
 		})
 
-		it("refuses a unit whose worktree is its own repository's primary checkout, from another repository", async () => {
+		it("reaps a unit on its own repository's primary checkout, from another repository, leaving the checkout as it was", async () => {
 			registerUnit({ id: 'x4', cwd: repo, worktree: { root: repo }, pane: null })
+			writeFileSync(join(repo, 'wip.txt'), 'uncommitted')
 			const other = makeRepo(tmp, 'other')
-			await expect(decommission({ store, env: {}, exec: execFrom(other) }, { id: 'x4' })).rejects.toThrow(
-				/primary checkout/,
-			)
-			expect(existsSync(repo)).toBe(true)
-			expect(store.getAgent('x4')).toBeDefined()
+			await decommission({ store, env: {}, exec: execFrom(other) }, { id: 'x4' })
+			expect(existsSync(join(repo, 'wip.txt'))).toBe(true)
+			expect(registeredWorktree(repo, repo)).toBe(true)
+			expect(store.getAgent('x4')).toBeUndefined()
 		})
 	})
 

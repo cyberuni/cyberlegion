@@ -234,8 +234,8 @@ worktree removed. The options below apply to that removal.
 
 | Option | Meaning |
 |---|---|
-| `--force` | discard uncommitted changes in a worktree `close` removes (never overrides refusing the primary checkout) |
-| `--keep-worktree` | leave the worktree on disk and reap everything else — record, mailbox, pane, brief (never overrides refusing the primary checkout) |
+| `--force` | discard uncommitted changes in a worktree `close` removes (refused for a unit on the primary checkout) |
+| `--keep-worktree` | leave the worktree on disk and reap everything else — record, mailbox, pane, brief |
 
 Output: `closed` (id), `worktree`, `retained`, `lease` (`released`, `lost`, or `-` when the unit
 held none), `pane`.
@@ -247,9 +247,14 @@ and only when a worktree was actually there to keep, so an empty value always me
 here".
 
 Because nothing is deleted, `--keep-worktree` skips the dirty-worktree refusal: that check exists
-only to protect uncommitted work from `git worktree remove`. The primary-checkout refusal is *not*
-relaxed — it protects the session and record of the checkout you are sitting in, not just its files —
-so neither `--force` nor `--keep-worktree` overrides it.
+only to protect uncommitted work from `git worktree remove`.
+
+A unit whose worktree is its repository's **primary checkout** (a seat registered on a project's
+main checkout, or an exited record left pointing at one) is closed without touching the checkout:
+`close` ends its session and deletes its record, pane pointer, brief, and mailbox, but never
+removes, resets, or cleans the checkout. Nothing on disk is deleted, so it needs no `--force` and
+does not refuse uncommitted changes. `--force` is refused for such a unit, because it asks to
+discard changes in the checkout. `retained` stays empty: the primary checkout is not a pool path.
 
 ## stop
 

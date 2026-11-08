@@ -704,13 +704,14 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
       | a directory outside any repository |
       | the unit's own worktree           |
 
-  Scenario: close refuses a unit whose worktree is its own repository's primary checkout, from another repository
+  Scenario: close reaps a unit on its own repository's primary checkout from another repository, leaving the checkout as it was
     Given a registered unit whose worktree root is the primary checkout of repository A
+    And repository A's primary checkout holds uncommitted work
     And a caller whose working directory is a checkout of another repository
     When the caller runs unit close <id>
-    Then it throws refusing the primary checkout
-    And repository A's primary checkout is still on disk
-    And the unit's record still exists
+    Then repository A's primary checkout and its uncommitted work are still on disk
+    And repository A still lists its primary checkout
+    And the unit's record is gone
 
   # A removal interrupted after the directory went leaves git's registration of the worktree behind,
   # holding its branch. The retry finds no directory, so it clears the registration in the unit's
@@ -733,20 +734,30 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And the session pane is torn down
     And the unit's registry record, pane pointer, and stored data are gone
 
-  # ── Refuses the primary checkout even with --force ──
+  # ── Closes a unit on the primary checkout without touching the checkout ──
 
-  Scenario: close refuses a unit whose worktree is the primary checkout
-    Given a registered unit with a live session pane whose worktree root equals the primary checkout
+  Scenario: close ends a live seat on the primary checkout and reaps it, leaving the checkout untouched
+    Given a registered unit with a live session pane, a pane pointer and a stored brief, whose worktree root equals the primary checkout
+    And the primary checkout has uncommitted changes
     When a caller runs unit close <id>
-    Then it throws refusing the primary checkout
-    And the unit's record still exists
-    And no worktree removal is attempted
-    And its session pane is not torn down
+    Then no worktree removal is attempted
+    And the primary checkout is still on disk
+    And the session pane is torn down
+    And the unit's registry record, pane pointer, and stored data are gone
+    And the result names no retained worktree
 
-  Scenario: --force does not override the primary-checkout refusal
+  Scenario: close reaps an exited record pointing at the primary checkout
+    Given an exited registered unit with no session pane whose worktree root equals the primary checkout
+    When a caller runs unit close <id>
+    Then no worktree removal is attempted
+    And no session pane is torn down
+    And the primary checkout is still on disk
+    And the unit's registry record and stored data are gone
+
+  Scenario: --force is refused for a unit on the primary checkout
     Given a registered unit with a live session pane whose worktree root equals the primary checkout
     When a caller runs unit close <id> --force
-    Then it still throws refusing the primary checkout
+    Then it throws refusing to alter the primary checkout
     And the unit's record still exists
     And no worktree removal is attempted
     And its session pane is not torn down
@@ -828,18 +839,18 @@ Feature: unit lifecycle — warm peer session lifecycle over a multiplexer
     And the unit's record and stored data are gone
     And the result names no retained worktree
 
-  Scenario: --keep-worktree does not override the primary-checkout refusal
+  Scenario: --keep-worktree closes a unit on the primary checkout the same way
     Given a registered unit with a live session pane whose worktree root equals the primary checkout
     When a caller runs unit close <id> --keep-worktree
-    Then it still throws refusing the primary checkout
-    And the unit's record still exists
-    And its pane pointer still exists
-    And its session pane is not torn down
+    Then no worktree removal is attempted
+    And the session pane is torn down
+    And the unit's record and pane pointer are gone
+    And the result names no retained worktree
 
-  Scenario: --keep-worktree with --force does not override the primary-checkout refusal either
+  Scenario: --keep-worktree with --force is still refused for a unit on the primary checkout
     Given a registered unit with a live session pane whose worktree root equals the primary checkout
     When a caller runs unit close <id> --keep-worktree --force
-    Then it still throws refusing the primary checkout
+    Then it throws refusing to alter the primary checkout
     And the unit's record still exists
     And no worktree removal is attempted
     And its session pane is not torn down

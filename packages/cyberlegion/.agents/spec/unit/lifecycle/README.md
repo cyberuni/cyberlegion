@@ -263,8 +263,14 @@ cleanly — the deterministic inverse pair:
     repository (`git -C <worktree> rev-parse --git-common-dir`); one already gone is found through the
     primary checkout `spawn` records on the unit's `worktree` record. Close works the same from
     another repository, from a directory outside any repository, and from inside the unit's own.
-  - **Refuses the primary checkout even with --force** — a unit whose worktree root equals the
-    primary checkout of its own repository is refused; `--force` never overrides this refusal.
+  - **Closes a unit on the primary checkout without touching the checkout** — a unit whose
+    worktree root equals the primary checkout of its own repository (a live seat on a project's
+    main checkout, or an exited record left pointing at one) has its session torn down and its
+    record, pane pointer, brief and mailbox reaped, exactly as any close. The checkout is never
+    removed, reset or cleaned, so the dirty check does not apply and no `--force` is needed. The
+    result names no retained worktree: the primary checkout is not a pool path. **`--force` is
+    refused** for such a unit — it asks to discard changes in the checkout — and the refusal reaps
+    nothing and tears nothing down.
   - **Refuses a dirty worktree unless --force** — uncommitted changes in the worktree abort the
     close and leave the worktree and its uncommitted changes on disk, together with the record, the
     pane pointer, and the stored brief — which is what makes the close retryable; `--force` discards the changes and proceeds, and
@@ -284,9 +290,8 @@ cleanly — the deterministic inverse pair:
     it exists only to stop `git worktree remove` from discarding uncommitted work, and nothing is
     removed here — keeping it would refuse a close that destroys nothing and push the operator toward
     `--force`, the strictly *more* destructive flag, to obtain the strictly *less* destructive
-    outcome. The **primary-checkout refusal is not relaxed**: it is not a destructiveness question —
-    closing the primary checkout's unit also kills the session the operator is sitting in and reaps
-    that checkout's record — so `--keep-worktree`, alone or with `--force`, still hits it.
+    outcome. A unit on the primary checkout closes the same with the flag as without it, and
+    `--keep-worktree --force` on one is still refused, as `--force` alone is.
   - **Completes the reap when the worktree or pane is already gone** — a worktree already absent from
     disk, or a pane the session backend can no longer find, is tolerated; the reap (record, pane
     index, stored data) still completes. A worktree whose directory is gone may still be registered
@@ -591,7 +596,10 @@ graph TD
   CL1 -- no --> CL1X["throw; nothing is reaped"]
   CL1 -- yes --> CLR["resolve the unit's repository: from the worktree itself when on disk, else the primary checkout spawn recorded — never from the caller's directory"]
   CLR --> CL2{"its worktree root is its repository's primary checkout?"}
-  CL2 -- yes --> CL2X["throw — neither --force nor --keep-worktree overrides this"]
+  CL2 -- yes --> CL2F{"--force?"}
+  CL2F -- yes --> CL2X["throw — close never alters the primary checkout; nothing reaped, nothing torn down"]
+  CL2F -- no --> CL2K["skip removal AND the dirty check — the checkout is untouched; report no retained path"]
+  CL2K --> CL6
   CL2 -- no --> CLL{"the record carries a lease?"}
   CLL -- yes --> CLL1["release the lease — nothing removed, no dirty check; a lease someone took away is reported lost, not thrown; report the worktree retained"]
   CLL1 --> CL6
@@ -866,10 +874,11 @@ column records. They are not gaps.
 | `CLL1` lost | a leased unit whose worktree was unlocked, real git | `close of a unit whose lease was taken away reports it lost and still reaps` |
 | `CL10` full teardown + reap | a unit with a clean worktree it holds no lease on and a live pane, no --force | `close removes the worktree, tears down the session, and reaps the registry record` |
 | `CL3 -- no` nothing to remove | a unit spawned with --cwd (owns no worktree) | `close on a unit spawned with --cwd removes no worktree` |
-| `CL2 -- yes` | a unit with a live pane whose worktree is the primary checkout | `close refuses a unit whose worktree is the primary checkout` |
-| `CL2 -- yes` under --force | the same, with --force | `--force does not override the primary-checkout refusal` |
+| `CL2 -- yes` → `CL2K` live seat | a unit with a live pane, a pane pointer, a brief and uncommitted changes, whose worktree is the primary checkout | `close ends a live seat on the primary checkout and reaps it, leaving the checkout untouched` |
+| `CL2 -- yes` → `CL2K` exited record | an exited unit with no pane whose worktree is the primary checkout | `close reaps an exited record pointing at the primary checkout` |
+| `CL2F -- yes` | a unit with a live pane whose worktree is the primary checkout, with --force | `--force is refused for a unit on the primary checkout` |
 | `CLR` → `CL10`, any caller directory | a real git worktree, close run from another repository, from outside any repository, and from the unit's own worktree | `close removes the unit's worktree whatever directory the caller runs it from` |
-| `CLR` → `CL2 -- yes` | a unit whose worktree is its own repository's primary checkout, close run from another repository | `close refuses a unit whose worktree is its own repository's primary checkout, from another repository` |
+| `CLR` → `CL2K` | a unit whose worktree is its own repository's primary checkout holding uncommitted work, close run from another repository | `close reaps a unit on its own repository's primary checkout from another repository, leaving the checkout as it was` |
 | `CL4 -- yes` | a unit with a live pane, a pane pointer and a stored brief, uncommitted changes, no --force | `close refuses a unit with uncommitted changes in its worktree` |
 | `CL4 -- no` under --force | the same, with --force | `--force discards uncommitted changes and completes the close` |
 | `CL4 -- no` under --force, real git | untracked and modified files in a real git worktree, with --force | `--force removes a worktree holding untracked and modified files` |
@@ -881,8 +890,8 @@ column records. They are not gaps.
 | `CLK -- no` (no retained path) | the same, without the flag | `an ordinary close names no retained worktree` |
 | `CLK -- yes` skips the dirty check | a unit with uncommitted changes, with --keep-worktree and no --force | `--keep-worktree keeps a dirty worktree without --force` |
 | `CL3 -- no` under the flag | a unit whose worktree is no longer on disk, with --keep-worktree | `--keep-worktree names no retained worktree when the worktree was already gone` |
-| `CL2 -- yes` under the flag | a unit whose worktree is the primary checkout, with --keep-worktree | `--keep-worktree does not override the primary-checkout refusal` |
-| `CL2 -- yes` under both flags | the same, with --keep-worktree --force | `--keep-worktree with --force does not override the primary-checkout refusal either` |
+| `CL2K` under the flag | a unit whose worktree is the primary checkout, with --keep-worktree | `--keep-worktree closes a unit on the primary checkout the same way` |
+| `CL2F -- yes` under both flags | the same, with --keep-worktree --force | `--keep-worktree with --force is still refused for a unit on the primary checkout` |
 | `CL9` swallowed teardown failure | a unit whose pane the backend can no longer find | `close completes the reap when the session pane no longer exists` |
 | `CL7 -- no` → `CL8` | a unit with no pane locator and a pane index holding another unit’s entry | `close reaps a unit no pane can be resolved for, tearing nothing down` |
 | `CL5 -- no` → `CL5X` | a unit with a live pane whose worktree removal genuinely fails | `a genuine worktree-removal failure aborts the close and leaves the record intact` |
