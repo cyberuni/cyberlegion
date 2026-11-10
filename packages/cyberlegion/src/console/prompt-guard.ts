@@ -91,6 +91,11 @@ function readShape(rows: string[], shape: PromptShape): PromptState {
 	return { kind: 'unknown' }
 }
 
+/** Whether this reader knows `harness`'s input box, so a missing box on screen means it is not drawn yet. */
+export function knowsPromptOf(harness: string | undefined): boolean {
+	return harness !== undefined && SHAPES[harness] !== undefined
+}
+
 /**
  * Read the input box off `screen` — a plain-text scrape of the pane — with the shape of `harness`,
  * or, when the harness is not known, with each known shape in turn until one recognizes the box.
