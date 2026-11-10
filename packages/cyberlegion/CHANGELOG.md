@@ -1,5 +1,15 @@
 # cyberlegion
 
+## 1.9.0
+
+### Minor Changes
+
+- deed34d: `mail inbox --unit <handle|id>` lists another unit's mail without acking it and without the caller taking that unit's identity. Exited units resolve too, so a cleanup sweep can check whether a dead unit left unread mail without reading the hub's files itself. The output carries a `mailbox` state of `none` (no mail was ever delivered), `present`, or `unreadable`. An unreadable mailbox exits 1, so a caller never reads it as empty.
+
+### Patch Changes
+
+- a7a2d57: `unit spawn` no longer leaves several unsent "Read your brief" lines in a new session's input box. The first-turn ring now waits for the harness to draw its input box before typing; keys typed while a harness boots are taken as one paste, so each Enter became a newline and re-typed copies piled up. Copies of the doorbell sitting in the input box are also no longer counted as a posted turn, so a staged doorbell is flushed with Enter instead of reported rung.
+
 ## 1.8.0
 
 ### Minor Changes
