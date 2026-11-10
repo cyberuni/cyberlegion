@@ -19,6 +19,7 @@ import {
 	resolvePresence,
 	resolveRecipient,
 	resolveSelfId,
+	resolveUnitMailbox,
 	saveAgent,
 	selectAgent,
 	sessionLive,
@@ -886,5 +887,47 @@ describe('spec:cyberlegion/service/lease — owner liveness fails closed', () =>
 
 	it('an exited owner is never live', () => {
 		expect(sessionLive(ctx({}, listing(null)), { ...owner(), status: 'exited' })).toBe(false)
+	})
+})
+
+describe('resolveUnitMailbox — whose mailbox mail inbox --unit reads', () => {
+	const seed = (id: string, handle: string, status: 'active' | 'exited') =>
+		saveAgent(store, {
+			id,
+			handle,
+			kind: 'session',
+			harness: 'claude',
+			cwd: '/repo',
+			pane: null,
+			status,
+			createdAt: '2026-07-01T00:00:00.000Z',
+			lastSeen: '2026-07-01T00:00:00.000Z',
+		})
+
+	it('resolves a unit by id or by handle', () => {
+		seed('live01', 'bob', 'active')
+		expect(resolveUnitMailbox(store, 'live01').id).toBe('live01')
+		expect(resolveUnitMailbox(store, 'bob').id).toBe('live01')
+	})
+
+	it('resolves a handle held only by one exited unit to that unit — a sweep asks about the dead', () => {
+		seed('dead01', 'bob', 'exited')
+		expect(resolveUnitMailbox(store, 'bob').id).toBe('dead01')
+	})
+
+	it('prefers the live holder of a handle over exited ones', () => {
+		seed('dead01', 'bob', 'exited')
+		seed('live01', 'bob', 'active')
+		expect(resolveUnitMailbox(store, 'bob').id).toBe('live01')
+	})
+
+	it('fails listing the ids when a handle names several exited units and no live one', () => {
+		seed('dead01', 'bob', 'exited')
+		seed('dead02', 'bob', 'exited')
+		expect(() => resolveUnitMailbox(store, 'bob')).toThrow(/"bob" names 2 exited units — pass an id \(dead01, dead02\)/)
+	})
+
+	it('throws on a ref that names no unit', () => {
+		expect(() => resolveUnitMailbox(store, 'ghost')).toThrow(/no unit addressable as "ghost" \(tried id and handle\)/)
 	})
 })

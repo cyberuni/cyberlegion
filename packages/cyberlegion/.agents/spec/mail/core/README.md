@@ -102,6 +102,29 @@ Extensions:
 - **Empty inbox** — reports `0 messages (0 unread)` rather than erroring.
 - **`--owner` on a non-standing handle** — errors (see *the owner mailbox* below).
 
+### mail inbox --unit — another unit's mail, read-only
+
+| Trigger | Inputs | Outcome |
+|---|---|---|
+| `mail inbox --unit <handle-or-id>` | a unit by id or handle; optional `--unread`, `--from`, `--thread` | `unit`, `handle`, and `mailbox` fields, then the same `messages[N]{id,from,subject,read}:` list; nothing is acked and the caller needs no identity |
+
+A caller deciding about another unit (a cleanup sweep asking whether an exited unit left unread mail)
+reads that unit's mailbox without becoming it. The `mailbox` field is one of three states, so a caller
+never confuses a missing mailbox with an empty one, or an unreadable one with either:
+
+- **`none`** — mail was never delivered to the unit; the summary line reads `no mailbox`.
+- **`present`** — the mailbox was read; the list may be empty (`0 messages (0 unread)`).
+- **`unreadable`** — its directory or one of its messages could not be read; the list is empty, an
+  `error` names the cause, the summary reads `mailbox unreadable: <cause>`, and the command exits 1.
+
+Extensions:
+
+- **An exited unit resolves.** Unlike `mail send`, which refuses a handle held only by exited units,
+  `--unit` is a read about that unit, not a delivery to it. A live holder of the handle wins; several
+  exited holders and no live one fail listing their ids.
+- **A ref that names no unit** — errors.
+- **`--unit` with `--owner`** — refused; they select different mailboxes.
+
 ### mail read — peek at a message
 
 | Trigger | Inputs | Outcome |
@@ -180,7 +203,7 @@ needs no mail-side act. The only whole-mailbox delete is the one `unit close` as
 decommissioned (`unit/lifecycle`); it removes read and unread mail together, through the mail store.
 
 **Surface trace.** `--to` and `--body`/`--body-file` serve *send*; `--unread` and `--from` serve
-*inbox*; `--ack` serves *read --ack*; `--owner` serves the owner mailbox on `inbox`, `read`, and
+*inbox*; `--unit` serves *inbox --unit*; `--ack` serves *read --ack*; `--owner` serves the owner mailbox on `inbox`, `read`, and
 `ack` (and composes with `--ack`). `delete` takes no `--owner`: it acts on the caller's own inbox
 only. `--body` and `--body-file` are not combined — the first given wins.
 
@@ -193,7 +216,13 @@ do not. Each verb then runs its own decisions.
 
 ```mermaid
 graph TD
-  MB0["pick the mailbox"] --> MB1{"--owner given?"}
+  MB0["pick the mailbox"] --> MBU{"inbox --unit given?"}
+  MBU -- yes --> MBU1{"--owner also given?"}
+  MBU1 -- yes --> MBU1X["refuse the conflicting options"]
+  MBU1 -- no --> MBU2{"the ref names a unit by id, a live handle, or one exited handle?"}
+  MBU2 -- no --> MBU2X["throw: no unit, or several exited units listed by id"]
+  MBU2 -- yes --> MBU3["that unit's mailbox, read-only"]
+  MBU -- no --> MB1{"--owner given?"}
   MB1 -- no --> MB2["the caller's own inbox"]
   MB1 -- yes --> MB3{"the handle names a standing record?"}
   MB3 -- no --> MB3X["throw; never a session's inbox"]
@@ -216,7 +245,13 @@ graph TD
 ```mermaid
 graph TD
   IN0["mail inbox"] --> MB0["mailbox selection"]
-  MB0 --> IN1["collect the unread and read sets"]
+  MB0 --> INU{"--unit?"}
+  INU -- no --> IN1["collect the unread and read sets"]
+  INU -- yes --> INU1{"the unit has a mailbox?"}
+  INU1 -- no --> INU1N["mailbox: none; empty list; no mailbox"]
+  INU1 -- yes --> INU2{"its sets can be read?"}
+  INU2 -- no --> INU2X["mailbox: unreadable; empty list; the cause; exit 1"]
+  INU2 -- "yes (mailbox: present)" --> IN1
   IN1 --> IN2{"--unread?"}
   IN2 -- yes --> IN2U["drop the read set"]
   IN2 -- no --> IN3
@@ -290,6 +325,18 @@ claim.
 | `IN4` empty | a caller with no mail at all | `inbox reports a definitive empty state` |
 | `IN2U` | a caller with one acked and one unread message | `--unread restricts the listing to un-acked mail` |
 | `IN3F` | a caller with messages from two senders | `--from restricts the listing to one sender` |
+
+### mail inbox --unit
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `MBU3` exited handle, `IN4` | an exited unit with one unread message, no live holder of its handle | `inbox --unit lists an exited unit's unread mail by handle without acking it` |
+| `INU1N` | a unit never sent a message | `inbox --unit reports a unit that was never sent mail as having no mailbox` |
+| `INU2 -- yes`, `IN2U` empty | a unit whose only message is acked | `inbox --unit reports a mailbox whose mail is all acked as present and empty` |
+| `INU2X` | a unit whose inbox holds an unparseable message file | `inbox --unit reports an unreadable mailbox as its own state and exits non-zero` |
+| `MBU2X` several exited | two exited units sharing a handle, no live one | `inbox --unit on a handle that several exited units hold and no live unit holds errors` |
+| `MBU2X` none | no unit by that id or handle | `inbox --unit on a ref that names no unit errors` |
+| `MBU1X` | `--unit` and `--owner` together | `inbox --unit together with --owner is refused` |
 
 ### mail read
 

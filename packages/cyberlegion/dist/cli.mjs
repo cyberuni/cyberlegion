@@ -10671,6 +10671,20 @@ function resolveOwnerMailbox(store, ref) {
 	if (services.length > 1) throw new Error(`"${ref}" names ${services.length} service endpoints — pass an endpoint id (${services.map((a) => a.id).join(", ")})`);
 	return resolveStandingOwner(store, ref);
 }
+/** Resolve the unit whose mailbox `mail inbox --unit` reads, by id or handle. Unlike a recipient, an
+* exited unit resolves: the caller is deciding about that unit (a sweep asking whether a dead unit left
+* unread mail), not writing to it. A live holder of the handle wins; several exited holders and no live
+* one fail rather than picking one. */
+function resolveUnitMailbox(store, ref) {
+	const byId = loadAgent(store, ref);
+	if (byId) return byId;
+	const { live, exited } = matchHandle(listAgents(store), ref);
+	const byHandle = pickLive(ref, live);
+	if (byHandle) return byHandle;
+	if (exited.length > 1) throw new Error(`"${ref}" names ${exited.length} exited units — pass an id (${exited.map((a) => a.id).join(", ")})`);
+	if (exited[0]) return exited[0];
+	throw new Error(`no unit addressable as "${ref}" (tried id and handle)`);
+}
 /**
 * Bind the caller's own unit as a standing owner's presence — the live unit standing in for a
 * durable record that has no session of its own. Order matters: resolve the standing record first
@@ -12575,6 +12589,26 @@ function inbox(ctx, q) {
 	if (q.thread) items = items.filter((m) => m.thread === q.thread);
 	return items.sort((a, b) => a.id.localeCompare(b.id));
 }
+/** List another unit's mail read-only, for a caller deciding about that unit (a cleanup sweep): never
+* acks, and reports a missing or unreadable mailbox as its own state rather than as an empty one. */
+function unitInbox(ctx, q) {
+	if (!ctx.store.hasMailbox(q.meId)) return {
+		mailbox: "none",
+		messages: []
+	};
+	try {
+		return {
+			mailbox: "present",
+			messages: inbox(ctx, q)
+		};
+	} catch (err) {
+		return {
+			mailbox: "unreadable",
+			messages: [],
+			error: err instanceof Error ? err.message : String(err)
+		};
+	}
+}
 /** Peek at a message (unread or already-acked) without changing its state. */
 function peek(ctx, meId, msgId) {
 	const snap = ctx.store.listInbox(meId);
@@ -14008,6 +14042,10 @@ var FileStore = class {
 			read: read ? readMessages(read) : []
 		};
 	}
+	hasMailbox(id) {
+		const dir = readPathOrUndefined(() => paths.inboxDir(this.root, id));
+		return dir !== void 0 && existsSync(dir);
+	}
 	ackMessage(id, msgId) {
 		const src = readPathOrUndefined(() => paths.messageFile(this.root, id, msgId));
 		if (!src || !existsSync(src)) throw new Error(`"${msgId}" is not an unread message in this inbox`);
@@ -15238,12 +15276,67 @@ function emitInbox(ctx, opts, meId, readCmd) {
 	const firstUnread = items.find((m) => !m.read);
 	if (firstUnread) nextStep(`${readCmd} ${firstUnread.id}`);
 }
+/** List another unit's mailbox read-only (`--unit`). Its `mailbox` state tells a missing mailbox
+* from an empty one; an unreadable one is reported on stdout and exits 1, never read as empty. */
+function emitUnitInbox(ctx, opts, ref) {
+	let unit;
+	try {
+		unit = resolveUnitMailbox(ctx.store, ref);
+	} catch (err) {
+		fail(err instanceof Error ? err.message : String(err));
+	}
+	const result = unitInbox({ store: ctx.store }, {
+		meId: unit.id,
+		unread: opts.unread,
+		from: opts.from,
+		thread: opts.thread
+	});
+	const unreadCount = result.messages.filter((m) => !m.read).length;
+	const summary = result.mailbox === "none" ? "no mailbox" : result.mailbox === "unreadable" ? `mailbox unreadable: ${result.error}` : `${result.messages.length} messages (${unreadCount} unread)`;
+	emit(formatOf(opts), {
+		toon: [toonObject({
+			unit: unit.id,
+			handle: unit.handle,
+			mailbox: result.mailbox
+		}), toonList("messages", result.messages, [
+			{
+				key: "id",
+				get: (m) => m.id
+			},
+			{
+				key: "from",
+				get: (m) => m.fromHandle
+			},
+			{
+				key: "subject",
+				get: (m) => m.subject ?? ""
+			},
+			{
+				key: "read",
+				get: (m) => m.read
+			}
+		], summary)].join("\n"),
+		json: {
+			unit: unit.id,
+			handle: unit.handle,
+			...result
+		}
+	});
+	if (result.mailbox === "unreadable") {
+		console.error(JSON.stringify({ error: `mailbox of ${unit.id} is unreadable: ${result.error}` }));
+		process.exitCode = 1;
+	}
+}
 function runInbox(opts) {
 	const ctx = ctxOf(opts);
 	touch(ctx);
+	if (opts.unit) {
+		emitUnitInbox(ctx, opts, opts.unit);
+		return;
+	}
 	emitInbox(ctx, opts, opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx), "cyberlegion mail read");
 }
-withGlobals(mail.command("inbox")).description("list your mail").option("--unread", "only un-acked mail").option("--from <id>", "filter by sender").option("--thread <id>", "filter to messages carrying this thread id").option("--owner <handle>", "target a standing owner's mailbox instead of this session's own").action(runInbox);
+withGlobals(mail.command("inbox")).description("list your mail").option("--unread", "only un-acked mail").option("--from <id>", "filter by sender").option("--thread <id>", "filter to messages carrying this thread id").option("--owner <handle>", "target a standing owner's mailbox instead of this session's own").addOption(new Option("--unit <handle|id>", "list another unit's mailbox read-only (exited units too); never acks, reports mailbox: none|present|unreadable").conflicts("owner")).action(runInbox);
 withGlobals(mail.command("read")).description("read a message; --ack consumes it in the same step, otherwise it only peeks").argument("<msg-id>", "message id").option("--ack", "acknowledge the message in the same step (idempotent — no error if already acked)").option("--owner <handle>", "read a standing owner's mailbox instead of this session's own").action((msgId, opts) => {
 	const ctx = ctxOf(opts);
 	const meId = opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx);

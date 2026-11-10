@@ -102,6 +102,11 @@ export class FileStore implements Store {
 		}
 	}
 
+	hasMailbox(id: string): boolean {
+		const dir = readPathOrUndefined(() => paths.inboxDir(this.root, id))
+		return dir !== undefined && existsSync(dir)
+	}
+
 	ackMessage(id: string, msgId: string): Message {
 		const src = readPathOrUndefined(() => paths.messageFile(this.root, id, msgId))
 		if (!src || !existsSync(src)) {
