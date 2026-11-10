@@ -108,6 +108,38 @@ describe('ringTurn', () => {
 		expect(submits).toEqual([MESSAGE, undefined, undefined])
 	})
 
+	// Trimmed from a live Claude Code 2.1 pane. Keys typed while it boots are buffered and reach the
+	// input box as one paste once it draws, so each Enter between them becomes a newline.
+	const DOORBELL = 'Read your brief at /home/u/.cyberlegion/briefs/abc123.md, then begin work.'
+	const RULE = '─'.repeat(60)
+	const claude = (...rows: string[]) =>
+		[' ▐▛███▜▌   Claude Code v2.1.322', '', ...rows, '  Opus 5.5  repo', '  ⏵⏵ auto mode on'].join('\n')
+	const BOOTING = [' ▐▛███▜▌   Claude Code v2.1.322', ''].join('\n')
+	const CLAUDE_IDLE = claude(RULE, '❯\u00a0', RULE)
+	const CLAUDE_PASTED = claude(RULE, `❯\u00a0${DOORBELL}`, `  ${DOORBELL}`, `  ${DOORBELL}`, RULE)
+	const CLAUDE_TAKEN = claude(`❯ ${DOORBELL}`, '', '● Reading the brief', '', RULE, '❯\u00a0', RULE)
+
+	it('with requirePosted, waits for a booting harness to draw its input box before typing', async () => {
+		const { adapter, submits } = fakePane([BOOTING, BOOTING, BOOTING, CLAUDE_IDLE, CLAUDE_TAKEN])
+		const result = await ringTurn(adapter, exec, { id: '%1' }, DOORBELL, { ...posted, harness: 'claude' })
+		expect(submits).toEqual([DOORBELL])
+		expect(result).toEqual({ taken: true, resubmits: 0 })
+	})
+
+	it('with requirePosted, types anyway once the input box never shows within the budget', async () => {
+		const { adapter, submits } = fakePane([BOOTING, BOOTING, CLAUDE_TAKEN])
+		const result = await ringTurn(adapter, exec, { id: '%1' }, DOORBELL, { ...posted, harness: 'claude', attempts: 1 })
+		expect(submits).toEqual([DOORBELL])
+		expect(result).toEqual({ taken: true, resubmits: 0 })
+	})
+
+	it('flushes copies of the text pasted together in the input box, not count them as posted', async () => {
+		const { adapter, submits } = fakePane([CLAUDE_IDLE, CLAUDE_PASTED, CLAUDE_TAKEN])
+		const result = await ringTurn(adapter, exec, { id: '%1' }, DOORBELL, { ...posted, harness: 'claude' })
+		expect(submits).toEqual([DOORBELL, undefined])
+		expect(result).toEqual({ taken: true, resubmits: 1 })
+	})
+
 	it('rejects a gone pane without typing', async () => {
 		const { adapter, submits } = fakePane([''], { exists: false })
 		await expect(ringTurn(adapter, exec, { id: '%1' }, MESSAGE, { sleep: noSleep })).rejects.toThrow('no longer exists')

@@ -11030,6 +11030,10 @@ function readShape(rows, shape) {
 	}
 	return { kind: "unknown" };
 }
+/** Whether this reader knows `harness`'s input box, so a missing box on screen means it is not drawn yet. */
+function knowsPromptOf(harness) {
+	return harness !== void 0 && SHAPES[harness] !== void 0;
+}
 /**
 * Read the input box off `screen` — a plain-text scrape of the pane — with the shape of `harness`,
 * or, when the harness is not known, with each known shape in turn until one recognizes the box.
@@ -11130,6 +11134,27 @@ function copiesOn(screen, message) {
 	return screen.split("\n").filter((row) => row.replace(/\s+/g, " ").includes(needle)).length;
 }
 /**
+* Read `screen` for the ring: whether `message` sits in the input box, and how many copies of it
+* are on screen outside the box. With the box read by its harness's shape, copies inside the box are
+* left out of the count: a booting harness can take several typed copies as one paste, and those
+* copies are staged text, not posted turns. A screen with no input box the reader knows falls back to
+* cyber-mux's `isStaged`, and the box's copy is counted with the rest.
+*/
+function readRing(screen, message, harness) {
+	const box = screen ? readPrompt(screen, harness) : { kind: "unknown" };
+	if (box.kind === "unknown") return {
+		boxKnown: false,
+		staged: isStaged(screen, message),
+		outside: copiesOn(screen, message)
+	};
+	const inBox = box.kind === "draft" ? copiesOn(box.text, message) : 0;
+	return {
+		boxKnown: true,
+		staged: inBox > 0,
+		outside: copiesOn(screen, message) - inBox
+	};
+}
+/**
 * Submit `message` to `target` as a taken turn: cyber-mux's `nudge`, with one more way to see that the
 * turn was taken.
 *
@@ -11149,18 +11174,32 @@ function copiesOn(screen, message) {
 * queue. Text that is neither staged nor posted is lost: after one more settle for a slow redraw, it
 * is typed again. It is opt-in because it needs the posted copy to stay on screen: a busy peer's
 * output can scroll earlier copies away, so a ring to it could read as lost and be typed twice.
+*
+* With `requirePosted` and a harness whose input box this reader knows, nothing is typed until the
+* harness has drawn that box, for up to the
+* whole retry budget. Keys typed while a harness boots are buffered, and the harness takes them as one
+* paste once it draws the box: each Enter becomes a newline, so re-typed copies pile up in the box
+* unsent. A box that never shows within the budget is typed into anyway, as before.
+*
+* Where the input box can be read, copies of the text inside it are not counted as posted: only a
+* copy outside the box means the harness took the turn.
 */
 async function ringTurn(adapter, exec, target, message, opts = {}) {
 	const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
 	const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
 	const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 	if (!adapter.paneExists(exec, target)) throw new Error(`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy.`);
-	const before = copiesOn(adapter.read(exec, target).text, message);
+	let first = adapter.read(exec, target).text;
+	if (opts.requirePosted && knowsPromptOf(opts.harness)) for (let wait = 0; wait < attempts && !readRing(first, message, opts.harness).boxKnown; wait++) {
+		await sleep(settleMs);
+		first = adapter.read(exec, target).text;
+	}
+	const before = readRing(first, message, opts.harness).outside;
 	const check = () => {
-		const screen = adapter.read(exec, target).text;
-		const copies = copiesOn(screen, message);
-		if (isStaged(screen, message)) return copies >= before + 2 ? "taken" : "staged";
-		return copies > before || !opts.requirePosted ? "taken" : "lost";
+		const seen = readRing(adapter.read(exec, target).text, message, opts.harness);
+		const posted = seen.outside >= before + (seen.boxKnown || !seen.staged ? 1 : 2);
+		if (seen.staged) return posted ? "taken" : "staged";
+		return posted || !opts.requirePosted ? "taken" : "lost";
 	};
 	adapter.submit(exec, target, message);
 	await sleep(settleMs);
@@ -11320,7 +11359,10 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		try {
 			const adapter = getAdapter();
 			const target = { id: pane };
-			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, {
+				...nudgeOpts,
+				harness
+			}), {
 				...guardOpts,
 				harness,
 				ownText: (text) => isRingText(text)
@@ -11365,7 +11407,8 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 		const doorbell = (input.resumed ? resumeDoorbell : spawnDoorbell)(input.briefPath);
 		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, doorbell, {
 			...nudgeOpts,
-			requirePosted: true
+			requirePosted: true,
+			harness: input.harness
 		}), {
 			...guardOpts,
 			harness: input.harness,
