@@ -1,9 +1,9 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { type AgentRecord, register } from './identity.ts'
-import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send } from './message.ts'
+import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send, unitInbox } from './message.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -172,5 +172,45 @@ describe('readAck — reads and consumes in one atomic step', () => {
 
 	it('throws on an unknown message id', () => {
 		expect(() => readAck({ store }, bob.id, '9999-deadbe')).toThrow(/not a message in this inbox/)
+	})
+})
+
+describe('unitInbox — another unit’s mail, read-only, with an explicit mailbox state', () => {
+	it('reports no mailbox for a unit that never received mail', () => {
+		expect(unitInbox({ store }, { meId: bob.id, unread: true })).toEqual({ mailbox: 'none', messages: [] })
+	})
+
+	it('lists the unread mail and leaves it unread', () => {
+		send(at(1), { fromId: alice.id, to: 'bob', body: 'ping' })
+		const result = unitInbox({ store }, { meId: bob.id, unread: true })
+		expect(result.mailbox).toBe('present')
+		expect(result.messages.map((m) => m.body)).toEqual(['ping'])
+		expect(store.listInbox(bob.id).unread).toHaveLength(1)
+	})
+
+	it('reports a present but empty mailbox once everything is acked', () => {
+		const msg = send(at(1), { fromId: alice.id, to: 'bob', body: 'ping' })
+		ack({ store }, bob.id, msg.id)
+		expect(unitInbox({ store }, { meId: bob.id, unread: true })).toEqual({ mailbox: 'present', messages: [] })
+	})
+
+	it('reports a mailbox holding a corrupt message as unreadable, naming the cause', () => {
+		send(at(1), { fromId: alice.id, to: 'bob', body: 'ping' })
+		writeFileSync(join(store.root, 'inbox', bob.id, '2-bad.json'), '{ torn')
+		const result = unitInbox({ store }, { meId: bob.id, unread: true })
+		expect(result.mailbox).toBe('unreadable')
+		expect(result.messages).toEqual([])
+		expect(result.error).toMatch(/2-bad\.json/)
+	})
+
+	it.skipIf(process.getuid?.() === 0)('reports a mailbox directory it may not list as unreadable', () => {
+		const dir = join(store.root, 'inbox', bob.id)
+		mkdirSync(dir, { recursive: true })
+		chmodSync(dir, 0o000)
+		try {
+			expect(unitInbox({ store }, { meId: bob.id, unread: true }).mailbox).toBe('unreadable')
+		} finally {
+			chmodSync(dir, 0o755)
+		}
 	})
 })

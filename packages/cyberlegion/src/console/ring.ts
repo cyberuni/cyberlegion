@@ -1,5 +1,6 @@
 import { isStaged, type MuxAdapter, type MuxTarget, type NudgeOptions, type NudgeResult } from 'cyber-mux'
 import type { Exec } from '../identity.ts'
+import { knowsPromptOf, readPrompt } from './prompt-guard.ts'
 
 const DEFAULT_ATTEMPTS = 10
 const DEFAULT_SETTLE_MS = 400
@@ -14,9 +15,27 @@ function copiesOn(screen: string | null | undefined, message: string): number {
 	return screen.split('\n').filter((row) => row.replace(/\s+/g, ' ').includes(needle)).length
 }
 
+/**
+ * Read `screen` for the ring: whether `message` sits in the input box, and how many copies of it
+ * are on screen outside the box. With the box read by its harness's shape, copies inside the box are
+ * left out of the count: a booting harness can take several typed copies as one paste, and those
+ * copies are staged text, not posted turns. A screen with no input box the reader knows falls back to
+ * cyber-mux's `isStaged`, and the box's copy is counted with the rest.
+ */
+function readRing(screen: string | null | undefined, message: string, harness: string | undefined) {
+	const box = screen ? readPrompt(screen, harness) : { kind: 'unknown' as const }
+	if (box.kind === 'unknown') {
+		return { boxKnown: false, staged: isStaged(screen, message), outside: copiesOn(screen, message) }
+	}
+	const inBox = box.kind === 'draft' ? copiesOn(box.text, message) : 0
+	return { boxKnown: true, staged: inBox > 0, outside: copiesOn(screen, message) - inBox }
+}
+
 export interface RingOptions extends NudgeOptions {
 	/** Count the turn taken only once the harness posts the text, not merely once it leaves the box. */
 	requirePosted?: boolean
+	/** The target's harness, so its input box is read with the right shape. Unknown, every shape is tried. */
+	harness?: string | undefined
 }
 
 /**
@@ -39,6 +58,15 @@ export interface RingOptions extends NudgeOptions {
  * queue. Text that is neither staged nor posted is lost: after one more settle for a slow redraw, it
  * is typed again. It is opt-in because it needs the posted copy to stay on screen: a busy peer's
  * output can scroll earlier copies away, so a ring to it could read as lost and be typed twice.
+ *
+ * With `requirePosted` and a harness whose input box this reader knows, nothing is typed until the
+ * harness has drawn that box, for up to the
+ * whole retry budget. Keys typed while a harness boots are buffered, and the harness takes them as one
+ * paste once it draws the box: each Enter becomes a newline, so re-typed copies pile up in the box
+ * unsent. A box that never shows within the budget is typed into anyway, as before.
+ *
+ * Where the input box can be read, copies of the text inside it are not counted as posted: only a
+ * copy outside the box means the harness took the turn.
  */
 export async function ringTurn(
 	adapter: Pick<MuxAdapter, 'paneExists' | 'submit' | 'read'>,
@@ -53,14 +81,22 @@ export async function ringTurn(
 	if (!adapter.paneExists(exec, target)) {
 		throw new Error(`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy.`)
 	}
-	const before = copiesOn(adapter.read(exec, target).text, message)
+	let first = adapter.read(exec, target).text
+	if (opts.requirePosted && knowsPromptOf(opts.harness)) {
+		for (let wait = 0; wait < attempts && !readRing(first, message, opts.harness).boxKnown; wait++) {
+			await sleep(settleMs)
+			first = adapter.read(exec, target).text
+		}
+	}
+	const before = readRing(first, message, opts.harness).outside
 	// `staged`: the text sits in the input box, unsent. `lost`: it is neither staged nor posted — typed
 	// before the harness drew its input box, or wiped by a redraw — so nothing took the turn.
 	const check = (): 'taken' | 'staged' | 'lost' => {
-		const screen = adapter.read(exec, target).text
-		const copies = copiesOn(screen, message)
-		if (isStaged(screen, message)) return copies >= before + 2 ? 'taken' : 'staged'
-		return copies > before || !opts.requirePosted ? 'taken' : 'lost'
+		const seen = readRing(adapter.read(exec, target).text, message, opts.harness)
+		// With the box unread, its own copy is in `outside`, so a posted copy makes two.
+		const posted = seen.outside >= before + (seen.boxKnown || !seen.staged ? 1 : 2)
+		if (seen.staged) return posted ? 'taken' : 'staged'
+		return posted || !opts.requirePosted ? 'taken' : 'lost'
 	}
 	adapter.submit(exec, target, message)
 	await sleep(settleMs)

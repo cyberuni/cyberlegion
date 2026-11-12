@@ -152,6 +152,8 @@ export interface MailboxStore {
 	putMessage(toId: string, msg: Message): void
 	/** The full unread/read split for one agent's inbox. */
 	listInbox(id: string): InboxSnapshot
+	/** Whether `id` has a mailbox at all — one exists once mail was first delivered to it. */
+	hasMailbox(id: string): boolean
 	/** Ack a message by moving it out of the unread set; throws if it is not currently unread. */
 	ackMessage(id: string, msgId: string): Message
 	/** Permanently remove a message (unread or already-acked) from `id`'s inbox; throws if absent. */
