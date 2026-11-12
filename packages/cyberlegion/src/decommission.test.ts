@@ -152,6 +152,32 @@ describe('close on a --cwd unit removes no worktree', () => {
 		expect(store.resolvePaneId('%9')).toBeUndefined()
 		expect(store.readBrief('cwd1')).toBeUndefined()
 	})
+
+	it("close never touches a shared worktree or its owner's lease", async () => {
+		const ownerWorktree = { root: worktreeRoot, branch: 'b', primaryRoot, lease: { leaseId: 'l1', holder: 'h' } }
+		registerUnit({ id: 'owner1', worktree: ownerWorktree, pane: null })
+		registerUnit({
+			id: 'cwd1',
+			worktree: null,
+			cwd: worktreeRoot,
+			sharedWorktree: { root: worktreeRoot, branch: 'b', primaryRoot, owner: 'owner1' },
+		})
+		writePaneFile('%9', 'cwd1')
+		const gitCalls: string[][] = []
+		const { exec: base, calls } = makeExec({ dirty: true })
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') gitCalls.push(args)
+			return base(cmd, args)
+		}
+		const res = await decommission({ store, env: { TMUX: 't' }, exec }, { id: 'cwd1', force: true })
+		expect(calls.worktreeRemove).toHaveLength(0)
+		// no git call touches the shared checkout at all: no prune, no unlock, no status
+		expect(gitCalls).toEqual([])
+		expect(res.lease).toBeUndefined()
+		expect(existsSync(worktreeRoot)).toBe(true)
+		expect(store.getAgent('cwd1')).toBeUndefined()
+		expect(store.getAgent('owner1')?.worktree).toEqual(ownerWorktree)
+	})
 })
 
 describe('reap the record', () => {

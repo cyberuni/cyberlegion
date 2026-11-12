@@ -92,7 +92,11 @@ cleanly — the deterministic inverse pair:
     before its first commit.
   - **Or spawn into an existing directory without a worktree (`--cwd`)** — `unit spawn --cwd <dir>`
     opens the session in a directory that already exists, creating and removing no git worktree; the
-    peer is registered with that directory as its cwd and no created worktree. `--cwd` requires the
+    peer is registered with that directory as its cwd and no created worktree. When the directory
+    sits inside a git checkout — typically another unit's worktree — the record carries that
+    checkout as its `sharedWorktree` (root, branch, primary root, and `owner`, the id of the unit
+    whose record owns that root, if any), kept apart from the owned `worktree`. It is read-only: it
+    lets a sweep judge the unit by the work in that checkout, and close never acts on it. `--cwd` requires the
     directory to already exist (cyberlegion creates no directory), refuses the primary checkout (the
     same guard the created-worktree path enforces), and is mutually exclusive with the
     worktree-creating flags (`--branch` / `--worktree-path` / `--repo` / `--base`). This is the enabler that lets a caller
@@ -315,7 +319,9 @@ cleanly — the deterministic inverse pair:
   - **close on a `--cwd` unit removes no worktree** — a unit spawned with `--cwd` has a recorded cwd
     and no created worktree; close tears down its session pane and reaps its record but attempts no
     worktree removal, and **the directory the caller supplied is still there afterwards** —
-    cyberlegion removes no directory it did not create.
+    cyberlegion removes no directory it did not create. The same holds for its `sharedWorktree`:
+    close never removes, prunes, or checks that checkout, and never releases the lease its owner
+    holds on it, even with `--force`.
 - **focus beams the attached view all the way to a peer's pane — across workspace and tab** — `unit
   focus <ref>` resolves the peer (by id, handle, or worktree branch/CR ref) to its pane and moves the
   attached client's *view* all the way there, not just within the current workspace. A single
@@ -472,7 +478,7 @@ graph TD
   SPF -- no --> SPF1["throw: must already exist"]
   SPF -- yes --> SPG{"resolves onto the primary checkout?"}
   SPG -- yes --> SPG1["throw: refuses the primary checkout"]
-  SPG -- no --> SPO["at := --at ?? tab; write the shim (SPS), open the session; worktree := none"]
+  SPG -- no --> SPO["at := --at ?? tab; write the shim (SPS), open the session; worktree := none; sharedWorktree := the checkout the directory sits in, with the unit that owns it, if any"]
   SPE -- no --> SPI["primary := primary checkout of --repo's repository ?? the current directory's; branch := --branch ?? cyberlegion/unit-id; at := --at ?? workspace"]
   SPI --> SPJ{"--worktree-path given and it is the primary checkout?"}
   SPJ -- yes --> SPJ1["throw BEFORE anything is created or opened"]
@@ -840,6 +846,8 @@ column records. They are not gaps.
 | `SPF -- no` | --cwd naming a directory that does not exist | `--cwd requires the directory to already exist` |
 | `SPG -- yes` | --cwd naming the primary checkout | `--cwd refuses the primary checkout, the same as a created worktree` |
 | `SPD -- yes` | --cwd combined with --branch/--worktree-path/--repo/--base | `--cwd is mutually exclusive with the worktree-creating flags` |
+| `SPO` shared checkout | --cwd naming a directory inside a worktree another unit owns | `--cwd into a worktree another unit owns records it as a shared worktree naming its owner` |
+| `SPO` no checkout | --cwd naming a directory in no git repository | `--cwd into a directory in no repository records no shared worktree` |
 
 ### spawn delivers the peer's first turn
 
@@ -874,6 +882,7 @@ column records. They are not gaps.
 | `CLL1` lost | a leased unit whose worktree was unlocked, real git | `close of a unit whose lease was taken away reports it lost and still reaps` |
 | `CL10` full teardown + reap | a unit with a clean worktree it holds no lease on and a live pane, no --force | `close removes the worktree, tears down the session, and reaps the registry record` |
 | `CL3 -- no` nothing to remove | a unit spawned with --cwd (owns no worktree) | `close on a unit spawned with --cwd removes no worktree` |
+| `CL3 -- no` shared checkout untouched | a unit owning no worktree whose record shares a dirty worktree another unit holds a lease on, with --force | `close never touches a shared worktree or its owner's lease` |
 | `CL2 -- yes` → `CL2K` live seat | a unit with a live pane, a pane pointer, a brief and uncommitted changes, whose worktree is the primary checkout | `close ends a live seat on the primary checkout and reaps it, leaving the checkout untouched` |
 | `CL2 -- yes` → `CL2K` exited record | an exited unit with no pane whose worktree is the primary checkout | `close reaps an exited record pointing at the primary checkout` |
 | `CL2F -- yes` | a unit with a live pane whose worktree is the primary checkout, with --force | `--force is refused for a unit on the primary checkout` |

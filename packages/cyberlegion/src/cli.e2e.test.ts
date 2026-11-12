@@ -110,6 +110,30 @@ describe('spec:cyberlegion/unit', () => {
 			expect(out).toContain('0 units')
 		})
 
+		it('who shows the worktree a unit shares, and "-" for a unit that shares none', () => {
+			const store = new FileStore(space)
+			const base = {
+				harness: 'claude' as const,
+				cwd: '/src/repo.worktrees/repo-1',
+				pane: null,
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			}
+			const shared = { root: '/src/repo.worktrees/repo-1', branch: 'b', owner: 'owner1' }
+			store.putAgent({ ...base, id: 'sharer1', handle: 'sharer', worktree: null, sharedWorktree: shared })
+			store.putAgent({ ...base, id: 'plain1', handle: 'plain' })
+			const whoToon = legion(['unit', 'who'])
+			expect(whoToon).toMatch(/units\[2\]\{[^}]*\bshared\b/)
+			expect(whoToon).toContain('/src/repo.worktrees/repo-1')
+			const whoJson = JSON.parse(legion(['unit', 'who', '--format', 'json']))
+			expect(whoJson.find((a: { id: string }) => a.id === 'sharer1').sharedWorktree).toEqual(shared)
+			expect(whoJson.find((a: { id: string }) => a.id === 'plain1').sharedWorktree).toBeUndefined()
+			expect(legion(['unit', 'show', 'sharer1'])).toContain('shared: /src/repo.worktrees/repo-1')
+			expect(legion(['unit', 'show', 'plain1'])).toContain('shared: -')
+			expect(JSON.parse(legion(['unit', 'show', 'sharer1', '--format', 'json'])).sharedWorktree).toEqual(shared)
+		})
+
 		it('the top-level who command behaves like unit who', () => {
 			legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'])
 			expect(legion(['who'])).toContain('alice')

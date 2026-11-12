@@ -10517,7 +10517,7 @@ function register(ctx, input) {
 		handle: input.handle ?? existing?.handle ?? id.slice(0, 6),
 		harness,
 		cwd: process.cwd(),
-		worktree: existing?.worktree ? keptWorktree(existing.worktree, exec) : gitWorktree(exec),
+		...checkoutFor(ctx.store, exec, id, existing),
 		pane: cur ? paneLocator(cur, exec, env) : null,
 		status: "active",
 		createdAt: existing?.createdAt ?? ts,
@@ -10584,23 +10584,70 @@ function writeStanding(ctx, id, input) {
 	saveAgent(ctx.store, rec);
 	return rec;
 }
-/** The checkout the cwd sits in: its root, its branch, and the repository's primary checkout — the
-* same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked worktree by
-* the repository's name rather than the worktree folder's. */
-function gitWorktree(exec) {
-	const root = exec("git", ["rev-parse", "--show-toplevel"]);
+/** The checkout `dir` (else the cwd) sits in: its root, its branch, and the repository's primary
+* checkout — the same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked
+* worktree by the repository's name rather than the worktree folder's. */
+function gitWorktree(exec, dir) {
+	const git = dir === void 0 ? exec : (cmd, args) => exec(cmd, cmd === "git" ? [
+		"-C",
+		dir,
+		...args
+	] : args);
+	const root = git("git", ["rev-parse", "--show-toplevel"]);
 	if (!root) return null;
-	const branch = exec("git", [
+	const branch = git("git", [
 		"rev-parse",
 		"--abbrev-ref",
 		"HEAD"
 	]) ?? void 0;
-	const primaryRoot = primaryRootHere(exec);
+	const primaryRoot = primaryRootHere(git);
 	return {
 		root,
 		...branch !== void 0 ? { branch } : {},
 		...primaryRoot !== void 0 ? { primaryRoot } : {}
 	};
+}
+/** The id of the unit, other than `self`, whose record owns the worktree at `root`. */
+function ownerOf(store, root, self) {
+	const at = resolve(root);
+	return listAgents(store).find((a) => a.id !== self && a.worktree?.root && resolve(a.worktree.root) === at)?.id;
+}
+/** `checkout` as a shared reference, naming the unit that owns it when one does. */
+function asShared(store, checkout, self) {
+	const owner = ownerOf(store, checkout.root, self);
+	return {
+		...checkout,
+		...owner ? { owner } : {}
+	};
+}
+/** The checkout a `--cwd` spawn opens into, as a shared reference — spawn created none, so the unit
+* owns none, whoever does. `undefined` when `dir` is in no git checkout. */
+function sharedCheckoutAt(store, exec, dir) {
+	const checkout = gitWorktree(exec, dir);
+	return checkout ? asShared(store, checkout) : void 0;
+}
+/**
+* Which checkout a registering session owns and which it only shares. An existing owned worktree is
+* kept. Otherwise the cwd's checkout is the session's own — unless another unit's record owns it, or
+* this unit already records it as shared (a `--cwd` spawn): then it is a shared reference, and the
+* session owns none, so its close can never remove another unit's worktree or release its lease.
+*/
+function checkoutFor(store, exec, id, existing) {
+	const kept = existing?.sharedWorktree ? { sharedWorktree: existing.sharedWorktree } : {};
+	if (existing?.worktree) return {
+		worktree: keptWorktree(existing.worktree, exec),
+		...kept
+	};
+	const here = gitWorktree(exec);
+	if (!here) return {
+		worktree: null,
+		...kept
+	};
+	if (existing?.sharedWorktree || ownerOf(store, here.root, id)) return {
+		worktree: null,
+		sharedWorktree: asShared(store, here, id)
+	};
+	return { worktree: here };
 }
 function primaryRootHere(exec) {
 	try {
@@ -11852,6 +11899,7 @@ async function spawn(ctx, input) {
 	const from = callerPane(sessionAdapter, normalizedEnv);
 	let cwd;
 	let worktree;
+	let sharedWorktree;
 	let base;
 	let reused;
 	let target;
@@ -11860,6 +11908,7 @@ async function spawn(ctx, input) {
 		cwd = resolve(input.cwd);
 		if (primaryRoot$1 !== void 0) assertDistinctFromPrimary(cwd, primaryRoot$1);
 		worktree = null;
+		sharedWorktree = sharedCheckoutAt(ctx.store, exec, cwd);
 		const at = input.at ?? "tab";
 		target = sessionAdapter.open(exec, {
 			cwd,
@@ -11950,6 +11999,7 @@ async function spawn(ctx, input) {
 		harness,
 		cwd,
 		worktree,
+		...sharedWorktree ? { sharedWorktree } : {},
 		pane: muxName === "tmux" || muxName === "herdr" ? {
 			mux: muxName,
 			id: target.id
@@ -14460,6 +14510,7 @@ function showUnit(ctx, ref) {
 		} : null,
 		cwd: rec.cwd,
 		worktree: rec.worktree ?? null,
+		sharedWorktree: rec.sharedWorktree ?? null,
 		lastSeen: rec.lastSeen,
 		controls: controlsFor(ctx, rec, liveness)
 	};
@@ -14759,6 +14810,10 @@ function runWho(opts) {
 			{
 				key: "pane",
 				get: (a) => a.pane?.id ?? "-"
+			},
+			{
+				key: "shared",
+				get: (a) => a.sharedWorktree?.root ?? "-"
 			}
 		], `${agents.length} units`),
 		json: agents
@@ -14958,6 +15013,7 @@ withGlobals(unit.command("show")).description("show a unit's runtime: where it i
 			pane: view.pane ? `${view.pane.mux}:${view.pane.id}` : "-",
 			cwd: view.cwd,
 			worktree: view.worktree?.root ?? "-",
+			shared: view.sharedWorktree?.root ?? "-",
 			lastSeen: view.lastSeen,
 			controls: view.controls.join(",") || "-"
 		}),
