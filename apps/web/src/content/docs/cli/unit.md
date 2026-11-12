@@ -79,8 +79,9 @@ List the addressable units. Also available as the top-level alias `cyberlegion w
 | `--all` | include exited units |
 | `--reconcile` | live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing |
 
-Output: a `units` table (`id`, `handle`, `harness`, `status`, `pane`). Suggests `unit register` as
-a next step when the list is empty.
+Output: a `units` table (`id`, `handle`, `harness`, `status`, `pane`, `shared`). `shared` is the
+root of the unit's [shared worktree](#shared-worktree), or `-` when it has none. `--format json`
+lists the full records. Suggests `unit register` as a next step when the list is empty.
 
 ## prune
 
@@ -173,6 +174,15 @@ whether the worktree was recycled.
 `--worktree-path <path>` names a path outside the library's naming, so that spawn bypasses the
 library. It creates the worktree at `<path>`, holds no lease, and `close` removes it.
 
+### Shared worktree
+
+A `--cwd` spawn creates no worktree, so the unit owns none. When the directory sits inside a git
+checkout, such as another unit's worktree, the record keeps that checkout as `sharedWorktree`:
+its `root`, `branch`, `primaryRoot`, and `owner`, the id of the unit whose record owns that root,
+if any. `unit register` does the same for a session in a worktree another unit's record owns. The
+field is a read-only reference, kept apart from the owned `worktree`: a sweep can judge the unit by
+the work there, and `close` never acts on it. Records written before the field existed lack it.
+
 ### Base
 
 A new worktree's branch starts from the upstream, not from the caller's checkout. The caller's local
@@ -239,6 +249,10 @@ worktree removed. The options below apply to that removal.
 
 Output: `closed` (id), `worktree`, `retained`, `lease` (`released`, `lost`, or `-` when the unit
 held none), `pane`.
+
+`close` never acts on a unit's [shared worktree](#shared-worktree). It does not remove, prune, or
+check that checkout, and it does not release the lease the owning unit holds on it, even with
+`--force`.
 
 `--keep-worktree` is for **worktree pools**: after a unit's work merges, keep its checkout, detach
 it back to `main`, and spawn the next unit into it with `--cwd` — much cheaper than a fresh checkout
@@ -319,7 +333,8 @@ npx cyberlegion unit show <ref> [--format json]
 ```
 
 The read-only runtime view for dashboards and controllers. Output: `id`, `handle`, `harness`,
-`status` (as recorded), `liveness` (probed now), `pane`, `cwd`, `worktree`, `lastSeen` (as
+`status` (as recorded), `liveness` (probed now), `pane`, `cwd`, `worktree`, `shared` (the
+[shared worktree](#shared-worktree)'s root, `-` when none; `sharedWorktree` under `--format json`), `lastSeen` (as
 recorded), and `controls`. `show` writes nothing, so any number of clients can watch and reconnect
 without owning anything, and closing a client leaves every runtime running.
 

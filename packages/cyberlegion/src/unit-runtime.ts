@@ -304,6 +304,8 @@ export interface RuntimeView {
 	pane: { mux: string; id: string } | null
 	cwd: string
 	worktree: { root: string; branch?: string } | null
+	/** A checkout the unit works in but does not own, as recorded; `null` when it records none. */
+	sharedWorktree: NonNullable<AgentRecord['sharedWorktree']> | null
 	/** As recorded; showing a unit invents no progress. */
 	lastSeen: string
 	controls: Control[]
@@ -355,6 +357,7 @@ export function showUnit(ctx: RuntimeContext, ref: string): RuntimeView {
 		pane: pane && mux ? { mux, id: pane } : null,
 		cwd: rec.cwd,
 		worktree: rec.worktree ?? null,
+		sharedWorktree: rec.sharedWorktree ?? null,
 		lastSeen: rec.lastSeen,
 		controls: controlsFor(ctx, rec, liveness),
 	}

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { type AcquireOptions, gitWorktreeCreator, slotPath } from 'cyber-agentkit/worktrees'
@@ -789,6 +789,48 @@ describe('--cwd spawns into an existing directory, creating no worktree', () => 
 		const rec = loadAgent(store, res.agent.id)
 		expect(rec?.cwd).toBe(resolve(existingDir))
 		expect(rec?.worktree).toBeNull()
+	})
+
+	it('--cwd into a directory in no repository records no shared worktree', async () => {
+		const existingDir = mkdtempSync(join(tmpdir(), 'cl-existing-'))
+		const res = await spawn(ctx(), { harness: 'claude', task: 't', cwd: existingDir, at: 'pane:right' })
+		const rec = loadAgent(store, res.agent.id)
+		expect(rec?.worktree).toBeNull()
+		expect(rec?.sharedWorktree).toBeUndefined()
+	})
+
+	it('--cwd into a worktree another unit owns records it as a shared worktree naming its owner', async () => {
+		const linked = mkdtempSync(join(tmpdir(), 'cl-linked-'))
+		const sub = join(linked, 'packages', 'x')
+		mkdirSync(sub, { recursive: true })
+		const ownerWorktree = { root: linked, branch: 'fix/login', primaryRoot, lease: { leaseId: 'l1', holder: 'h' } }
+		saveAgent(store, {
+			id: 'owner1',
+			handle: 'owner',
+			harness: 'claude',
+			cwd: linked,
+			worktree: ownerWorktree,
+			pane: null,
+			status: 'active',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			lastSeen: '2026-01-01T00:00:00.000Z',
+		})
+		// git answered as if `sub` sits inside the linked worktree `linked` of the repository at primaryRoot
+		const exec: Exec = (cmd, args) => {
+			if (cmd === 'git') {
+				if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+				if (args.includes('--show-toplevel')) return args[0] === '-C' && args[1] === resolve(sub) ? linked : null
+				if (args.includes('--abbrev-ref')) return 'fix/login'
+				return null
+			}
+			return fakeExec(cmd, args)
+		}
+		const res = await spawn({ ...ctx(), exec }, { harness: 'claude', task: 't', cwd: sub, at: 'pane:right' })
+		expect(worktreeAddCalls).toHaveLength(0)
+		const rec = loadAgent(store, res.agent.id)
+		expect(rec?.worktree).toBeNull()
+		expect(rec?.sharedWorktree).toEqual({ root: linked, branch: 'fix/login', primaryRoot, owner: 'owner1' })
+		expect(loadAgent(store, 'owner1')?.worktree).toEqual(ownerWorktree)
 	})
 
 	it('opens the tmux pane with -c set to the given directory', async () => {

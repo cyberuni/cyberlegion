@@ -18,6 +18,7 @@ import {
 	resolveSelfId,
 	saveAgent,
 	selectAgent,
+	sharedCheckoutAt,
 	type UnitSelector,
 } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
@@ -230,6 +231,7 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 
 	let cwd: string
 	let worktree: AgentRecord['worktree']
+	let sharedWorktree: AgentRecord['sharedWorktree']
 	let base: SpawnBase | undefined
 	let reused: boolean | undefined
 	let target: MuxTarget
@@ -240,6 +242,9 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		cwd = resolve(input.cwd)
 		if (primaryRoot !== undefined) assertDistinctFromPrimary(cwd, primaryRoot)
 		worktree = null
+		// The checkout it opens into, if any, is one spawn did not create: recorded as shared so a sweep
+		// can judge the unit by it, and never as `worktree`, which close would remove or release.
+		sharedWorktree = sharedCheckoutAt(ctx.store, exec, cwd)
 		// A --cwd spawn reuses the caller's current space, so its default placement is a tab there —
 		// the caller opted into an existing dir, not into carving out an isolated space.
 		const at = input.at ?? 'tab'
@@ -322,6 +327,7 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		harness,
 		cwd,
 		worktree,
+		...(sharedWorktree ? { sharedWorktree } : {}),
 		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
 		pane: muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null,
 		status: 'active',

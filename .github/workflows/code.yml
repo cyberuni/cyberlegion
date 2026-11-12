@@ -1,0 +1,71 @@
+name: code
+# Everything the required `code / all-checks` check stands for on a pull request.
+#
+# The ruleset requires `code / all-checks`. pnpm-verify.yml has its own `all-checks`, but a
+# caller cannot add jobs to its `needs:`, so the dep-changeset gate and the release guard
+# could not feed it. This workflow is called as the `code` job instead, and its own
+# `all-checks` (below) rolls up verify, the gate and the guard under the same check name.
+on:
+  workflow_call:
+    secrets:
+      AUTOFIX_APP_ID:
+        required: false
+      AUTOFIX_APP_PRIVATE_KEY:
+        required: false
+
+jobs:
+  verify:
+    uses: cyberuni/.github/.github/workflows/pnpm-verify.yml@main
+    permissions:
+      contents: read
+    with:
+      os: '["ubuntu-latest"]'
+      skip-playwright: true
+      skip-codecov: true
+
+  # Renovate PRs: writes a patch changeset when the leak checks pass, or fails until a
+  # person commits one. Passes on every other PR and on merge_group.
+  dep-changeset:
+    uses: cyberuni/.github/.github/workflows/dep-changeset.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+    secrets:
+      AUTOFIX_APP_ID: ${{ secrets.AUTOFIX_APP_ID }}
+      AUTOFIX_APP_PRIVATE_KEY: ${{ secrets.AUTOFIX_APP_PRIVATE_KEY }}
+    with:
+      # dist/cli.mjs inlines the runtime dependencies, so a lock-file-only move ships too.
+      bundled: true
+      # Only packages/cyberlegion is published; its tsdown build emits the .d.ts the type
+      # check reads. The root `pnpm build` would also build the docs site for nothing.
+      build-command: pnpm cl build
+      # dist/cli.mjs is committed (scripts/check-cli-bundle.mjs), so every Renovate PR
+      # needs it rebuilt against the bumped dependencies, changeset or not.
+      rebuild-command: pnpm cl build
+      rebuild-paths: packages/cyberlegion/dist/cli.mjs
+
+  # The Version Packages PR: fails on a major bump no person-written changeset asked for.
+  # Skipped on every other branch.
+  release-guard:
+    uses: cyberuni/.github/.github/workflows/dep-changeset-release-guard.yml@main
+    permissions:
+      contents: read
+      pull-requests: read
+
+  all-checks:
+    needs: [verify, dep-changeset, release-guard]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: All checks passed
+        env:
+          VERIFY: ${{ needs.verify.result }}
+          GATE: ${{ needs.dep-changeset.result }}
+          GUARD: ${{ needs.release-guard.result }}
+        run: |
+          echo "verify=$VERIFY dep-changeset=$GATE release-guard=$GUARD"
+          [ "$VERIFY" = success ] || exit 1
+          # The gate's verdict job always runs, so anything but success is a failure.
+          [ "$GATE" = success ] || exit 1
+          # The guard's only job is skipped off the release branch.
+          [ "$GUARD" = success ] || [ "$GUARD" = skipped ] || exit 1

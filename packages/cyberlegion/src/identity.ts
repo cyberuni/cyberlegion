@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { basename } from 'node:path'
+import { basename, resolve } from 'node:path'
 import {
 	currentPane,
 	type Exec,
@@ -125,7 +125,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 		handle: input.handle ?? existing?.handle ?? id.slice(0, 6),
 		harness,
 		cwd: process.cwd(),
-		worktree: existing?.worktree ? keptWorktree(existing.worktree, exec) : gitWorktree(exec),
+		...checkoutFor(ctx.store, exec, id, existing),
 		pane: cur ? paneLocator(cur, exec, env) : null,
 		status: 'active',
 		createdAt: existing?.createdAt ?? ts,
@@ -206,15 +206,59 @@ function writeStanding(ctx: IdContext, id: string, input: RegisterStandingInput)
 	return rec
 }
 
-/** The checkout the cwd sits in: its root, its branch, and the repository's primary checkout — the
- * same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked worktree by
- * the repository's name rather than the worktree folder's. */
-function gitWorktree(exec: Exec): { root: string; branch?: string; primaryRoot?: string } | null {
-	const root = exec('git', ['rev-parse', '--show-toplevel'])
+type Checkout = { root: string; branch?: string; primaryRoot?: string }
+
+/** The checkout `dir` (else the cwd) sits in: its root, its branch, and the repository's primary
+ * checkout — the same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked
+ * worktree by the repository's name rather than the worktree folder's. */
+function gitWorktree(exec: Exec, dir?: string): Checkout | null {
+	const git: Exec = dir === undefined ? exec : (cmd, args) => exec(cmd, cmd === 'git' ? ['-C', dir, ...args] : args)
+	const root = git('git', ['rev-parse', '--show-toplevel'])
 	if (!root) return null
-	const branch = exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']) ?? undefined
-	const primaryRoot = primaryRootHere(exec)
+	const branch = git('git', ['rev-parse', '--abbrev-ref', 'HEAD']) ?? undefined
+	const primaryRoot = primaryRootHere(git)
 	return { root, ...(branch !== undefined ? { branch } : {}), ...(primaryRoot !== undefined ? { primaryRoot } : {}) }
+}
+
+/** The id of the unit, other than `self`, whose record owns the worktree at `root`. */
+function ownerOf(store: Store, root: string, self?: string): string | undefined {
+	const at = resolve(root)
+	return listAgents(store).find((a) => a.id !== self && a.worktree?.root && resolve(a.worktree.root) === at)?.id
+}
+
+/** `checkout` as a shared reference, naming the unit that owns it when one does. */
+function asShared(store: Store, checkout: Checkout, self?: string): NonNullable<AgentRecord['sharedWorktree']> {
+	const owner = ownerOf(store, checkout.root, self)
+	return { ...checkout, ...(owner ? { owner } : {}) }
+}
+
+/** The checkout a `--cwd` spawn opens into, as a shared reference — spawn created none, so the unit
+ * owns none, whoever does. `undefined` when `dir` is in no git checkout. */
+export function sharedCheckoutAt(store: Store, exec: Exec, dir: string): AgentRecord['sharedWorktree'] {
+	const checkout = gitWorktree(exec, dir)
+	return checkout ? asShared(store, checkout) : undefined
+}
+
+/**
+ * Which checkout a registering session owns and which it only shares. An existing owned worktree is
+ * kept. Otherwise the cwd's checkout is the session's own — unless another unit's record owns it, or
+ * this unit already records it as shared (a `--cwd` spawn): then it is a shared reference, and the
+ * session owns none, so its close can never remove another unit's worktree or release its lease.
+ */
+function checkoutFor(
+	store: Store,
+	exec: Exec,
+	id: string,
+	existing: AgentRecord | undefined,
+): Pick<AgentRecord, 'worktree' | 'sharedWorktree'> {
+	const kept = existing?.sharedWorktree ? { sharedWorktree: existing.sharedWorktree } : {}
+	if (existing?.worktree) return { worktree: keptWorktree(existing.worktree, exec), ...kept }
+	const here = gitWorktree(exec)
+	if (!here) return { worktree: null, ...kept }
+	if (existing?.sharedWorktree || ownerOf(store, here.root, id)) {
+		return { worktree: null, sharedWorktree: asShared(store, here, id) }
+	}
+	return { worktree: here }
 }
 
 function primaryRootHere(exec: Exec): string | undefined {
@@ -299,6 +343,23 @@ export function resolveOwnerMailbox(store: Store, ref: string): string {
 		)
 	}
 	return resolveStandingOwner(store, ref)
+}
+
+/** Resolve the unit whose mailbox `mail inbox --unit` reads, by id or handle. Unlike a recipient, an
+ * exited unit resolves: the caller is deciding about that unit (a sweep asking whether a dead unit left
+ * unread mail), not writing to it. A live holder of the handle wins; several exited holders and no live
+ * one fail rather than picking one. */
+export function resolveUnitMailbox(store: Store, ref: string): AgentRecord {
+	const byId = loadAgent(store, ref)
+	if (byId) return byId
+	const { live, exited } = matchHandle(listAgents(store), ref)
+	const byHandle = pickLive(ref, live)
+	if (byHandle) return byHandle
+	if (exited.length > 1) {
+		throw new Error(`"${ref}" names ${exited.length} exited units — pass an id (${exited.map((a) => a.id).join(', ')})`)
+	}
+	if (exited[0]) return exited[0]
+	throw new Error(`no unit addressable as "${ref}" (tried id and handle)`)
 }
 
 /**

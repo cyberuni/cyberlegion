@@ -40,6 +40,16 @@ export interface AgentRecord {
 		primaryRoot?: string
 		lease?: { leaseId: string; holder: string }
 	} | null
+	/** A checkout the unit works in but does not own: a `--cwd` spawn into an existing checkout, or a
+	 * session registered in a worktree another unit's record owns. `owner` is that unit's id, when one
+	 * owned the root at the time of recording. Close never removes, prunes, or releases it — it is read
+	 * only, so a sweep can judge the unit by the work there. Absent on records from before it existed. */
+	sharedWorktree?: {
+		root: string
+		branch?: string
+		primaryRoot?: string
+		owner?: string
+	}
 	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
 	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
 	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null
@@ -142,6 +152,8 @@ export interface MailboxStore {
 	putMessage(toId: string, msg: Message): void
 	/** The full unread/read split for one agent's inbox. */
 	listInbox(id: string): InboxSnapshot
+	/** Whether `id` has a mailbox at all — one exists once mail was first delivered to it. */
+	hasMailbox(id: string): boolean
 	/** Ack a message by moving it out of the unread set; throws if it is not currently unread. */
 	ackMessage(id: string, msgId: string): Message
 	/** Permanently remove a message (unread or already-acked) from `id`'s inbox; throws if absent. */

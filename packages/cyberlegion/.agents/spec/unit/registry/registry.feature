@@ -52,6 +52,27 @@ Feature: unit registry — register, discover, and prune legion units
     Then the record's worktree primary root is the repository's primary checkout
     And it keeps the same id
 
+  # ── Register never takes ownership of another unit's worktree ──
+  # A session can sit in a worktree another unit owns. Recording it as its own `worktree` would let
+  # its close remove that worktree or release the owner's lease, so it is recorded as shared instead.
+
+  Scenario: register in a worktree another unit owns records it as shared, not as its own
+    Given a registered unit whose record owns a linked worktree
+    And an unregistered session whose cwd is that linked worktree
+    When it runs unit register --harness claude
+    Then the session's record has no worktree of its own
+    And the session's record carries that worktree's root, branch, and primary root as its shared worktree
+    And the shared worktree names the owning unit's id as its owner
+    And the owning unit's record is unchanged
+
+  Scenario: re-register of a unit holding a shared worktree keeps it shared, never owned
+    Given a session registered in the current pane whose record has no worktree of its own and shares a linked worktree
+    And no other unit's record owns that worktree any more
+    When it runs unit register --harness claude again
+    Then the record still has no worktree of its own
+    And the record's shared worktree is that linked worktree, naming no owner
+    And it keeps the same id
+
   Scenario: register fails cleanly when the registry cannot be written
     Given a hub root that cannot be created or written (its path is already a file)
     When a session runs unit register --handle a --harness claude
@@ -77,14 +98,23 @@ Feature: unit registry — register, discover, and prune legion units
 
   # ── who lists the addressable peers ──
   # `unit who` (alias: top-level `who`) is the single list command — the old `session list` folded
-  # in here (CR-2 resolution #1): fields id·handle·harness·status·pane, aggregate "N units", default
-  # non-exited + --all.
+  # in here (CR-2 resolution #1): fields id·handle·harness·status·pane·shared, aggregate "N units",
+  # default non-exited + --all.
 
   Scenario: who lists every non-exited unit with a definitive aggregate line
     Given two registered units, alice and bob
     When a session runs unit who
-    Then it lists both as a TOON list with fields id, handle, harness, status, and pane
+    Then it lists both as a TOON list with fields id, handle, harness, status, pane, and shared
     And the aggregate line reads "2 units"
+
+  Scenario: who shows the worktree a unit shares, and "-" for a unit that shares none
+    Given a registered unit whose record carries a shared worktree and one whose record carries none
+    When a session runs unit who
+    Then the first unit's shared field is its shared worktree's root
+    And the second unit's shared field is "-"
+    When it runs unit who --format json
+    Then the first unit's entry carries its shared worktree with its root, branch, and owner
+    And the second unit's entry carries no shared worktree
 
   Scenario: who reports a definitive empty state when nothing is registered
     Given an empty registry

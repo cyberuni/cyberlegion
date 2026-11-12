@@ -75,6 +75,29 @@ export function inbox(ctx: MsgContext, q: InboxQuery): InboxItem[] {
 	return items.sort((a, b) => a.id.localeCompare(b.id))
 }
 
+/** Whether a unit's mailbox exists and could be read. `none` means mail was never delivered to it;
+ * `present` means it was read (its listing may be empty); `unreadable` means its directory or one of
+ * its messages could not be read, so whether it holds unread mail is unknown. */
+type MailboxState = 'none' | 'present' | 'unreadable'
+
+export interface UnitInbox {
+	mailbox: MailboxState
+	messages: InboxItem[]
+	/** Why the mailbox is `unreadable`. */
+	error?: string
+}
+
+/** List another unit's mail read-only, for a caller deciding about that unit (a cleanup sweep): never
+ * acks, and reports a missing or unreadable mailbox as its own state rather than as an empty one. */
+export function unitInbox(ctx: MsgContext, q: InboxQuery): UnitInbox {
+	if (!ctx.store.hasMailbox(q.meId)) return { mailbox: 'none', messages: [] }
+	try {
+		return { mailbox: 'present', messages: inbox(ctx, q) }
+	} catch (err) {
+		return { mailbox: 'unreadable', messages: [], error: err instanceof Error ? err.message : String(err) }
+	}
+}
+
 /** Peek at a message (unread or already-acked) without changing its state. */
 export function peek(ctx: MsgContext, meId: string, msgId: string): Message | undefined {
 	const snap = ctx.store.listInbox(meId)

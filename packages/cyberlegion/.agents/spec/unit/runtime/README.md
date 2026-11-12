@@ -180,7 +180,9 @@ restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone 
 - **Actor / goal:** an observing client wants the runtime's location, current liveness, and the
   controls it supports, and to see the same answer after reconnecting.
 - **Entry point:** `unit show <ref>`. Prints the unit's id, handle, harness, recorded status, liveness
-  probed now, pane locator, cwd, worktree, recorded last-seen, and its supported controls. Writes
+  probed now, pane locator, cwd, worktree, shared worktree (a checkout the unit works in but does
+  not own, `-` in TOON and `null` in JSON when it records none), recorded last-seen, and its
+  supported controls. Writes
   nothing: the target's record is unchanged, and no client is recorded.
 - **Controls are derived from the record and the backend, never from a pane's display name:**
   - `focus`, `nudge`, `read` — only when liveness is `live`;
@@ -307,7 +309,7 @@ graph TD
   SH4U --> SHC
   SH5L --> SHC
   SH5G --> SHC
-  SHC --> SHW["print; write nothing"]
+  SHC --> SHW["print the record's worktree and shared worktree as recorded; write nothing"]
 ```
 
 ## Scenario map
@@ -397,6 +399,8 @@ convergence claim.
 | `SH5L` | a unit whose pane the backend lists, harness claude | `show reports a live unit with its pane-driving controls` |
 | `SH5G` | a unit recorded active whose pane the backend no longer lists | `show reports a gone pane without rewriting the recorded status` |
 | `SH4U` no pane | an active unit with no pane locator and no pointer | `show reports unknown liveness for a unit with no pane` |
+| `SHW` shared worktree | a unit owning no worktree that shares one | `show reports the worktree a unit shares apart from the one it owns` |
+| `SHW` no shared worktree | a record with no shared worktree | `show reports no shared worktree for a record that lacks one` |
 | `SH4U` no list | a unit with a pane, a backend giving no pane list | `show reports unknown liveness when the backend gives no pane list` |
 | `SH3Y` stopped | a stopped unit | `show reports a stopped unit with restart and rebind but no pane controls` |
 | `SH3Y` exited | an exited unit whose old pane the backend still lists | `show reports an exited unit with rebind but no pane controls` |

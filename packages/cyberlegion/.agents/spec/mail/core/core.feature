@@ -152,6 +152,45 @@ Feature: mail core — durable inter-agent messaging
     When it runs mail delete <msg-id>
     Then the command reports the message is not in this inbox
 
+  # ── inbox --unit lists another unit's mail read-only, with an explicit mailbox state ──
+
+  Scenario: inbox --unit lists an exited unit's unread mail by handle without acking it
+    Given an exited unit bob, with no other unit holding its handle, and one unread message in bob's inbox
+    When a caller with no identity runs mail inbox --unit bob --unread
+    Then it lists that message with mailbox present and the 1 messages (1 unread) aggregate
+    And the message remains unread in bob's inbox
+
+  Scenario: inbox --unit reports a unit that was never sent mail as having no mailbox
+    Given a unit that has never been sent a message
+    When a caller runs mail inbox --unit <id> --unread
+    Then it reports mailbox none with an empty list and the no mailbox summary
+
+  Scenario: inbox --unit reports a mailbox whose mail is all acked as present and empty
+    Given a unit whose only message has been acked
+    When a caller runs mail inbox --unit <id> --unread
+    Then it reports mailbox present with an empty list and the 0 messages (0 unread) aggregate
+
+  Scenario: inbox --unit reports an unreadable mailbox as its own state and exits non-zero
+    Given a unit whose inbox holds a message file that cannot be parsed
+    When a caller runs mail inbox --unit <id> --unread
+    Then it reports mailbox unreadable with an empty list and an error naming the file
+    And it exits non-zero
+
+  Scenario: inbox --unit on a handle that several exited units hold and no live unit holds errors
+    Given two exited units that share the handle bob, and no live unit named bob
+    When a caller runs mail inbox --unit bob
+    Then it errors listing both units' ids
+
+  Scenario: inbox --unit on a ref that names no unit errors
+    Given no unit with the id or handle ghost
+    When a caller runs mail inbox --unit ghost
+    Then it errors that no unit is addressable as ghost
+
+  Scenario: inbox --unit together with --owner is refused
+    Given a standing owner homa and a unit bob
+    When a caller runs mail inbox --unit bob --owner homa
+    Then it errors without listing either mailbox
+
   # ── The standing owner mailbox is readable and ackable from any session ──
 
   Scenario: mail send to a standing owner delivers to the owner inbox

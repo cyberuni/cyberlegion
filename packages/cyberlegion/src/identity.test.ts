@@ -19,6 +19,7 @@ import {
 	resolvePresence,
 	resolveRecipient,
 	resolveSelfId,
+	resolveUnitMailbox,
 	saveAgent,
 	selectAgent,
 	sessionLive,
@@ -129,6 +130,65 @@ describe('spec:cyberlegion/identity', () => {
 		it('register outside any repository records no worktree', () => {
 			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }), { harness: 'claude' })
 			expect(loadAgent(store, rec.id)?.worktree).toBeNull()
+			expect(loadAgent(store, rec.id)?.sharedWorktree).toBeUndefined()
+		})
+
+		/** A unit whose record owns the linked worktree, as a worktree spawn leaves it. */
+		const owner = (): AgentRecord => {
+			const rec: AgentRecord = {
+				id: 'owner1',
+				handle: 'owner',
+				harness: 'claude',
+				cwd: LINKED,
+				worktree: { root: LINKED, branch: 'fix/login', primaryRoot: PRIMARY, lease: { leaseId: 'l1', holder: 'h' } },
+				pane: null,
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			}
+			saveAgent(store, rec)
+			return rec
+		}
+
+		it('register in a worktree another unit owns records it as shared, not as its own', () => {
+			owner()
+			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%3' }, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			const saved = loadAgent(store, rec.id)
+			expect(saved?.worktree).toBeNull()
+			expect(saved?.sharedWorktree).toEqual({
+				root: LINKED,
+				branch: 'fix/login',
+				primaryRoot: PRIMARY,
+				owner: 'owner1',
+			})
+			// the owner's record is untouched
+			expect(loadAgent(store, 'owner1')?.worktree?.lease).toEqual({ leaseId: 'l1', holder: 'h' })
+		})
+
+		it('re-register of a unit holding a shared worktree keeps it shared, never owned', () => {
+			const e = { TMUX: 't', TMUX_PANE: '%3' }
+			// a --cwd spawn's record: no worktree of its own, a shared one whose owner has since gone
+			store.putPaneIndex('%3', 'shared1')
+			saveAgent(store, {
+				id: 'shared1',
+				handle: 'shared',
+				harness: 'claude',
+				cwd: LINKED,
+				worktree: null,
+				sharedWorktree: { root: LINKED, branch: 'fix/login', primaryRoot: PRIMARY, owner: 'gone1' },
+				pane: { mux: 'tmux', id: '%3' },
+				status: 'active',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			})
+			const rec = register(ctx(e, gitExec(LINKED, PRIMARY)), { harness: 'claude' })
+			expect(rec.id).toBe('shared1')
+			expect(loadAgent(store, 'shared1')?.worktree).toBeNull()
+			expect(loadAgent(store, 'shared1')?.sharedWorktree).toEqual({
+				root: LINKED,
+				branch: 'fix/login',
+				primaryRoot: PRIMARY,
+			})
 		})
 
 		it('register fails cleanly when the registry cannot be written', () => {
@@ -886,5 +946,47 @@ describe('spec:cyberlegion/service/lease — owner liveness fails closed', () =>
 
 	it('an exited owner is never live', () => {
 		expect(sessionLive(ctx({}, listing(null)), { ...owner(), status: 'exited' })).toBe(false)
+	})
+})
+
+describe('resolveUnitMailbox — whose mailbox mail inbox --unit reads', () => {
+	const seed = (id: string, handle: string, status: 'active' | 'exited') =>
+		saveAgent(store, {
+			id,
+			handle,
+			kind: 'session',
+			harness: 'claude',
+			cwd: '/repo',
+			pane: null,
+			status,
+			createdAt: '2026-07-01T00:00:00.000Z',
+			lastSeen: '2026-07-01T00:00:00.000Z',
+		})
+
+	it('resolves a unit by id or by handle', () => {
+		seed('live01', 'bob', 'active')
+		expect(resolveUnitMailbox(store, 'live01').id).toBe('live01')
+		expect(resolveUnitMailbox(store, 'bob').id).toBe('live01')
+	})
+
+	it('resolves a handle held only by one exited unit to that unit — a sweep asks about the dead', () => {
+		seed('dead01', 'bob', 'exited')
+		expect(resolveUnitMailbox(store, 'bob').id).toBe('dead01')
+	})
+
+	it('prefers the live holder of a handle over exited ones', () => {
+		seed('dead01', 'bob', 'exited')
+		seed('live01', 'bob', 'active')
+		expect(resolveUnitMailbox(store, 'bob').id).toBe('live01')
+	})
+
+	it('fails listing the ids when a handle names several exited units and no live one', () => {
+		seed('dead01', 'bob', 'exited')
+		seed('dead02', 'bob', 'exited')
+		expect(() => resolveUnitMailbox(store, 'bob')).toThrow(/"bob" names 2 exited units — pass an id \(dead01, dead02\)/)
+	})
+
+	it('throws on a ref that names no unit', () => {
+		expect(() => resolveUnitMailbox(store, 'ghost')).toThrow(/no unit addressable as "ghost" \(tried id and handle\)/)
 	})
 })

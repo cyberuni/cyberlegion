@@ -201,11 +201,17 @@ export async function wakeRecipient(
 		try {
 			const adapter = getAdapter()
 			const target = { id: pane }
-			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
-				...guardOpts,
-				harness,
-				ownText: (text) => isRingText(text),
-			})
+			await withDraftGuard(
+				adapter,
+				exec,
+				target,
+				() => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, { ...nudgeOpts, harness }),
+				{
+					...guardOpts,
+					harness,
+					ownText: (text) => isRingText(text),
+				},
+			)
 			return { rung: true, pane }
 		} catch (err) {
 			return { rung: false, pane, warning: err instanceof Error ? err.message : String(err) }
@@ -262,7 +268,8 @@ export async function wakeSpawn(
 			adapter,
 			exec,
 			input.target,
-			() => ringTurn(adapter, exec, input.target, doorbell, { ...nudgeOpts, requirePosted: true }),
+			() =>
+				ringTurn(adapter, exec, input.target, doorbell, { ...nudgeOpts, requirePosted: true, harness: input.harness }),
 			{ ...guardOpts, harness: input.harness, ownText: (text) => isRingText(text) },
 		)
 		return { rung: true, pane: input.target.id }

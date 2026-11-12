@@ -27,10 +27,11 @@ import {
 	resolveOwnerMailbox,
 	resolvePresence,
 	resolveSelfId,
+	resolveUnitMailbox,
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
-import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send } from './message.ts'
+import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send, unitInbox } from './message.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
@@ -278,6 +279,7 @@ function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void
 				{ key: 'harness', get: (a) => a.harness ?? '-' },
 				{ key: 'status', get: (a) => a.status },
 				{ key: 'pane', get: (a) => a.pane?.id ?? '-' },
+				{ key: 'shared', get: (a) => a.sharedWorktree?.root ?? '-' },
 			],
 			`${agents.length} units`,
 		),
@@ -560,6 +562,7 @@ withGlobals(unit.command('show'))
 				pane: view.pane ? `${view.pane.mux}:${view.pane.id}` : '-',
 				cwd: view.cwd,
 				worktree: view.worktree?.root ?? '-',
+				shared: view.sharedWorktree?.root ?? '-',
 				lastSeen: view.lastSeen,
 				controls: view.controls.join(',') || '-',
 			}),
@@ -958,7 +961,7 @@ function defineSend(cmd: Command): Command {
 }
 defineSend(mail.command('send'))
 
-type InboxOpts = GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string }
+type InboxOpts = GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string; unit?: string }
 
 /** List a resolved inbox (the caller's own or an --owner mailbox) as TOON with an aggregate;
  * `readCmd` is the follow-up read command prefix surfaced as the next step. */
@@ -983,9 +986,56 @@ function emitInbox(ctx: IdContext, opts: InboxOpts, meId: string, readCmd: strin
 	if (firstUnread) nextStep(`${readCmd} ${firstUnread.id}`)
 }
 
+/** List another unit's mailbox read-only (`--unit`). Its `mailbox` state tells a missing mailbox
+ * from an empty one; an unreadable one is reported on stdout and exits 1, never read as empty. */
+function emitUnitInbox(ctx: IdContext, opts: InboxOpts, ref: string): void {
+	let unit: ReturnType<typeof resolveUnitMailbox>
+	try {
+		unit = resolveUnitMailbox(ctx.store, ref)
+	} catch (err) {
+		fail(err instanceof Error ? err.message : String(err))
+	}
+	const result = unitInbox(
+		{ store: ctx.store },
+		{ meId: unit.id, unread: opts.unread, from: opts.from, thread: opts.thread },
+	)
+	const unreadCount = result.messages.filter((m) => !m.read).length
+	const summary =
+		result.mailbox === 'none'
+			? 'no mailbox'
+			: result.mailbox === 'unreadable'
+				? `mailbox unreadable: ${result.error}`
+				: `${result.messages.length} messages (${unreadCount} unread)`
+	emit(formatOf(opts), {
+		toon: [
+			toonObject({ unit: unit.id, handle: unit.handle, mailbox: result.mailbox }),
+			toonList(
+				'messages',
+				result.messages,
+				[
+					{ key: 'id', get: (m) => m.id },
+					{ key: 'from', get: (m) => m.fromHandle },
+					{ key: 'subject', get: (m) => m.subject ?? '' },
+					{ key: 'read', get: (m) => m.read },
+				],
+				summary,
+			),
+		].join('\n'),
+		json: { unit: unit.id, handle: unit.handle, ...result },
+	})
+	if (result.mailbox === 'unreadable') {
+		console.error(JSON.stringify({ error: `mailbox of ${unit.id} is unreadable: ${result.error}` }))
+		process.exitCode = 1
+	}
+}
+
 function runInbox(opts: InboxOpts): void {
 	const ctx = ctxOf(opts)
 	touch(ctx)
+	if (opts.unit) {
+		emitUnitInbox(ctx, opts, opts.unit)
+		return
+	}
 	const meId = opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx)
 	emitInbox(ctx, opts, meId, 'cyberlegion mail read')
 }
@@ -996,6 +1046,12 @@ withGlobals(mail.command('inbox'))
 	.option('--from <id>', 'filter by sender')
 	.option('--thread <id>', 'filter to messages carrying this thread id')
 	.option('--owner <handle>', "target a standing owner's mailbox instead of this session's own")
+	.addOption(
+		new Option(
+			'--unit <handle|id>',
+			"list another unit's mailbox read-only (exited units too); never acks, reports mailbox: none|present|unreadable",
+		).conflicts('owner'),
+	)
 	.action(runInbox)
 
 withGlobals(mail.command('read'))

@@ -696,6 +696,19 @@ describe('spec:cyberlegion/unit/runtime — unit show', () => {
 		expect(recordBytes('u1')).toBe(before)
 	})
 
+	it('show reports the worktree a unit shares apart from the one it owns', () => {
+		const shared = { root: unitDir, branch: 'b', owner: 'owner1' }
+		unit({ id: 'u1', pane: null, worktree: null, sharedWorktree: shared })
+		const view = showUnit(rctx(fakeBackend({ name: 'herdr', live: [] }).adapter), 'u1')
+		expect(view.worktree).toBeNull()
+		expect(view.sharedWorktree).toEqual(shared)
+	})
+
+	it('show reports no shared worktree for a record that lacks one', () => {
+		unit({ id: 'u1', pane: null })
+		expect(showUnit(rctx(fakeBackend({ name: 'herdr', live: [] }).adapter), 'u1').sharedWorktree).toBeNull()
+	})
+
 	it('show reports unknown liveness for a unit with no pane', () => {
 		unit({ id: 'u1', pane: null })
 		const view = showUnit(rctx(fakeBackend({ name: 'herdr', live: ['w1:p9'] }).adapter), 'u1')

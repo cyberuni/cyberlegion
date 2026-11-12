@@ -10517,7 +10517,7 @@ function register(ctx, input) {
 		handle: input.handle ?? existing?.handle ?? id.slice(0, 6),
 		harness,
 		cwd: process.cwd(),
-		worktree: existing?.worktree ? keptWorktree(existing.worktree, exec) : gitWorktree(exec),
+		...checkoutFor(ctx.store, exec, id, existing),
 		pane: cur ? paneLocator(cur, exec, env) : null,
 		status: "active",
 		createdAt: existing?.createdAt ?? ts,
@@ -10584,23 +10584,70 @@ function writeStanding(ctx, id, input) {
 	saveAgent(ctx.store, rec);
 	return rec;
 }
-/** The checkout the cwd sits in: its root, its branch, and the repository's primary checkout — the
-* same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked worktree by
-* the repository's name rather than the worktree folder's. */
-function gitWorktree(exec) {
-	const root = exec("git", ["rev-parse", "--show-toplevel"]);
+/** The checkout `dir` (else the cwd) sits in: its root, its branch, and the repository's primary
+* checkout — the same `primaryRoot` spawn records, so a lookup by repository finds a unit in a linked
+* worktree by the repository's name rather than the worktree folder's. */
+function gitWorktree(exec, dir) {
+	const git = dir === void 0 ? exec : (cmd, args) => exec(cmd, cmd === "git" ? [
+		"-C",
+		dir,
+		...args
+	] : args);
+	const root = git("git", ["rev-parse", "--show-toplevel"]);
 	if (!root) return null;
-	const branch = exec("git", [
+	const branch = git("git", [
 		"rev-parse",
 		"--abbrev-ref",
 		"HEAD"
 	]) ?? void 0;
-	const primaryRoot = primaryRootHere(exec);
+	const primaryRoot = primaryRootHere(git);
 	return {
 		root,
 		...branch !== void 0 ? { branch } : {},
 		...primaryRoot !== void 0 ? { primaryRoot } : {}
 	};
+}
+/** The id of the unit, other than `self`, whose record owns the worktree at `root`. */
+function ownerOf(store, root, self) {
+	const at = resolve(root);
+	return listAgents(store).find((a) => a.id !== self && a.worktree?.root && resolve(a.worktree.root) === at)?.id;
+}
+/** `checkout` as a shared reference, naming the unit that owns it when one does. */
+function asShared(store, checkout, self) {
+	const owner = ownerOf(store, checkout.root, self);
+	return {
+		...checkout,
+		...owner ? { owner } : {}
+	};
+}
+/** The checkout a `--cwd` spawn opens into, as a shared reference — spawn created none, so the unit
+* owns none, whoever does. `undefined` when `dir` is in no git checkout. */
+function sharedCheckoutAt(store, exec, dir) {
+	const checkout = gitWorktree(exec, dir);
+	return checkout ? asShared(store, checkout) : void 0;
+}
+/**
+* Which checkout a registering session owns and which it only shares. An existing owned worktree is
+* kept. Otherwise the cwd's checkout is the session's own — unless another unit's record owns it, or
+* this unit already records it as shared (a `--cwd` spawn): then it is a shared reference, and the
+* session owns none, so its close can never remove another unit's worktree or release its lease.
+*/
+function checkoutFor(store, exec, id, existing) {
+	const kept = existing?.sharedWorktree ? { sharedWorktree: existing.sharedWorktree } : {};
+	if (existing?.worktree) return {
+		worktree: keptWorktree(existing.worktree, exec),
+		...kept
+	};
+	const here = gitWorktree(exec);
+	if (!here) return {
+		worktree: null,
+		...kept
+	};
+	if (existing?.sharedWorktree || ownerOf(store, here.root, id)) return {
+		worktree: null,
+		sharedWorktree: asShared(store, here, id)
+	};
+	return { worktree: here };
 }
 function primaryRootHere(exec) {
 	try {
@@ -10670,6 +10717,20 @@ function resolveOwnerMailbox(store, ref) {
 	if (services.length === 1) return services[0].id;
 	if (services.length > 1) throw new Error(`"${ref}" names ${services.length} service endpoints — pass an endpoint id (${services.map((a) => a.id).join(", ")})`);
 	return resolveStandingOwner(store, ref);
+}
+/** Resolve the unit whose mailbox `mail inbox --unit` reads, by id or handle. Unlike a recipient, an
+* exited unit resolves: the caller is deciding about that unit (a sweep asking whether a dead unit left
+* unread mail), not writing to it. A live holder of the handle wins; several exited holders and no live
+* one fail rather than picking one. */
+function resolveUnitMailbox(store, ref) {
+	const byId = loadAgent(store, ref);
+	if (byId) return byId;
+	const { live, exited } = matchHandle(listAgents(store), ref);
+	const byHandle = pickLive(ref, live);
+	if (byHandle) return byHandle;
+	if (exited.length > 1) throw new Error(`"${ref}" names ${exited.length} exited units — pass an id (${exited.map((a) => a.id).join(", ")})`);
+	if (exited[0]) return exited[0];
+	throw new Error(`no unit addressable as "${ref}" (tried id and handle)`);
 }
 /**
 * Bind the caller's own unit as a standing owner's presence — the live unit standing in for a
@@ -11016,6 +11077,10 @@ function readShape(rows, shape) {
 	}
 	return { kind: "unknown" };
 }
+/** Whether this reader knows `harness`'s input box, so a missing box on screen means it is not drawn yet. */
+function knowsPromptOf(harness) {
+	return harness !== void 0 && SHAPES[harness] !== void 0;
+}
 /**
 * Read the input box off `screen` — a plain-text scrape of the pane — with the shape of `harness`,
 * or, when the harness is not known, with each known shape in turn until one recognizes the box.
@@ -11116,6 +11181,27 @@ function copiesOn(screen, message) {
 	return screen.split("\n").filter((row) => row.replace(/\s+/g, " ").includes(needle)).length;
 }
 /**
+* Read `screen` for the ring: whether `message` sits in the input box, and how many copies of it
+* are on screen outside the box. With the box read by its harness's shape, copies inside the box are
+* left out of the count: a booting harness can take several typed copies as one paste, and those
+* copies are staged text, not posted turns. A screen with no input box the reader knows falls back to
+* cyber-mux's `isStaged`, and the box's copy is counted with the rest.
+*/
+function readRing(screen, message, harness) {
+	const box = screen ? readPrompt(screen, harness) : { kind: "unknown" };
+	if (box.kind === "unknown") return {
+		boxKnown: false,
+		staged: isStaged(screen, message),
+		outside: copiesOn(screen, message)
+	};
+	const inBox = box.kind === "draft" ? copiesOn(box.text, message) : 0;
+	return {
+		boxKnown: true,
+		staged: inBox > 0,
+		outside: copiesOn(screen, message) - inBox
+	};
+}
+/**
 * Submit `message` to `target` as a taken turn: cyber-mux's `nudge`, with one more way to see that the
 * turn was taken.
 *
@@ -11135,18 +11221,32 @@ function copiesOn(screen, message) {
 * queue. Text that is neither staged nor posted is lost: after one more settle for a slow redraw, it
 * is typed again. It is opt-in because it needs the posted copy to stay on screen: a busy peer's
 * output can scroll earlier copies away, so a ring to it could read as lost and be typed twice.
+*
+* With `requirePosted` and a harness whose input box this reader knows, nothing is typed until the
+* harness has drawn that box, for up to the
+* whole retry budget. Keys typed while a harness boots are buffered, and the harness takes them as one
+* paste once it draws the box: each Enter becomes a newline, so re-typed copies pile up in the box
+* unsent. A box that never shows within the budget is typed into anyway, as before.
+*
+* Where the input box can be read, copies of the text inside it are not counted as posted: only a
+* copy outside the box means the harness took the turn.
 */
 async function ringTurn(adapter, exec, target, message, opts = {}) {
 	const attempts = opts.attempts ?? DEFAULT_ATTEMPTS;
 	const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
 	const sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
 	if (!adapter.paneExists(exec, target)) throw new Error(`nudge failed: pane ${target.id} no longer exists — the peer's session is gone, not busy.`);
-	const before = copiesOn(adapter.read(exec, target).text, message);
+	let first = adapter.read(exec, target).text;
+	if (opts.requirePosted && knowsPromptOf(opts.harness)) for (let wait = 0; wait < attempts && !readRing(first, message, opts.harness).boxKnown; wait++) {
+		await sleep(settleMs);
+		first = adapter.read(exec, target).text;
+	}
+	const before = readRing(first, message, opts.harness).outside;
 	const check = () => {
-		const screen = adapter.read(exec, target).text;
-		const copies = copiesOn(screen, message);
-		if (isStaged(screen, message)) return copies >= before + 2 ? "taken" : "staged";
-		return copies > before || !opts.requirePosted ? "taken" : "lost";
+		const seen = readRing(adapter.read(exec, target).text, message, opts.harness);
+		const posted = seen.outside >= before + (seen.boxKnown || !seen.staged ? 1 : 2);
+		if (seen.staged) return posted ? "taken" : "staged";
+		return posted || !opts.requirePosted ? "taken" : "lost";
 	};
 	adapter.submit(exec, target, message);
 	await sleep(settleMs);
@@ -11306,7 +11406,10 @@ async function wakeRecipient(store, getAdapter, exec, input, nudgeOpts, guardOpt
 		try {
 			const adapter = getAdapter();
 			const target = { id: pane };
-			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, nudgeOpts), {
+			await withDraftGuard(adapter, exec, target, () => ringTurn(adapter, exec, target, DELIVERY_DOORBELL, {
+				...nudgeOpts,
+				harness
+			}), {
 				...guardOpts,
 				harness,
 				ownText: (text) => isRingText(text)
@@ -11351,7 +11454,8 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 		const doorbell = (input.resumed ? resumeDoorbell : spawnDoorbell)(input.briefPath);
 		await withDraftGuard(adapter, exec, input.target, () => ringTurn(adapter, exec, input.target, doorbell, {
 			...nudgeOpts,
-			requirePosted: true
+			requirePosted: true,
+			harness: input.harness
 		}), {
 			...guardOpts,
 			harness: input.harness,
@@ -11795,6 +11899,7 @@ async function spawn(ctx, input) {
 	const from = callerPane(sessionAdapter, normalizedEnv);
 	let cwd;
 	let worktree;
+	let sharedWorktree;
 	let base;
 	let reused;
 	let target;
@@ -11803,6 +11908,7 @@ async function spawn(ctx, input) {
 		cwd = resolve(input.cwd);
 		if (primaryRoot$1 !== void 0) assertDistinctFromPrimary(cwd, primaryRoot$1);
 		worktree = null;
+		sharedWorktree = sharedCheckoutAt(ctx.store, exec, cwd);
 		const at = input.at ?? "tab";
 		target = sessionAdapter.open(exec, {
 			cwd,
@@ -11893,6 +11999,7 @@ async function spawn(ctx, input) {
 		harness,
 		cwd,
 		worktree,
+		...sharedWorktree ? { sharedWorktree } : {},
 		pane: muxName === "tmux" || muxName === "herdr" ? {
 			mux: muxName,
 			id: target.id
@@ -12574,6 +12681,26 @@ function inbox(ctx, q) {
 	if (q.from) items = items.filter((m) => m.from === q.from || m.fromHandle === q.from);
 	if (q.thread) items = items.filter((m) => m.thread === q.thread);
 	return items.sort((a, b) => a.id.localeCompare(b.id));
+}
+/** List another unit's mail read-only, for a caller deciding about that unit (a cleanup sweep): never
+* acks, and reports a missing or unreadable mailbox as its own state rather than as an empty one. */
+function unitInbox(ctx, q) {
+	if (!ctx.store.hasMailbox(q.meId)) return {
+		mailbox: "none",
+		messages: []
+	};
+	try {
+		return {
+			mailbox: "present",
+			messages: inbox(ctx, q)
+		};
+	} catch (err) {
+		return {
+			mailbox: "unreadable",
+			messages: [],
+			error: err instanceof Error ? err.message : String(err)
+		};
+	}
 }
 /** Peek at a message (unread or already-acked) without changing its state. */
 function peek(ctx, meId, msgId) {
@@ -14008,6 +14135,10 @@ var FileStore = class {
 			read: read ? readMessages(read) : []
 		};
 	}
+	hasMailbox(id) {
+		const dir = readPathOrUndefined(() => paths.inboxDir(this.root, id));
+		return dir !== void 0 && existsSync(dir);
+	}
 	ackMessage(id, msgId) {
 		const src = readPathOrUndefined(() => paths.messageFile(this.root, id, msgId));
 		if (!src || !existsSync(src)) throw new Error(`"${msgId}" is not an unread message in this inbox`);
@@ -14379,6 +14510,7 @@ function showUnit(ctx, ref) {
 		} : null,
 		cwd: rec.cwd,
 		worktree: rec.worktree ?? null,
+		sharedWorktree: rec.sharedWorktree ?? null,
 		lastSeen: rec.lastSeen,
 		controls: controlsFor(ctx, rec, liveness)
 	};
@@ -14678,6 +14810,10 @@ function runWho(opts) {
 			{
 				key: "pane",
 				get: (a) => a.pane?.id ?? "-"
+			},
+			{
+				key: "shared",
+				get: (a) => a.sharedWorktree?.root ?? "-"
 			}
 		], `${agents.length} units`),
 		json: agents
@@ -14877,6 +15013,7 @@ withGlobals(unit.command("show")).description("show a unit's runtime: where it i
 			pane: view.pane ? `${view.pane.mux}:${view.pane.id}` : "-",
 			cwd: view.cwd,
 			worktree: view.worktree?.root ?? "-",
+			shared: view.sharedWorktree?.root ?? "-",
 			lastSeen: view.lastSeen,
 			controls: view.controls.join(",") || "-"
 		}),
@@ -15238,12 +15375,67 @@ function emitInbox(ctx, opts, meId, readCmd) {
 	const firstUnread = items.find((m) => !m.read);
 	if (firstUnread) nextStep(`${readCmd} ${firstUnread.id}`);
 }
+/** List another unit's mailbox read-only (`--unit`). Its `mailbox` state tells a missing mailbox
+* from an empty one; an unreadable one is reported on stdout and exits 1, never read as empty. */
+function emitUnitInbox(ctx, opts, ref) {
+	let unit;
+	try {
+		unit = resolveUnitMailbox(ctx.store, ref);
+	} catch (err) {
+		fail(err instanceof Error ? err.message : String(err));
+	}
+	const result = unitInbox({ store: ctx.store }, {
+		meId: unit.id,
+		unread: opts.unread,
+		from: opts.from,
+		thread: opts.thread
+	});
+	const unreadCount = result.messages.filter((m) => !m.read).length;
+	const summary = result.mailbox === "none" ? "no mailbox" : result.mailbox === "unreadable" ? `mailbox unreadable: ${result.error}` : `${result.messages.length} messages (${unreadCount} unread)`;
+	emit(formatOf(opts), {
+		toon: [toonObject({
+			unit: unit.id,
+			handle: unit.handle,
+			mailbox: result.mailbox
+		}), toonList("messages", result.messages, [
+			{
+				key: "id",
+				get: (m) => m.id
+			},
+			{
+				key: "from",
+				get: (m) => m.fromHandle
+			},
+			{
+				key: "subject",
+				get: (m) => m.subject ?? ""
+			},
+			{
+				key: "read",
+				get: (m) => m.read
+			}
+		], summary)].join("\n"),
+		json: {
+			unit: unit.id,
+			handle: unit.handle,
+			...result
+		}
+	});
+	if (result.mailbox === "unreadable") {
+		console.error(JSON.stringify({ error: `mailbox of ${unit.id} is unreadable: ${result.error}` }));
+		process.exitCode = 1;
+	}
+}
 function runInbox(opts) {
 	const ctx = ctxOf(opts);
 	touch(ctx);
+	if (opts.unit) {
+		emitUnitInbox(ctx, opts, opts.unit);
+		return;
+	}
 	emitInbox(ctx, opts, opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx), "cyberlegion mail read");
 }
-withGlobals(mail.command("inbox")).description("list your mail").option("--unread", "only un-acked mail").option("--from <id>", "filter by sender").option("--thread <id>", "filter to messages carrying this thread id").option("--owner <handle>", "target a standing owner's mailbox instead of this session's own").action(runInbox);
+withGlobals(mail.command("inbox")).description("list your mail").option("--unread", "only un-acked mail").option("--from <id>", "filter by sender").option("--thread <id>", "filter to messages carrying this thread id").option("--owner <handle>", "target a standing owner's mailbox instead of this session's own").addOption(new Option("--unit <handle|id>", "list another unit's mailbox read-only (exited units too); never acks, reports mailbox: none|present|unreadable").conflicts("owner")).action(runInbox);
 withGlobals(mail.command("read")).description("read a message; --ack consumes it in the same step, otherwise it only peeks").argument("<msg-id>", "message id").option("--ack", "acknowledge the message in the same step (idempotent — no error if already acked)").option("--owner <handle>", "read a standing owner's mailbox instead of this session's own").action((msgId, opts) => {
 	const ctx = ctxOf(opts);
 	const meId = opts.owner ? resolveOwnerMailbox(ctx.store, opts.owner) : requireSelf(ctx);
