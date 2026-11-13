@@ -158,6 +158,7 @@ switch once one is picked; structured verdict-schema validation of the result (d
 | Behavior | Trigger | Outcome |
 |---|---|---|
 | **resolve tags + environment** | any dispatch intent reaches this node | `agent resolve <R>` reads `warm`/`interactive`; `mux doctor` reads multiplexer presence |
+| **resolve by definition path** | a dispatch intent carries an agent definition file path | `agent resolve --file <P>` replaces the by-name lookup, and a channel spawn passes `--agent-file <P>` instead of `--agent <R>` |
 | **pick channel** | `warm` + `interactive` + a multiplexer is present | compose `unit spawn --agent R --brief-file B --at <placement>` then `mail await --thread <t>` — a warm peer that can converse and mail back over rounds |
 | **pick run-inline (attended)** | `warm` + `interactive` + no multiplexer, in-session | returns a `run-inline` verdict; the caller does the work itself — no cold subagent substitute |
 | **run-inline has no seat (headless)** | `warm` + `interactive` + no multiplexer, under `headless-legate` | the Legate cannot run the work itself; returns `needsInput` naming the role + brief for its own relay to resolve |
@@ -360,6 +361,7 @@ outcome does not depend on how the edge was reached.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `INTENT → PROBE` | any dispatch intent | `the Legate probes both the agent def and the environment before deciding` |
+| `INTENT → PROBE` (by path) | a dispatch intent carries an agent definition path | `a dispatch intent carrying an agent definition path resolves and spawns by that file` |
 | `PICK → {channel, run-inline, subagent, needsInput}` | each warm / interactive / mux / seat combination in turn | `the resolved tags, multiplexer, and seat select exactly one strategy` |
 | `PICK` (who owns the choice) | the routing choice is attributed | `the CLI never auto-routes` |
 

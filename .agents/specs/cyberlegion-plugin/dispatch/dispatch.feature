@@ -18,6 +18,12 @@ Feature: dispatch — the Legate's routing brain
     And it runs "mux doctor" and reads whether a multiplexer was ancestry-discovered
     And it does not pick a strategy before both probes have returned
 
+  Scenario: a dispatch intent carrying an agent definition path resolves and spawns by that file
+    Given a dispatch intent to fulfill role "reviewer" with a brief and the agent definition path "/plugin/agents/reviewer.md"
+    When the Legate resolves the definition and the strategy is channel
+    Then it runs "agent resolve --file /plugin/agents/reviewer.md" and does not run "agent resolve reviewer"
+    And it runs "unit spawn --agent-file /plugin/agents/reviewer.md" and does not pass "--agent reviewer"
+
   @trigger
   Scenario Outline: the resolved tags, multiplexer, and seat select exactly one strategy
     Given a role resolved with warm "<warm>" and interactive "<interactive>"
