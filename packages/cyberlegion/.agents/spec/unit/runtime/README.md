@@ -165,6 +165,9 @@ restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone 
   existing unit, with its inbox and brief, instead of a new one.
 - **Entry point:** `unit rebind <ref>`, run inside the new pane. It binds the record to the calling
   pane (status `active`, a pane pointer to this pane, last-seen now) and drops the old pane pointer.
+  The calling pane is the one `unit register` resolves: in herdr, the pane `herdr pane current`
+  reports on herdr 0.8.2 or later, so a pane that moved is not mistaken for the stale
+  `$HERDR_PANE_ID`, which can name another unit's pane; the env id otherwise.
 - **Extensions:**
   - the ref resolves to no unit → error; nothing changes.
   - a standing or service record → refused.
@@ -383,6 +386,7 @@ convergence claim.
 |---|---|---|
 | `RB7` | a stopped unit, a caller in an unbound herdr pane | `rebind binds a stopped unit to the calling pane` |
 | `RB7` old pointer | an exited unit whose old pane pointer remains | `rebind drops the unit's old pane pointer` |
+| `RB3Y` herdr | a stopped unit, a herdr pane whose `$HERDR_PANE_ID` is stale and names another unit's pane | `rebind binds the pane herdr reports when the env pane id went stale` |
 | `RB4Y` | a unit already bound to the calling pane | `rebind to the pane the unit already holds changes nothing` |
 | `RB5X` | a caller pane bound to another active unit | `rebind refuses a pane that belongs to another unit` |
 | `RB5 -- no` | a caller pane whose pointer names an exited unit | `rebind takes over a pane whose previous unit has exited` |
