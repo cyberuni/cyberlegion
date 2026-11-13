@@ -48,7 +48,6 @@ result and exit. A standing owner can have a **presence**: one live unit standin
 - The human's read-pane pointer (`attach/`).
 - Inferring the harness of a tmux pane for adoption — structurally deferred until tmux exposes a
   harness signal.
-- Exited-record retention and garbage collection — a separate change.
 - Any persona or place name for the standing owner or for the unit that stands in for it. That is a
   higher-layer concern; this node knows only "standing owner", "presence", and "spawn capability".
 
@@ -262,13 +261,21 @@ Extensions:
 Extensions: unregistered — still exit 0, with `self: -` and a register next-step; never
 help-and-error.
 
-### unit prune — mark dead units exited
+### unit prune — mark dead units exited and delete what nothing can use
 
 | | |
 |---|---|
-| Actor / goal | A maintainer wants dead units out of the addressable set. |
+| Actor / goal | A maintainer wants dead units out of the addressable set, and the registry to hold only units that are live or still have work on disk. |
 | Trigger | `unit prune` |
-| Outcome | Every non-exited record whose session is gone becomes `exited`. Only the records it changed are returned, as a TOON list plus a `<N> pruned` aggregate. |
+| Outcome | Every non-exited record whose session is gone becomes `exited`. Then every exited unit with no worktree on disk is deleted: its record, brief, mailbox, and the pane pointer that still names it. Only the records it changed are returned, each tagged `exited` (marked and kept) or `deleted`, as a TOON list plus a `<N> pruned (<M> deleted)` aggregate. |
+
+**Why an exited unit is deleted.** Nothing revives one: the multiplexer resumes the agents it
+restores (herdr relaunches each Claude pane with `--resume <session id>`), `unit restart` takes only
+a running or stopped unit (`unit/runtime`), and the mail left in an exited unit's inbox is dispatch
+traffic about work it can no longer do — reports it sent live in their recipients' inboxes. An
+exited unit whose **worktree is still on disk** is kept, because `unit close` (`unit/lifecycle`)
+owns removing that worktree, and deleting the record would orphan it. A unit that never had a
+worktree has nothing on disk and is deleted.
 
 A record is judged dead when its pane is gone, or — for a record with **no pane** — when its
 `lastSeen` is older than the staleness window. Liveness is checked **against the pane's own
@@ -298,6 +305,17 @@ Extensions — each is a record `prune` leaves alone:
 - **A standing record is never pruned** (see `unit register --standing`), nor is a service endpoint
   (`service/endpoint`).
 - **`prune` never adopts** — the reaper never mints records.
+
+Extensions of the delete step:
+
+- **A stopped unit is never deleted**, with or without a worktree — the same rule that keeps it from
+  being marked.
+- **A pane pointer is dropped only while it still names the deleted unit.** A multiplexer may hand
+  the pane id to another unit since (herdr ids repeat across sessions), and that unit's pointer
+  stays. No pane is torn down: an exited unit's pane is gone or belongs to someone else.
+- **A worktree gone from disk may still be registered with git.** The record is the last place that
+  names its repository, so `git worktree prune` runs in the recorded primary checkout first, when it
+  exists, as `unit close` does. Best-effort: there is nothing on disk left to lose.
 
 ### unit who --reconcile — cull and adopt against the live multiplexer
 
@@ -575,9 +593,24 @@ graph TD
   PR7 -- yes --> PR8{"the pane is in the list?"}
   PR8 -- yes --> PRK
   PR8 -- no --> PRX
+  PRX --> PD0
+  PRK --> PD0
+  PR3S --> PD0
+  PD0{"per record, after every mark: exited and not standing or service?"}
+  PD0 -- no --> PDK["keep"]
+  PD0 -- yes --> PD1{"its worktree is on disk?"}
+  PD1 -- yes --> PDK
+  PD1 -- "no (or never had one)" --> PD2{"records a primary checkout that exists?"}
+  PD2 -- yes --> PD3["git worktree prune there"]
+  PD2 -- no --> PD4
+  PD3 --> PD4{"a pane pointer still names it?"}
+  PD4 -- yes --> PD5["drop that pointer"]
+  PD4 -- no --> PDX
+  PD5 --> PDX["delete record, brief, mailbox; return it as deleted"]
 ```
 
-The result is the reconcile changes plus every `PRX`, printed with a `<N> pruned` aggregate.
+The result is the reconcile changes plus every `PRX` tagged `exited`, except those `PDX` deleted,
+plus every `PDX` tagged `deleted`, printed with a `<N> pruned (<M> deleted)` aggregate.
 
 ### reconcile
 
@@ -785,6 +818,14 @@ adapters.
 | `PR7 -- no` | a tmux pane, tmux answering no pane list, a stale lastSeen | `prune leaves a pane-bound agent untouched when its multiplexer cannot be queried` |
 | `PR6 -- yes` fresh | a live pane, a fresh lastSeen | `prune leaves a live, recently-seen agent untouched` |
 | `PR3S` stopped | a stopped unit with no pane and a stale lastSeen | `prune leaves a stopped unit untouched however stale its last-seen` |
+| `PD1 -- no` never | an exited unit with no worktree, a brief, and a mailbox | `prune deletes an exited unit that never had a worktree, with its brief and mailbox` |
+| `PD1 -- no` gone | an exited unit whose worktree is gone from disk | `prune deletes an exited unit whose worktree is gone from disk` |
+| `PD1 -- yes` | an exited unit whose worktree is on disk | `prune keeps an exited unit whose worktree is still on disk` |
+| `PRX` → `PDX` | a pane-less unit with no worktree and a stale lastSeen | `prune deletes a unit it marks exited when the unit has no worktree` |
+| `PD4 -- no` | a deleted unit whose pane pointer now names another unit | `prune leaves the pane pointer of a deleted unit when another unit now holds that pane` |
+| `PD5` | a deleted unit whose own pane pointer remains | `prune drops a deleted unit's own pane pointer` |
+| `PD3` | a deleted unit whose gone worktree records an existing primary checkout | `prune clears git's registration of a deleted unit's gone worktree in the recorded repository` |
+| `PD0 -- no` stopped | a stopped unit with no worktree | `prune never deletes a stopped unit with no worktree` |
 
 ### unit who --reconcile
 

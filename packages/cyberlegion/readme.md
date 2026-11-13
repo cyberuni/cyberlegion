@@ -30,7 +30,7 @@ npx cyberlegion unit register --handle scout        # register/refresh this sess
 npx cyberlegion unit register --standing --handle homa  # mint a standing, session-independent owner inbox
 npx cyberlegion unit whoami                          # print your own identity
 npx cyberlegion unit who                             # list addressable peers / live peer sessions
-npx cyberlegion unit prune                           # mark dead agents exited and sweep
+npx cyberlegion unit prune                           # mark dead agents exited; delete exited ones with no worktree
 npx cyberlegion unit spawn --agent reviewer          # launch a peer in its own git worktree (tmux/herdr)
 npx cyberlegion unit focus <ref>                     # move input focus to a peer's session
 npx cyberlegion unit nudge <ref>                     # ring a peer's session (doorbell)

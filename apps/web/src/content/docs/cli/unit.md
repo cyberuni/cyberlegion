@@ -89,7 +89,14 @@ lists the full records. Suggests `unit register` as a next step when the list is
 npx cyberlegion unit prune
 ```
 
-Mark dead units exited and sweep. Output: a `pruned` table (`id`, `handle`).
+Mark dead units exited, then delete every exited unit with no worktree on disk: its record, brief,
+mailbox, and the pane pointer that still names it. Nothing revives an exited unit (the multiplexer
+resumes the agents it restores, and `restart` refuses an exited unit), so these records are read by
+nobody. An exited unit whose worktree is still on disk is kept for [`close`](#close) to remove. A
+`stopped` unit is never marked or deleted.
+
+Output: a `pruned` table (`id`, `handle`, `pruned`) and a `<N> pruned (<M> deleted)` line. `pruned`
+is `exited` for a unit marked and kept, `deleted` for one removed.
 
 ## spawn
 
@@ -313,7 +320,9 @@ tells the session to continue its work. If the harness rejects the id, the plain
 instead. A cursor unit, a unit with no recorded session, a unit launched through a wrapper command, or
 `--fresh` gets an empty session: it is rebriefed from its brief file. Either way its pending mail is
 still in its inbox. If the new session cannot be opened, the unit is left `stopped`, and running `restart`
-again recovers it. `restart` refuses a unit whose cwd is gone, because that unit needs replacing.
+again recovers it. `restart` refuses a unit whose cwd is gone, because that unit needs replacing, and
+an `exited` unit, whose session ended without a `stop`: spawn a new unit, or [`rebind`](#rebind) a
+session you resumed by hand.
 
 ## rebind
 
@@ -348,8 +357,8 @@ without owning anything, and closing a client leaves every runtime running.
 
 `controls` is worked out from the record and the probed liveness. It never comes from a pane's
 display name. `focus`/`nudge`/`read` appear only when the unit is `live`, and `clear` needs a
-harness with an honest reset. `stop` needs a known pane, `restart` a launchable harness and an
-existing cwd, and `rebind` a `stopped`, `exited`, or `gone` runtime.
+harness with an honest reset. `stop` needs a known pane, `restart` a runtime that is not `exited`, a
+launchable harness, and an existing cwd, and `rebind` a `stopped`, `exited`, or `gone` runtime.
 
 ### Backend recovery
 

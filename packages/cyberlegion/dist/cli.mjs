@@ -11018,24 +11018,72 @@ function paneGone(exec, pane, lists) {
 	}
 	return panes.length > 0 && !panes.some((p) => p.id === pane.id);
 }
-/** Mark agents whose session is gone as exited. Reconcile-culls against the current mux's live set
-* first, then judges each remaining record (covers the other mux and sessions outside any
-* multiplexer pane): a pane-bound record by its pane alone — a live or unprobeable pane keeps it
-* whatever its last-seen — and a pane-less record by the staleness timer, its only signal. */
+/**
+* Mark agents whose session is gone as exited, then delete every exited unit with nothing left to
+* work from. Reconcile-culls against the current mux's live set first, then judges each remaining
+* record (covers the other mux and sessions outside any multiplexer pane): a pane-bound record by its
+* pane alone — a live or unprobeable pane keeps it whatever its last-seen — and a pane-less record by
+* the staleness timer, its only signal. An exited unit whose worktree is still on disk is kept, since
+* `unit close` owns removing that worktree; every other exited unit is deleted with `deleteExited`.
+*/
 function prune(ctx) {
 	const exec = ctx.exec ?? realExec;
 	const now = ctx.now?.() ?? Date.now();
-	const changed = reconcile(ctx);
+	const marked = reconcile(ctx);
 	const lists = /* @__PURE__ */ new Map();
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue;
 		if (rec.pane ? paneGone(exec, rec.pane, lists) : now - new Date(rec.lastSeen).getTime() > STALE_MS) {
 			rec.status = "exited";
 			saveAgent(ctx.store, rec);
-			changed.push(rec);
+			marked.push(rec);
 		}
 	}
-	return changed;
+	const deleted = deleteExited(ctx);
+	const gone = new Set(deleted.map((r) => r.id));
+	return [...marked.filter((r) => !gone.has(r.id)).map((r) => ({
+		...r,
+		pruned: "exited"
+	})), ...deleted.map((r) => ({
+		...r,
+		pruned: "deleted"
+	}))];
+}
+/** Whether an exited record still has a worktree on disk — the one thing it leaves behind that
+* `unit close` must deal with. A record that never had a worktree has nothing on disk. */
+function worktreeOnDisk(rec) {
+	return rec.worktree?.root != null && existsSync(rec.worktree.root);
+}
+/**
+* Delete every exited unit with no worktree on disk: its record, brief, mailbox, and the pane
+* pointer that still names it. Nothing revives an exited unit (`unit restart` takes only a running or
+* stopped one), so these records are read by nobody. A pane pointer is dropped only when it still
+* resolves to the deleted unit, since a multiplexer may have handed the pane id to another unit
+* since. A worktree that is gone from disk may still be registered with git, and the record is the
+* last place that names its repository, so that registration is cleared first, best-effort, as
+* `unit close` does. No pane is torn down: an exited unit's pane is already gone or belongs to
+* someone else.
+*/
+function deleteExited(ctx) {
+	const exec = ctx.exec ?? realExec;
+	const deleted = [];
+	for (const rec of listAgents(ctx.store)) {
+		if (rec.status !== "exited" || isSessionIndependent(rec) || worktreeOnDisk(rec)) continue;
+		const primaryRoot = rec.worktree?.primaryRoot;
+		if (primaryRoot && existsSync(primaryRoot)) exec("git", [
+			"-C",
+			primaryRoot,
+			"worktree",
+			"prune"
+		]);
+		const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(rec.id);
+		if (pane && ctx.store.resolvePaneId(pane) === rec.id) ctx.store.removePaneIndex(pane);
+		ctx.store.removeAgent(rec.id);
+		ctx.store.removeAgentData(rec.id);
+		ctx.store.removeMailbox(rec.id);
+		deleted.push(rec);
+	}
+	return deleted;
 }
 // src/console/prompt-guard.ts
 const CODEX_PLACEHOLDERS = /* @__PURE__ */ new Set([
@@ -14346,8 +14394,9 @@ function stopUnit(ctx, ref) {
 * record to the new pane, and ring it. When the record carries the harness's conversation id and the
 * harness can resume by id, the session resumes that conversation and is rung to continue, with the
 * plain launch as a shell fallback should the harness reject the id; otherwise (or with `fresh`) it
-* starts empty and is rung to read its brief — a rebrief. Every refusal runs before anything is torn
-* down.
+* starts empty and is rung to read its brief — a rebrief. An exited unit is refused: its session
+* ended without a `unit stop`, and the multiplexer that resumes agents has already brought back any
+* that were coming back. Every refusal runs before anything is torn down.
 *
 * The unit is recorded `stopped` before the open, so a restart interrupted between the two leaves an
 * ordinary stopped unit and a rerun recovers it; nothing needs a separate repair path.
@@ -14356,6 +14405,7 @@ async function restartUnit(ctx, ref, options = {}) {
 	const rec = resolveAgent(ctx.store, ref);
 	assertHasRuntime(rec, ref);
 	assertNotSelf(ctx, rec, "restart");
+	if (rec.status === "exited") throw new Error(`unit "${rec.handle}" has exited — restart takes only a running or stopped unit; spawn a new unit instead, or run unit rebind ${rec.handle} from a session resumed by hand`);
 	const harness = rec.harness;
 	if (!harness || !(harness in LAUNCH_MAP)) throw new Error(`unit "${rec.handle}" has harness "${rec.harness ?? ""}", not in the launch map (${Object.keys(LAUNCH_MAP).join(" | ")}) — cannot restart it`);
 	if (!existsSync(rec.cwd)) throw new Error(`unit "${rec.handle}" cannot restart — its cwd ${rec.cwd} is gone; spawn a new unit instead`);
@@ -14484,7 +14534,7 @@ function controlsFor(ctx, rec, liveness) {
 		if (hasHonestReset(rec.harness)) controls.push("clear");
 	}
 	if (runtimePane(ctx, rec) !== void 0 && (liveness === "live" || liveness === "gone" || liveness === "unknown")) controls.push("stop");
-	if (rec.harness && rec.harness in LAUNCH_MAP && existsSync(rec.cwd)) controls.push("restart");
+	if (liveness !== "exited" && rec.harness && rec.harness in LAUNCH_MAP && existsSync(rec.cwd)) controls.push("restart");
 	if (liveness === "stopped" || liveness === "exited" || liveness === "gone") controls.push("rebind");
 	controls.push("close");
 	return controls;
@@ -14819,18 +14869,25 @@ function runWho(opts) {
 	if (agents.length === 0) nextStep("cyberlegion unit register to join");
 }
 syncsUnits(withGlobals(unit.command("who"))).description("list the addressable units").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
-syncsUnits(withGlobals(unit.command("prune"))).description("mark dead units exited and sweep").action((opts) => {
+syncsUnits(withGlobals(unit.command("prune"))).description("mark dead units exited and delete exited units with no worktree on disk").action((opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
 	const changed = prune(ctx);
 	emit(formatOf(opts), {
-		toon: toonList("pruned", changed, [{
-			key: "id",
-			get: (a) => a.id
-		}, {
-			key: "handle",
-			get: (a) => a.handle
-		}], `${changed.length} pruned`),
+		toon: toonList("pruned", changed, [
+			{
+				key: "id",
+				get: (a) => a.id
+			},
+			{
+				key: "handle",
+				get: (a) => a.handle
+			},
+			{
+				key: "pruned",
+				get: (a) => a.pruned
+			}
+		], `${changed.length} pruned (${changed.filter((a) => a.pruned === "deleted").length} deleted)`),
 		json: changed
 	});
 });

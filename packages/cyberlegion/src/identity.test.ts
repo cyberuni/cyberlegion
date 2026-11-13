@@ -47,6 +47,12 @@ function ctx(env: NodeJS.ProcessEnv, exec: Exec = nullExec): IdContext {
 	return { store, env, exec, now: () => 1_700_000_000_000 }
 }
 
+/** Give a record a worktree that is on disk, so a prune that marks it exited has a reason to keep it. */
+function withWorktreeOnDisk(id: string): void {
+	const root = mkdtempSync(join(tmpdir(), 'cl-wt-'))
+	saveAgent(store, { ...(loadAgent(store, id) as AgentRecord), worktree: { root } })
+}
+
 describe('spec:cyberlegion/identity', () => {
 	describe('register records who and where', () => {
 		it('register writes the agent record and a pane pointer', () => {
@@ -337,6 +343,7 @@ describe('spec:cyberlegion/identity', () => {
 
 		it('prune marks an agent exited when its tmux pane is gone', () => {
 			const rec = register(ctx({ TMUX: 't', TMUX_PANE: '%7' }, tmuxExec([])), { handle: 'a', harness: 'claude' })
+			withWorktreeOnDisk(rec.id)
 			const changed = prune({ store, env: {}, exec: tmuxExec(['%1']), now: () => FRESH })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
@@ -344,6 +351,7 @@ describe('spec:cyberlegion/identity', () => {
 
 		it('prune marks an agent exited when its herdr pane is gone', () => {
 			const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }), { handle: 'a', harness: 'claude' })
+			withWorktreeOnDisk(rec.id)
 			const changed = prune({ store, env: {}, exec: herdrExec(['w0:p1']), now: () => FRESH })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
@@ -365,6 +373,7 @@ describe('spec:cyberlegion/identity', () => {
 
 		it('prune marks a pane-less agent exited when its last-seen is stale', () => {
 			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'legacy' }), { handle: 'legacy', harness: 'claude' })
+			withWorktreeOnDisk(rec.id)
 			const changed = prune({ store, env: {}, exec: nullExec, now: () => STALE })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
@@ -411,6 +420,104 @@ describe('spec:cyberlegion/identity', () => {
 			const changed = prune({ store, env: {}, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
 			expect(changed).toEqual([])
 			expect(loadAgent(store, rec.id)?.status).toBe('stopped')
+		})
+	})
+
+	describe('prune deletes exited units with nothing left on disk', () => {
+		const NOW = 1_700_000_000_000
+		const exitedUnit = (id: string, extra: Partial<AgentRecord> = {}): AgentRecord => {
+			const rec: AgentRecord = {
+				id,
+				handle: id,
+				harness: 'claude',
+				cwd: '/gone',
+				pane: null,
+				status: 'exited',
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+				...extra,
+			}
+			saveAgent(store, rec)
+			return rec
+		}
+		const mail = (to: string) =>
+			store.putMessage(to, {
+				id: `m-${to}`,
+				from: 'op',
+				fromHandle: 'op',
+				to,
+				body: 'dispatch',
+				ts: NOW,
+				sentAt: new Date(NOW).toISOString(),
+			})
+
+		it('prune deletes an exited unit that never had a worktree, with its brief and mailbox', () => {
+			exitedUnit('u1')
+			store.writeBrief('u1', 'the brief')
+			mail('u1')
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(changed.map((r) => [r.id, r.pruned])).toEqual([['u1', 'deleted']])
+			expect(loadAgent(store, 'u1')).toBeUndefined()
+			expect(store.readBrief('u1')).toBeUndefined()
+			expect(store.hasMailbox('u1')).toBe(false)
+		})
+
+		it('prune deletes an exited unit whose worktree is gone from disk', () => {
+			exitedUnit('u1', { worktree: { root: join(tmpdir(), 'cl-no-such-worktree') } })
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(changed.map((r) => [r.id, r.pruned])).toEqual([['u1', 'deleted']])
+			expect(loadAgent(store, 'u1')).toBeUndefined()
+		})
+
+		it('prune keeps an exited unit whose worktree is still on disk', () => {
+			const root = mkdtempSync(join(tmpdir(), 'cl-wt-'))
+			exitedUnit('u1', { worktree: { root } })
+			mail('u1')
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(changed).toEqual([])
+			expect(loadAgent(store, 'u1')?.status).toBe('exited')
+			expect(store.hasMailbox('u1')).toBe(true)
+		})
+
+		it('prune deletes a unit it marks exited when the unit has no worktree', () => {
+			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'legacy' }), { handle: 'legacy', harness: 'claude' })
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW + 999_999_999 })
+			expect(changed.map((r) => [r.id, r.pruned])).toEqual([[rec.id, 'deleted']])
+			expect(loadAgent(store, rec.id)).toBeUndefined()
+		})
+
+		it('prune leaves the pane pointer of a deleted unit when another unit now holds that pane', () => {
+			exitedUnit('dead', { pane: { mux: 'herdr', id: 'w1:p1' } })
+			store.putPaneIndex('w1:p2', 'dead')
+			store.putPaneIndex('w1:p1', 'live')
+			prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(store.resolvePaneId('w1:p1')).toBe('live')
+		})
+
+		it("prune drops a deleted unit's own pane pointer", () => {
+			exitedUnit('dead', { pane: { mux: 'herdr', id: 'w1:p1' } })
+			store.putPaneIndex('w1:p1', 'dead')
+			prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(store.resolvePaneId('w1:p1')).toBeUndefined()
+		})
+
+		it("prune clears git's registration of a deleted unit's gone worktree in the recorded repository", () => {
+			const primaryRoot = mkdtempSync(join(tmpdir(), 'cl-repo-'))
+			exitedUnit('u1', { worktree: { root: join(primaryRoot, 'gone'), primaryRoot } })
+			const calls: string[][] = []
+			const exec: Exec = (cmd, args) => {
+				calls.push([cmd, ...args])
+				return null
+			}
+			prune({ store, env: {}, exec, now: () => NOW })
+			expect(calls).toContainEqual(['git', '-C', primaryRoot, 'worktree', 'prune'])
+		})
+
+		it('prune never deletes a stopped unit with no worktree', () => {
+			exitedUnit('u1', { status: 'stopped' })
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(changed).toEqual([])
+			expect(loadAgent(store, 'u1')?.status).toBe('stopped')
 		})
 	})
 
@@ -472,6 +579,7 @@ describe('spec:cyberlegion/identity', () => {
 
 		it('a pane-null record is not pane-culled by reconcile', () => {
 			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'legacy' }), { handle: 'legacy', harness: 'claude' })
+			withWorktreeOnDisk(rec.id)
 			const e = { TMUX: 't', TMUX_PANE: '%7' }
 			const changed = reconcile({ store, env: e, exec: tmuxListExec([]), now: () => FRESH })
 			expect(changed.map((r) => r.id)).not.toContain(rec.id)
@@ -496,6 +604,7 @@ describe('spec:cyberlegion/identity', () => {
 		it('prune reconcile-culls too', () => {
 			const e = { TMUX: 't', TMUX_PANE: '%7' }
 			const rec = register(ctx(e, tmuxListExec(['%7 claude /repo'])), { handle: 'a', harness: 'claude' })
+			withWorktreeOnDisk(rec.id)
 			const changed = prune({ store, env: e, exec: tmuxListExec(['%1 zsh /home']), now: () => FRESH })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')
@@ -627,10 +736,11 @@ describe('spec:cyberlegion/identity', () => {
 
 		it('who excludes exited agents by default, --all includes them', () => {
 			const bobEnv = { CYBERLEGION_AGENT_ID: 'b' }
-			register(
+			const bob = register(
 				{ store, env: bobEnv, exec: nullExec, now: () => 1_700_000_000_000 },
 				{ handle: 'bob', harness: 'claude' },
 			)
+			withWorktreeOnDisk(bob.id) // an exited unit with nothing on disk is deleted, not listed
 			// register alice much later so, at prune time, only bob's lastSeen is past the staleness window
 			const later = 1_700_000_000_000 + 999_999_999
 			const aliceEnv = { CYBERLEGION_AGENT_ID: 'a' }
@@ -800,6 +910,7 @@ describe('spec:cyberlegion/identity', () => {
 		it('a record with no kind field is treated as a session', () => {
 			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'legacy2' }), { handle: 'legacy2', harness: 'claude' })
 			expect(rec.kind).toBeUndefined()
+			withWorktreeOnDisk(rec.id)
 			const changed = prune({ store, env: {}, exec: nullExec, now: () => 1_700_000_000_000 + 999_999_999 })
 			expect(changed.map((r) => r.id)).toContain(rec.id)
 			expect(loadAgent(store, rec.id)?.status).toBe('exited')

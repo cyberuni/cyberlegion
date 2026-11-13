@@ -301,13 +301,13 @@ describe('spec:cyberlegion/unit/runtime — unit restart', () => {
 		expect(after.lastSeen).toBe(new Date(1_700_000_000_000).toISOString())
 	})
 
-	it('restart revives an exited unit', async () => {
+	it('restart refuses an exited unit and tears nothing down', async () => {
 		unit({ id: 'u1', status: 'exited' })
 		const be = fakeBackend({ live: ['%1'] })
-		await restartUnit(rctx(be.adapter), 'u1', noSleep)
-		expect(be.opened.map((o) => o.cwd)).toEqual([unitDir])
-		expect(loadAgent(store, 'u1')?.status).toBe('active')
-		expect(loadAgent(store, 'u1')?.pane).toEqual({ mux: 'tmux', id: '%20' })
+		await expect(restartUnit(rctx(be.adapter), 'u1', noSleep)).rejects.toThrow(/exited/)
+		expect(be.torn).toEqual([])
+		expect(be.opened).toEqual([])
+		expect(loadAgent(store, 'u1')?.status).toBe('exited')
 	})
 
 	it('restart launches with the command the unit was spawned with', async () => {
@@ -748,12 +748,12 @@ describe('spec:cyberlegion/unit/runtime — unit show', () => {
 		expect(view.controls).toEqual(['restart', 'rebind', 'close'])
 	})
 
-	it('show reports an exited unit with rebind but no pane controls', () => {
+	it('show reports an exited unit with rebind but no pane controls or restart', () => {
 		unit({ id: 'u1', status: 'exited', pane: herdrPane('w1:p2') })
 		const view = showUnit(rctx(fakeBackend({ name: 'herdr', live: ['w1:p2'] }).adapter), 'u1')
 		expect(view.liveness).toBe('exited')
 		expect(view.controls).toContain('rebind')
-		for (const c of ['focus', 'nudge', 'read', 'stop']) expect(view.controls).not.toContain(c)
+		for (const c of ['focus', 'nudge', 'read', 'stop', 'restart']) expect(view.controls).not.toContain(c)
 	})
 
 	it('show omits clear for a harness with no honest reset command', () => {

@@ -122,12 +122,13 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     And the pane pointer for the new pane names the unit
     And the unit's lastSeen is the time of the restart
 
-  Scenario: restart revives an exited unit
+  Scenario: restart refuses an exited unit and tears nothing down
     Given a registered unit with status exited
     And the unit's cwd exists on disk
     When a caller runs unit restart <id>
-    Then a new session opens with its cwd set to the unit's cwd
-    And the unit's record has status active and the new pane
+    Then the command fails naming the unit as exited
+    And no session is opened or torn down
+    And the unit's record still has status exited
 
   Scenario: restart launches with the command the unit was spawned with
     Given a stopped unit whose record carries the launch command "claude --model opus"
@@ -464,14 +465,14 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     Then the output's liveness is "stopped"
     And the output's controls are restart, rebind, and close
 
-  Scenario: show reports an exited unit with rebind but no pane controls
+  Scenario: show reports an exited unit with rebind but no pane controls or restart
     Given a registered claude unit with status exited
     And the unit's record still carries its old pane locator
     And the backend lists that pane
     When a caller runs unit show <id> --format json
     Then the output's liveness is "exited"
     And the output's controls include rebind
-    And the output's controls exclude focus, nudge, read, and stop
+    And the output's controls exclude focus, nudge, read, stop, and restart
 
   Scenario: show omits clear for a harness with no honest reset command
     Given a registered unit whose record names the harness "gemini"

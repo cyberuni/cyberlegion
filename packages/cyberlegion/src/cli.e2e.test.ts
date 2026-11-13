@@ -105,6 +105,31 @@ describe('spec:cyberlegion/unit', () => {
 			expect(out).toContain('2 units')
 		})
 
+		it('prune reports each pruned unit as exited or deleted with a deleted count', () => {
+			const store = new FileStore(space)
+			const rec = {
+				harness: 'claude' as const,
+				cwd: '/gone',
+				pane: null,
+				status: 'exited' as const,
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+			}
+			store.putAgent({ ...rec, id: 'gone1', handle: 'gone1' })
+			store.putAgent({
+				...rec,
+				id: 'kept1',
+				handle: 'kept1',
+				worktree: { root: mkdtempSync(join(tmpdir(), 'cl-wt-')) },
+			})
+			const out = legion(['unit', 'prune'])
+			expect(out).toContain('gone1,deleted')
+			expect(out).not.toContain('kept1')
+			expect(out).toContain('1 pruned (1 deleted)')
+			expect(store.getAgent('gone1')).toBeUndefined()
+			expect(store.getAgent('kept1')?.status).toBe('exited')
+		})
+
 		it('who reports a definitive empty state when nothing is registered', () => {
 			const out = legion(['unit', 'who'])
 			expect(out).toContain('0 units')

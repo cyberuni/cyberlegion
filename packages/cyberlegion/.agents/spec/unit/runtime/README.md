@@ -152,7 +152,10 @@ restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone 
     none and relies on its own bind write.
   - the ring never completes → a warning on the result; the restart still succeeds (same rule as
     spawn's first-turn ring).
-  - the unit was `exited` (pruned after a crash) → restarted like a stopped unit.
+  - the unit was `exited` (its session ended without a `unit stop`) → refused before any teardown.
+    The multiplexer resumes the agents it restores, so nothing is left for restart to revive, and
+    `unit prune` deletes an exited unit with no worktree on disk (`unit/registry`). A session resumed
+    by hand rejoins its unit through `rebind`.
   - the harness rejects the resume (the conversation is gone) and exits non-zero → the launch line
     falls back to the plain launch command, so the pane still gets a session. The ring already named
     the brief for this case.
@@ -191,7 +194,7 @@ restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone 
   - `focus`, `nudge`, `read` — only when liveness is `live`;
   - `clear` — when `live` and the harness has an honest reset command;
   - `stop` — when a pane is recorded (`live`, `gone`, or `unknown` with a pane);
-  - `restart` — when the harness is in the launch map and the cwd exists;
+  - `restart` — when liveness is not `exited`, the harness is in the launch map, and the cwd exists;
   - `rebind` — when liveness is `stopped`, `exited`, or `gone`;
   - `close` — for any session record. A standing or service record reports no controls.
 - **Extensions:**
@@ -242,11 +245,13 @@ graph TD
   RS2 -- yes --> RS2X["refuse"]
   RS2 -- no --> RS3{"the caller's own unit?"}
   RS3 -- yes --> RS3X["refuse"]
-  RS3 -- no --> RS4{"harness in the launch map?"}
+  RS3 -- no --> RS3E{"recorded status exited?"}
+  RS3E -- yes --> RS3EX["refuse before any teardown: spawn a new unit, or rebind a session resumed by hand"]
+  RS3E -- no --> RS4{"harness in the launch map?"}
   RS4 -- no --> RS4X["refuse before any teardown"]
   RS4 -- yes --> RS5{"cwd exists on disk?"}
   RS5 -- no --> RS5X["refuse before any teardown: replace the unit"]
-  RS5 -- yes --> RS6{"stopped or exited?"}
+  RS5 -- yes --> RS6{"stopped?"}
   RS6 -- no --> RS7["run the stop flow"]
   RS7 -- "did not take effect" --> RS7X["throw; nothing is opened"]
   RS7 -- stopped --> RS8
@@ -344,7 +349,7 @@ convergence claim.
 |---|---|---|
 | `RS9` from live | a live unit with a worktree | `restart replaces a live session and keeps the unit's id, handle, brief, and worktree` |
 | `RS9` from stopped | a stopped unit | `restart opens a session for a stopped unit and binds it to the new pane` |
-| `RS9` from exited | an exited unit whose cwd exists | `restart revives an exited unit` |
+| `RS3EX` | an exited unit whose cwd exists | `restart refuses an exited unit and tears nothing down` |
 | `RS8` recorded launch | a unit whose record carries a launch command | `restart launches with the command the unit was spawned with` |
 | `RS8` no launch | a unit whose record carries no launch command | `restart falls back to the harness's default command when none was recorded` |
 | `RS9` placement, worktree | a stopped unit with a worktree | `restart opens a unit with a worktree in its own workspace` |
@@ -407,7 +412,7 @@ convergence claim.
 | `SHW` no shared worktree | a record with no shared worktree | `show reports no shared worktree for a record that lacks one` |
 | `SH4U` no list | a unit with a pane, a backend giving no pane list | `show reports unknown liveness when the backend gives no pane list` |
 | `SH3Y` stopped | a stopped unit | `show reports a stopped unit with restart and rebind but no pane controls` |
-| `SH3Y` exited | an exited unit whose old pane the backend still lists | `show reports an exited unit with rebind but no pane controls` |
+| `SH3Y` exited | an exited unit whose old pane the backend still lists | `show reports an exited unit with rebind but no pane controls or restart` |
 | `SHC` clear | a live unit whose harness has no honest reset | `show omits clear for a harness with no honest reset command` |
 | `SHC` restart | a stopped unit whose cwd was deleted | `show omits restart when the unit's cwd no longer exists` |
 | `SH2Y` standing | a standing record | `show reports no runtime and no controls for a standing record` |
