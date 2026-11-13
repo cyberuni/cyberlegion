@@ -11163,10 +11163,13 @@ function terminalGone(ctx, rec, terminal, cache) {
 * work from. Reconcile-culls against the current mux's live set first, then judges each remaining
 * record (covers the other mux and sessions outside any multiplexer pane): a pane-bound record by its
 * pane alone — a live or unprobeable pane keeps it whatever its last-seen — and a pane-less record by
-* the staleness timer, its only signal. An exited unit whose worktree is still on disk is kept, since
-* `unit close` owns removing that worktree; every other exited unit is deleted with `deleteExited`.
+* the staleness timer, its only signal. An exited unit whose own linked worktree is still on disk is
+* kept, since `unit close` owns removing that worktree. So is an exited unit that is the last record
+* pointing at a linked worktree it shares, while that worktree is on disk and its work has not landed
+* (`options.landed`): deleting it would leave that work with nothing pointing at it. Every other
+* exited unit is deleted with `deleteExited`.
 */
-function prune(ctx) {
+function prune(ctx, options = {}) {
 	const exec = ctx.exec ?? realExec;
 	const now = ctx.now?.() ?? Date.now();
 	const marked = reconcile(ctx);
@@ -11180,7 +11183,7 @@ function prune(ctx) {
 			marked.push(rec);
 		}
 	}
-	const deleted = deleteExited(ctx);
+	const deleted = deleteExited(ctx, options.landed ?? (() => false));
 	const gone = new Set(deleted.map((r) => r.id));
 	return [...marked.filter((r) => !gone.has(r.id)).map((r) => ({
 		...r,
@@ -11190,11 +11193,26 @@ function prune(ctx) {
 		pruned: "deleted"
 	}))];
 }
-/** Whether an exited record still has a worktree on disk — the one thing it leaves behind that
-* `unit close` must deal with. A record that never had a worktree has nothing on disk. */
-function worktreeOnDisk(rec) {
-	if (rec.worktree?.root == null || !existsSync(rec.worktree.root)) return false;
-	return !isPrimaryCheckout(rec.worktree.root, rec.worktree.primaryRoot);
+/** Whether `checkout` is a linked worktree still on disk — something a record can point at. The
+* primary checkout always exists, but nothing removes it, so no record has to stay to point at it. */
+function linkedOnDisk(checkout) {
+	return checkout?.root != null && existsSync(checkout.root) && !isPrimaryCheckout(checkout.root, checkout.primaryRoot);
+}
+/** Whether another record in the store still points at the worktree at `root`, owned or shared. */
+function pointedAtByOther(store, root, self) {
+	const at = resolve(root);
+	return listAgents(store).some((a) => a.id !== self && (a.worktree?.root != null && resolve(a.worktree.root) === at || a.sharedWorktree?.root != null && resolve(a.sharedWorktree.root) === at));
+}
+/**
+* Whether deleting this exited record would orphan a worktree on disk. Its own linked worktree is kept
+* for `unit close` to remove. A worktree it only shares is kept while this record is the last one
+* pointing at it and its work has not landed — the owner's record is gone, so nothing else would
+* lead to that work.
+*/
+function keepsWorktree(store, rec, landed) {
+	if (linkedOnDisk(rec.worktree)) return true;
+	const shared = rec.sharedWorktree;
+	return linkedOnDisk(shared) && !pointedAtByOther(store, shared.root, rec.id) && !landed(shared.root);
 }
 /** Whether a worktree root is its repository's primary checkout — the one test `unit close` and
 * `unit prune` share for "a seat on the main checkout, which nothing removes". */
@@ -11202,7 +11220,7 @@ function isPrimaryCheckout(worktreeRoot, primaryRoot) {
 	return worktreeRoot != null && primaryRoot != null && resolve(worktreeRoot) === resolve(primaryRoot);
 }
 /**
-* Delete every exited unit with no worktree left to close (none on disk, or only the primary checkout): its record, brief, mailbox, and the pane
+* Delete every exited unit that leaves no work on disk (`keepsWorktree`): its record, brief, mailbox, and the pane
 * pointer that still names it. Nothing revives an exited unit (`unit restart` takes only a running or
 * stopped one), so these records are read by nobody. A pane pointer is dropped only when it still
 * resolves to the deleted unit, since a multiplexer may have handed the pane id to another unit
@@ -11211,11 +11229,11 @@ function isPrimaryCheckout(worktreeRoot, primaryRoot) {
 * `unit close` does. No pane is torn down: an exited unit's pane is already gone or belongs to
 * someone else.
 */
-function deleteExited(ctx) {
+function deleteExited(ctx, landed) {
 	const exec = ctx.exec ?? realExec;
 	const deleted = [];
 	for (const rec of listAgents(ctx.store)) {
-		if (rec.status !== "exited" || isSessionIndependent(rec) || worktreeOnDisk(rec)) continue;
+		if (rec.status !== "exited" || isSessionIndependent(rec) || keepsWorktree(ctx.store, rec, landed)) continue;
 		const primaryRoot = rec.worktree?.primaryRoot;
 		if (primaryRoot && existsSync(primaryRoot)) exec("git", [
 			"-C",
@@ -13201,6 +13219,42 @@ function removeCursor(settings, event, canonical) {
 	else delete hooks[event];
 	return true;
 }
+// src/landed.ts
+/**
+* Which worktrees a unit shares hold work that has landed, as the `landed` judgment `prune` takes.
+* It is the worktree library's own judgment, the one its `acquire` recycles a worktree by: the
+* checkout is clean and its branch has landed on the default branch. Asked once per repository
+* before prune's synchronous pass, for every shared worktree still on disk. A worktree git cannot
+* judge (detached, no default branch, a repository git does not know) does not count as landed, so
+* prune keeps the record that points at it.
+*/
+async function landedWorktrees(ctx) {
+	const exec = asyncExec(ctx.exec ?? realExec);
+	const roots = /* @__PURE__ */ new Map();
+	for (const rec of listAgents(ctx.store)) {
+		const shared = rec.sharedWorktree;
+		if (shared?.root && existsSync(shared.root)) roots.set(shared.root, shared.primaryRoot);
+	}
+	const landed = /* @__PURE__ */ new Set();
+	const asked = /* @__PURE__ */ new Set();
+	for (const [root, recorded] of roots) {
+		const primary = await primaryRoot({
+			from: root,
+			exec
+		}).catch(() => recorded);
+		if (!primary || asked.has(primary)) continue;
+		asked.add(primary);
+		const entries = await listWorktrees({
+			primaryRoot: primary,
+			exec,
+			ignore: LEASE_IGNORE
+		}).catch(() => []);
+		for (const e of entries) if (e.linked && e.merged === true && e.dirty === false) landed.add(e.root);
+	}
+	const normalized = /* @__PURE__ */ new Map();
+	for (const root of roots.keys()) normalized.set(root, landed.has(await normalizeWorktreePath(root)));
+	return (root) => normalized.get(root) ?? false;
+}
 // src/output.ts
 function stringifyCell(v) {
 	if (v == null) return "";
@@ -15016,10 +15070,10 @@ function runWho(opts) {
 	if (agents.length === 0) nextStep("cyberlegion unit register to join");
 }
 syncsUnits(withGlobals(unit.command("who"))).description("list the addressable units").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
-syncsUnits(withGlobals(unit.command("prune"))).description("mark dead units exited and delete exited units with no worktree on disk").action((opts) => {
+syncsUnits(withGlobals(unit.command("prune"))).description("mark dead units exited and delete exited units that leave no work on disk").action(async (opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
-	const changed = prune(ctx);
+	const changed = prune(ctx, { landed: await landedWorktrees(ctx) });
 	emit(formatOf(opts), {
 		toon: toonList("pruned", changed, [
 			{

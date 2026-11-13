@@ -31,6 +31,7 @@ import {
 	touch,
 } from './identity.ts'
 import { install } from './install.ts'
+import { landedWorktrees } from './landed.ts'
 import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send, unitInbox } from './message.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
@@ -298,11 +299,11 @@ syncsUnits(withGlobals(unit.command('who')))
 	.action(runWho)
 
 syncsUnits(withGlobals(unit.command('prune')))
-	.description('mark dead units exited and delete exited units with no worktree on disk')
-	.action((opts) => {
+	.description('mark dead units exited and delete exited units that leave no work on disk')
+	.action(async (opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
-		const changed = prune(ctx)
+		const changed = prune(ctx, { landed: await landedWorktrees(ctx) })
 		emit(formatOf(opts), {
 			toon: toonList(
 				'pruned',

@@ -89,11 +89,14 @@ lists the full records. Suggests `unit register` as a next step when the list is
 npx cyberlegion unit prune
 ```
 
-Mark dead units exited, then delete every exited unit with no worktree on disk: its record, brief,
+Mark dead units exited, then delete every exited unit that leaves no work on disk: its record, brief,
 mailbox, and the pane pointer that still names it. Nothing revives an exited unit (the multiplexer
 resumes the agents it restores, and `restart` refuses an exited unit), so these records are read by
-nobody. An exited unit whose worktree is still on disk is kept for [`close`](#close) to remove. A
-`stopped` unit is never marked or deleted.
+nobody. An exited unit whose worktree is still on disk is kept for [`close`](#close) to remove. An
+exited unit that only [shares a worktree](#shared-worktree) is kept while it is the last record
+pointing at that worktree, the worktree is still on disk, and its work has not landed (the checkout is
+dirty, or its branch has not landed on the default branch), so the work is never left with nothing
+pointing at it. A `stopped` unit is never marked or deleted.
 
 Output: a `pruned` table (`id`, `handle`, `pruned`) and a `<N> pruned (<M> deleted)` line. `pruned`
 is `exited` for a unit marked and kept, `deleted` for one removed.

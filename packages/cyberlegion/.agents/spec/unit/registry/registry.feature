@@ -267,6 +267,51 @@ Feature: unit registry — register, discover, and prune legion units
     Then that unit's status remains stopped
     And the pruned list is empty
 
+  Scenario: prune keeps an exited sharer that is the last record pointing at a worktree on disk, once the owner's record is gone
+    Given a registered unit with status exited that shares a linked worktree on disk whose owner has no record
+    And no other record points at that worktree
+    And that worktree's work has not landed
+    And the unit has a mailbox holding one message
+    When a session runs unit prune
+    Then that unit's status remains exited
+    And its mailbox still exists
+    And the pruned list is empty
+
+  Scenario: prune deletes the last exited sharer of a worktree on disk once that worktree's work has landed
+    Given a registered unit with status exited that shares a linked worktree on disk
+    And no other record points at that worktree
+    And that worktree is clean and its branch has landed on the default branch
+    When a session runs unit prune
+    Then the hub holds no record for that unit
+    And the pruned list includes that unit as deleted
+
+  Scenario: prune deletes an exited sharer while the owner of its worktree still has a record
+    Given a registered unit with status exited that shares a linked worktree on disk
+    And the unit that owns that worktree is registered with status exited
+    When a session runs unit prune
+    Then the hub holds no record for the sharer
+    And the owner's status remains exited
+    And the pruned list includes the sharer as deleted
+
+  Scenario: prune keeps exactly one of two exited sharers left pointing at a worktree on disk
+    Given two registered units with status exited that share one linked worktree on disk with unlanded work
+    And no other record points at that worktree
+    When a session runs unit prune
+    Then exactly one of the two units remains registered
+    And the pruned list includes exactly one unit as deleted
+
+  Scenario: prune deletes an exited sharer whose shared worktree is gone from disk
+    Given a registered unit with status exited whose shared worktree no longer exists on disk
+    When a session runs unit prune
+    Then the hub holds no record for that unit
+    And the pruned list includes that unit as deleted
+
+  Scenario: prune deletes an exited sharer of its repository's primary checkout
+    Given a registered unit with status exited whose shared worktree is its repository's primary checkout, which exists on disk
+    When a session runs unit prune
+    Then the hub holds no record for that unit
+    And the pruned list includes that unit as deleted
+
   # ── Self-identity recovery ──
 
   Scenario: a later call recovers the agent's own id from its pane
