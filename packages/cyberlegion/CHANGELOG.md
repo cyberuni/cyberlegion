@@ -1,5 +1,27 @@
 # cyberlegion
 
+## 2.0.0
+
+### Major Changes
+
+- 4db9e72: `unit prune` now deletes every exited unit with no worktree on disk: its record, brief, mailbox, and the pane pointer that still names it. An exited unit whose worktree is still on disk is kept for `unit close`, and a stopped unit is never touched. Each pruned row now says whether the unit was `exited` or `deleted`.
+  
+  `unit restart` no longer revives an exited unit; it takes only a running or stopped one. Spawn a new unit instead, or `unit rebind` a session resumed by hand. `unit show` no longer offers `restart` for an exited unit.
+
+### Minor Changes
+
+- 6a85575: `dispatch-governance` now accepts an agent definition by file path. A dispatch intent can carry the path of a definition file, and the skill resolves it with `agent resolve --file` and spawns with `unit spawn --agent-file` instead of looking the role up by name. This lets a caller route a definition a plugin ships, which is not under the project's `.agents/agents/`.
+
+### Patch Changes
+
+- c582b2d: A unit whose herdr pane moves to another workspace is no longer marked exited and deleted by `unit prune`. A herdr pane record now carries the pane's herdr terminal id, which survives `herdr pane move`; `prune`, `reconcile`, `sessionLive` and `unit rebind` judge such a record by its terminal and follow it to the new pane id, and `touch` heals the record from `herdr pane current`. Records written before this keep being judged by their pane id.
+- c302a33: `unit prune` now also deletes an exited unit whose recorded worktree is its repository's primary checkout. Close never removes that checkout, so the record, brief and mailbox no longer pile up for as long as the repository exists. An exited unit that owns a linked worktree still on disk is kept for `unit close`.
+- 90f40c6: `unit rebind` in a herdr pane that has moved no longer binds another unit's pane. It now resolves the calling pane the way `unit register` does: the pane herdr reports on herdr 0.8.2 or later, `$HERDR_PANE_ID` when herdr gives no answer or is older.
+- d7f9f7e: Update runtime dependencies.
+- 9298b97: Update runtime dependencies.
+- b9044df: Update runtime dependencies.
+- 11b9a73: A session in a herdr pane that has moved no longer acts as another unit. herdr gives a moved pane a new id while its shell keeps the old `$HERDR_PANE_ID`, and that old id can belong to another unit's pane, so `mail send` stamped that unit as the sender and `unit register` overwrote its record. Self-identity now asks herdr which pane is calling and keys by that id on herdr 0.8.2 or later, and falls back to `$HERDR_PANE_ID` when herdr gives no answer or is older.
+
 ## 1.10.0
 
 ### Minor Changes
