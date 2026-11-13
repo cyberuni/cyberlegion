@@ -214,6 +214,24 @@ Feature: unit registry — register, discover, and prune legion units
       | tmux  | $TMUX_PANE     |
       | herdr | $HERDR_PANE_ID |
 
+  Scenario: a herdr pane whose $HERDR_PANE_ID went stale resolves the pane herdr reports, not the unit holding the stale id
+    Given unit A's pane pointer is keyed by herdr pane wH:p1 and unit B's by herdr pane w13:p1
+    And the calling session's $HERDR_PANE_ID is w13:p1 while herdr reports the calling pane as wH:p1
+    When it resolves its own identity
+    Then it resolves to unit A's id
+
+  Scenario: a herdr pane herdr cannot report resolves self-id from $HERDR_PANE_ID
+    Given an agent registered in a herdr pane addressed by $HERDR_PANE_ID
+    And herdr gives no answer for the calling pane
+    When it resolves its own identity
+    Then it resolves that agent's id via the pane pointer for $HERDR_PANE_ID
+
+  Scenario: register in a herdr pane whose $HERDR_PANE_ID went stale keys the pane herdr reports
+    Given unit B's pane pointer is keyed by herdr pane w13:p1
+    And the calling session's $HERDR_PANE_ID is w13:p1 while herdr reports the calling pane as wH:p1
+    When the session runs unit register
+    Then a new record keyed by wH:p1 is written and unit B keeps the w13:p1 pointer
+
   Scenario: $CYBERLEGION_AGENT_ID resolves self-id only when the session is in no multiplexer pane
     Given a session in no multiplexer pane (no $TMUX_PANE and no $HERDR_PANE_ID) and $CYBERLEGION_AGENT_ID=envid set
     When it resolves its own identity

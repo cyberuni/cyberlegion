@@ -35,6 +35,31 @@ export function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pa
 	return cur && (cur.mux === 'tmux' || cur.mux === 'herdr') ? { mux: cur.mux, pane: cur.pane } : undefined
 }
 
+/**
+ * This session's own pane as the multiplexer sees it now. The env names the pane the shell was
+ * launched in, and for herdr that goes stale: herdr gives a pane a new id when it moves to another
+ * tab or workspace, while the shell keeps its launch-time `$HERDR_PANE_ID`, and herdr ids recur on a
+ * hub, so the stale id can be another unit's pane (#154). herdr's `pane current` resolves the
+ * calling pane itself, so its answer wins. When herdr gives no answer, the env id stands. tmux pane
+ * ids last as long as the pane, so tmux needs no second opinion.
+ */
+function selfPane<P extends { mux: string; pane: string }>(cur: P | undefined, exec: Exec): P | undefined {
+	if (cur?.mux !== 'herdr') return cur
+	const live = herdrCallingPane(exec)
+	return live ? { ...cur, pane: live } : cur
+}
+
+function herdrCallingPane(exec: Exec): string | undefined {
+	const out = exec('herdr', ['pane', 'current'])
+	if (!out) return undefined
+	try {
+		const id = JSON.parse(out)?.result?.pane?.pane_id
+		return typeof id === 'string' && id ? id : undefined
+	} catch {
+		return undefined
+	}
+}
+
 export interface IdContext {
 	store: Store
 	env?: NodeJS.ProcessEnv
@@ -93,7 +118,7 @@ export function detectHarness(explicit: string | undefined, ctx: IdContext): Har
  */
 export function resolveSelfId(ctx: IdContext): string | undefined {
 	const env = ctx.env ?? process.env
-	const cur = currentPane(normalizeMuxEnv(env))
+	const cur = selfPane(currentPane(normalizeMuxEnv(env)), ctx.exec ?? realExec)
 	if (cur) return ctx.store.resolvePaneId(cur.pane)
 	return env.CYBERLEGION_AGENT_ID || undefined
 }
@@ -117,8 +142,8 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 	// only mint a fresh id when nothing self-identifies (a fresh tmux pane).
 	const id = existing?.id ?? existingId ?? randomId()
 	const ts = nowIso(ctx)
-	const cur = storablePane(env)
 	const exec = ctx.exec ?? realExec
+	const cur = selfPane(storablePane(env), exec)
 
 	const rec: AgentRecord = {
 		id,

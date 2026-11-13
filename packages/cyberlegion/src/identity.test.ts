@@ -243,6 +243,42 @@ describe('spec:cyberlegion/identity', () => {
 			expect(resolveSelfId(ctx(e))).toBe(rec.id)
 		})
 
+		// #154: herdr re-ids a pane when it moves (`herdr pane move` turned wQK:p1 into wQM:p2 while the
+		// shell kept $HERDR_PANE_ID=wQK:p1), and pane ids recur on a hub, so the launch-time env id can
+		// name another unit's pane. `herdr pane current` answers the calling pane's id as it is now.
+		const herdrCurrent =
+			(paneId: string | null): Exec =>
+			(cmd, args) =>
+				cmd === 'herdr' && args[0] === 'pane' && args[1] === 'current'
+					? paneId &&
+						JSON.stringify({ id: 'cli:pane:current', result: { pane: { pane_id: paneId }, type: 'pane_current' } })
+					: null
+
+		it('a herdr pane whose $HERDR_PANE_ID went stale resolves the pane herdr reports, not the unit holding the stale id', () => {
+			const mover = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'wH:p1' }), { handle: 'cf-73', harness: 'claude' })
+			const holder = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w13:p1' }), { handle: 'other', harness: 'claude' })
+			const staleEnv = { HERDR_ENV: '1', HERDR_PANE_ID: 'w13:p1' }
+			expect(resolveSelfId(ctx(staleEnv, herdrCurrent('wH:p1')))).toBe(mover.id)
+			expect(resolveSelfId(ctx(staleEnv, herdrCurrent('w13:p1')))).toBe(holder.id)
+		})
+
+		it('a herdr pane herdr cannot report resolves self-id from $HERDR_PANE_ID', () => {
+			const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }), { handle: 'a', harness: 'claude' })
+			expect(resolveSelfId(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w3:p4' }, herdrCurrent(null)))).toBe(rec.id)
+		})
+
+		it('register in a herdr pane whose $HERDR_PANE_ID went stale keys the pane herdr reports', () => {
+			const holder = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w13:p1' }), { handle: 'other', harness: 'claude' })
+			const rec = register(ctx({ HERDR_ENV: '1', HERDR_PANE_ID: 'w13:p1' }, herdrCurrent('wH:p1')), {
+				handle: 'cf-73',
+				harness: 'claude',
+			})
+			expect(rec.id).not.toBe(holder.id)
+			expect(rec.pane).toEqual({ mux: 'herdr', id: 'wH:p1' })
+			expect(store.resolvePaneId('w13:p1')).toBe(holder.id)
+			expect(store.resolvePaneId('wH:p1')).toBe(rec.id)
+		})
+
 		it('$CYBERLEGION_AGENT_ID resolves self-id only when the session is in no multiplexer pane', () => {
 			expect(resolveSelfId(ctx({ CYBERLEGION_AGENT_ID: 'envid' }))).toBe('envid')
 		})
