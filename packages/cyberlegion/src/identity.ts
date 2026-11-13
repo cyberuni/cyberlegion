@@ -38,7 +38,7 @@ function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pane: str
 
 /** The calling session's storable pane, resolved the way `register` resolves it: herdr's answer
  * when herdr gives a trustworthy one, `$HERDR_PANE_ID` otherwise (#154, #268). */
-export function callingStorablePane(ctx: IdContext): { mux: StorablePaneMux; pane: string } | undefined {
+export function callingStorablePane(ctx: IdContext): SelfPane<StorablePaneMux> | undefined {
 	return selfPane(storablePane(ctx.env ?? process.env), ctx.exec ?? realExec)
 }
 
@@ -51,13 +51,19 @@ export function callingStorablePane(ctx: IdContext): { mux: StorablePaneMux; pan
  * gives no answer, or an older herdr disagrees with the env, the env id stands. tmux pane
  * ids last as long as the pane, so tmux needs no second opinion.
  */
-function selfPane<P extends { mux: string; pane: string }>(cur: P | undefined, exec: Exec): P | undefined {
+function selfPane<M extends string>(cur: { mux: M; pane: string } | undefined, exec: Exec): SelfPane<M> | undefined {
 	if (cur?.mux !== 'herdr') return cur
 	const live = herdrCallingPane(exec)
+	if (!live) return cur
 	// An answer that agrees with the env needs no version check, so the common case costs one call.
-	if (!live || live === cur.pane || !herdrReportsCallingPane(exec)) return cur
-	return { ...cur, pane: live }
+	if (live.pane === cur.pane) return { ...cur, ...(live.terminal ? { terminal: live.terminal } : {}) }
+	if (!herdrReportsCallingPane(exec)) return cur
+	return { ...cur, pane: live.pane, ...(live.terminal ? { terminal: live.terminal } : {}) }
 }
+
+/** A calling pane, with the herdr terminal id behind it when herdr's own answer named it. `terminal`
+ * is set only from an answer that is trusted to be the calling pane, so it is never another pane's. */
+type SelfPane<M extends string> = { mux: M; pane: string; terminal?: string }
 
 /** herdr 0.8.2 fixed `pane current` to answer the calling pane; before it, the command answered
  * another client's focused pane (herdr #2297), which would misattribute exactly as a stale env id
@@ -69,15 +75,89 @@ function herdrReportsCallingPane(exec: Exec): boolean {
 	return major > 0 || minor > 8 || (minor === 8 && patch >= 2)
 }
 
-function herdrCallingPane(exec: Exec): string | undefined {
-	const out = exec('herdr', ['pane', 'current'])
+function herdrCallingPane(exec: Exec): { pane: string; terminal?: string } | undefined {
+	return herdrPaneAnswer(exec('herdr', ['pane', 'current']))
+}
+
+/** Parse a herdr `pane current` / `pane get` answer into its pane id and terminal id. */
+function herdrPaneAnswer(out: string | null): { pane: string; terminal?: string } | undefined {
 	if (!out) return undefined
 	try {
-		const id = JSON.parse(out)?.result?.pane?.pane_id
-		return typeof id === 'string' && id ? id : undefined
+		const pane = JSON.parse(out)?.result?.pane
+		const id = pane?.pane_id
+		if (typeof id !== 'string' || !id) return undefined
+		const terminal = pane.terminal_id
+		return { pane: id, ...(typeof terminal === 'string' && terminal ? { terminal } : {}) }
 	} catch {
 		return undefined
 	}
+}
+
+/**
+ * The herdr terminal id behind a pane id — what a unit's herdr pane record keys on besides the pane
+ * id. herdr gives a pane a new id when it moves to another workspace and keeps its terminal id
+ * (#272; herdr 0.9.5: `pane move wRD:p2 --tab wRE:t1` answered `wRE:p2` on the same `terminal_id`).
+ * Undefined when herdr does not answer or reports no terminal id.
+ */
+function herdrTerminalOf(exec: Exec, paneId: string): string | undefined {
+	return herdrPaneAnswer(exec('herdr', ['pane', 'get', paneId]))?.terminal
+}
+
+/** The pane locator for a pane a spawn or restart just opened: tagged with its multiplexer so the
+ * unit's own `prune` runs the right liveness check, and for herdr carrying the terminal id a move
+ * keeps. `null` for a backend a record cannot carry. */
+export function openedPaneLocator(exec: Exec, mux: string, id: string): AgentRecord['pane'] {
+	if (mux === 'tmux') return { mux, id }
+	if (mux !== 'herdr') return null
+	const terminal = herdrTerminalOf(exec, id)
+	return { mux, id, ...(terminal ? { terminal } : {}) }
+}
+
+/** herdr's live panes keyed by terminal id → current pane id. Empty when herdr gives no list, which
+ * says nothing about any pane. */
+function herdrTerminals(exec: Exec): Map<string, string> {
+	const map = new Map<string, string>()
+	const out = exec('herdr', ['pane', 'list'])
+	if (!out) return map
+	try {
+		const panes = JSON.parse(out)?.result?.panes
+		if (!Array.isArray(panes)) return map
+		for (const p of panes) {
+			if (typeof p?.terminal_id === 'string' && typeof p?.pane_id === 'string') map.set(p.terminal_id, p.pane_id)
+		}
+	} catch {
+		return map
+	}
+	return map
+}
+
+/**
+ * Where a herdr record that carries its terminal id lives now: the pane id herdr lists for that
+ * terminal (`{ id }`), `'gone'` when herdr answered with a list that lacks the terminal, or
+ * `undefined` when herdr gave no list. Not called for a record without a terminal id, which keeps
+ * being judged by its pane id.
+ */
+export function locateTerminal(
+	exec: Exec,
+	terminal: string,
+	cache: { terminals?: Map<string, string> } = {},
+): { id: string } | 'gone' | undefined {
+	cache.terminals ??= herdrTerminals(exec)
+	if (cache.terminals.size === 0) return undefined
+	const id = cache.terminals.get(terminal)
+	return id ? { id } : 'gone'
+}
+
+/** Point a record whose herdr pane moved at the pane id it has now, moving its pane pointer with it.
+ * The old pointer is dropped only while it still names this record, since herdr hands old ids out
+ * again. */
+function followMove(ctx: IdContext, rec: AgentRecord, id: string): void {
+	const pane = rec.pane
+	if (!pane || pane.id === id) return
+	if (ctx.store.resolvePaneId(pane.id) === rec.id) ctx.store.removePaneIndex(pane.id)
+	rec.pane = { ...pane, id }
+	saveAgent(ctx.store, rec)
+	ctx.store.putPaneIndex(id, rec.id)
 }
 
 export interface IdContext {
@@ -137,10 +217,29 @@ export function detectHarness(explicit: string | undefined, ctx: IdContext): Har
  * explicit via the env var.
  */
 export function resolveSelfId(ctx: IdContext): string | undefined {
+	return resolveSelf(ctx).id
+}
+
+function resolveSelf(ctx: IdContext): { id: string | undefined; cur: SelfPane<string> | undefined } {
 	const env = ctx.env ?? process.env
 	const cur = selfPane(currentPane(normalizeMuxEnv(env)), ctx.exec ?? realExec)
-	if (cur) return ctx.store.resolvePaneId(cur.pane)
-	return env.CYBERLEGION_AGENT_ID || undefined
+	if (cur) return { id: selfIdAt(ctx.store, cur), cur }
+	return { id: env.CYBERLEGION_AGENT_ID || undefined, cur }
+}
+
+/**
+ * The unit a pane belongs to. The pane pointer answers first. When herdr named the calling pane's
+ * terminal, a pointer whose record carries a different terminal is stale (the id was handed to
+ * this pane after the unit's own pane moved away), and a missing pointer may mean this pane moved:
+ * either way the record bearing this terminal is the caller (#272). A record without a terminal id
+ * is trusted by its pointer as before.
+ */
+function selfIdAt(store: Store, cur: SelfPane<string>): string | undefined {
+	const indexed = store.resolvePaneId(cur.pane)
+	if (!cur.terminal) return indexed
+	const terminal = indexed ? loadAgent(store, indexed)?.pane?.terminal : undefined
+	if (indexed && (!terminal || terminal === cur.terminal)) return indexed
+	return listAgents(store).find((a) => a.pane?.mux === 'herdr' && a.pane.terminal === cur.terminal)?.id
 }
 
 export interface RegisterInput {
@@ -186,7 +285,7 @@ export function register(ctx: IdContext, input: RegisterInput): AgentRecord {
 /** Build the record's pane locator. `window`/`session` are tmux-only (herdr's pane id is
  * self-contained and its CLI needs nothing more to address a pane). */
 function paneLocator(
-	cur: { mux: StorablePaneMux; pane: string },
+	cur: SelfPane<StorablePaneMux>,
 	exec: Exec,
 	env: NodeJS.ProcessEnv,
 ): NonNullable<AgentRecord['pane']> {
@@ -198,7 +297,7 @@ function paneLocator(
 			session: env.TMUX?.split(',')[0],
 		}
 	}
-	return { mux: cur.mux, id: cur.pane }
+	return { mux: cur.mux, id: cur.pane, ...(cur.terminal ? { terminal: cur.terminal } : {}) }
 }
 
 /** Derive a standing record's stable id from its handle — same slug rule as `sanitizePane`, prefixed
@@ -584,10 +683,23 @@ export function bumpLastSeen(ctx: IdContext, id: string): void {
 	saveAgent(ctx.store, rec)
 }
 
-/** Refresh this session's own last-seen if it is registered — best-effort, never throws. */
+/**
+ * Refresh this session's own last-seen if it is registered — best-effort, never throws. In a herdr
+ * pane whose calling pane herdr reported, it also heals the record's pane to the id and terminal
+ * herdr gave, so a unit whose pane moved fixes its own record on its next turn (#272).
+ */
 export function touch(ctx: IdContext): void {
-	const id = resolveSelfId(ctx)
-	if (id) bumpLastSeen(ctx, id)
+	const { id, cur } = resolveSelf(ctx)
+	if (!id) return
+	bumpLastSeen(ctx, id)
+	if (cur?.mux !== 'herdr' || !cur.terminal) return
+	const rec = loadAgent(ctx.store, id)
+	if (rec?.pane?.mux !== 'herdr') return
+	if (rec.pane.terminal !== cur.terminal) {
+		rec.pane = { ...rec.pane, terminal: cur.terminal }
+		saveAgent(ctx.store, rec)
+	}
+	followMove(ctx, rec, cur.pane)
 }
 
 const STALE_MS = 15 * 60 * 1000
@@ -618,7 +730,9 @@ function isPrunable(rec: AgentRecord): boolean {
 export function sessionLive(ctx: IdContext, rec: AgentRecord): boolean {
 	if (rec.status === 'exited' || rec.status === 'stopped') return false
 	if (!rec.pane) return true
-	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(ctx.exec ?? realExec)
+	const exec = ctx.exec ?? realExec
+	if (rec.pane.mux === 'herdr' && rec.pane.terminal) return locateTerminal(exec, rec.pane.terminal) !== 'gone'
+	const panes = PANE_ADAPTERS[rec.pane.mux].listPanes(exec)
 	if (panes.length === 0) return true
 	const id = rec.pane.id
 	return panes.some((p) => p.id === id)
@@ -698,11 +812,16 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
 	if (panes.length === 0) return []
 	const live = new Set(panes.map((p) => p.id))
 	const changed: AgentRecord[] = []
+	const cache: { terminals?: Map<string, string> } = {}
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
 		if (!rec.pane) continue
 		if (rec.pane.mux !== cur.mux) continue
-		if (!live.has(rec.pane.id)) {
+		const gone =
+			rec.pane.mux === 'herdr' && rec.pane.terminal
+				? terminalGone(ctx, rec, rec.pane.terminal, cache)
+				: !live.has(rec.pane.id)
+		if (gone) {
 			rec.status = 'exited'
 			saveAgent(ctx.store, rec)
 			changed.push(rec)
@@ -729,6 +848,24 @@ function paneGone(exec: Exec, pane: NonNullable<AgentRecord['pane']>, lists: Map
 	return panes.length > 0 && !panes.some((p) => p.id === pane.id)
 }
 
+/**
+ * Whether a herdr record that carries its terminal id is positively gone: herdr listed its panes and
+ * that terminal is not among them. A live terminal under a new pane id is a moved pane, so the record
+ * follows it instead (#272). A pane id that herdr now gives another terminal does not keep the record
+ * alive, since herdr ids recur. No list at all decides nothing.
+ */
+function terminalGone(
+	ctx: IdContext,
+	rec: AgentRecord,
+	terminal: string,
+	cache: { terminals?: Map<string, string> },
+): boolean {
+	const at = locateTerminal(ctx.exec ?? realExec, terminal, cache)
+	if (at === 'gone') return true
+	if (at) followMove(ctx, rec, at.id)
+	return false
+}
+
 /** A record `prune` changed: `exited` when it was marked and kept, `deleted` when it was removed. */
 export type PrunedRecord = AgentRecord & { pruned: 'exited' | 'deleted' }
 
@@ -745,9 +882,14 @@ export function prune(ctx: IdContext): PrunedRecord[] {
 	const now = ctx.now?.() ?? Date.now()
 	const marked: AgentRecord[] = reconcile(ctx)
 	const lists = new Map<string, LivePane[]>()
+	const cache: { terminals?: Map<string, string> } = {}
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
-		const dead = rec.pane ? paneGone(exec, rec.pane, lists) : now - new Date(rec.lastSeen).getTime() > STALE_MS
+		const dead = !rec.pane
+			? now - new Date(rec.lastSeen).getTime() > STALE_MS
+			: rec.pane.mux === 'herdr' && rec.pane.terminal
+				? terminalGone(ctx, rec, rec.pane.terminal, cache)
+				: paneGone(exec, rec.pane, lists)
 		if (dead) {
 			rec.status = 'exited'
 			saveAgent(ctx.store, rec)

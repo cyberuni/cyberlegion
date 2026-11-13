@@ -178,7 +178,11 @@ restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone 
   - the calling pane's pointer names a different unit that is neither stopped nor exited → refused;
     rebind never takes a pane from another unit. A pointer left behind by an exited unit is taken over.
   - the unit still has a live pane elsewhere → refused; stop it first, so two sessions never answer
-    as one unit.
+    as one unit. A herdr record that carries its terminal id (`unit/registry`) is live while herdr
+    lists that terminal under any pane id, so a unit whose pane moved still reads as live (#272).
+  - the calling pane carries the unit's own terminal id → the unit's pane moved here; it is bound to
+    this pane, not refused as running elsewhere.
+  - in herdr, the bound pane locator records the calling pane's terminal id when herdr reports it.
   - the unit is already bound to the calling pane → success; nothing changes (safe to repeat).
 
 ### unit show — where the runtime is, and what works on it
@@ -292,7 +296,9 @@ graph TD
   RB4 -- yes --> RB4Y["success; nothing changes"]
   RB4 -- no --> RB5{"this pane belongs to another unit that is not stopped or exited?"}
   RB5 -- yes --> RB5X["refuse: never take another unit's pane"]
-  RB5 -- no --> RB6{"the unit has a live pane elsewhere?"}
+  RB5 -- no --> RBT{"the calling pane carries the unit's own herdr terminal id?"}
+  RBT -- yes --> RB7
+  RBT -- no --> RB6{"the unit has a live pane elsewhere? (by terminal id when the record carries one)"}
   RB6 -- yes --> RB6X["refuse: stop it first"]
   RB6 -- no --> RB7["bind: this pane, status active, pane pointer moved, last-seen now"]
 ```
@@ -396,6 +402,9 @@ convergence claim.
 | `RB5X` | a caller pane bound to another active unit | `rebind refuses a pane that belongs to another unit` |
 | `RB5 -- no` | a caller pane whose pointer names an exited unit | `rebind takes over a pane whose previous unit has exited` |
 | `RB6X` | a unit whose own pane is still live, a different caller pane | `rebind refuses a unit that still has a live pane` |
+| `RB6X` moved | a unit whose herdr terminal is listed under a new pane id, a different caller pane | `rebind refuses a unit whose herdr pane moved and is still live under a new id` |
+| `RBT -- yes` | a unit whose herdr pane moved, the caller in that moved pane | `rebind from the pane a unit moved to binds that pane` |
+| `RB7` terminal | a stopped unit, a caller in a herdr pane whose terminal id herdr reports | `rebind records the calling pane terminal id herdr reports` |
 | `RB3X` | a stopped unit, a caller in no multiplexer pane | `rebind outside any pane refuses` |
 | `RB2X` standing | a standing record, a caller in a pane | `rebind refuses a standing record` |
 | `RB2X` service | a service endpoint record, a caller in a pane | `rebind refuses a service endpoint` |

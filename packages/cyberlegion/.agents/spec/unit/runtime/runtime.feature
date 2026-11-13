@@ -383,6 +383,27 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     And the unit's record keeps its original pane
     And no pane pointer for the caller's pane names the unit
 
+  Scenario: rebind records the calling pane terminal id herdr reports
+    Given a stopped unit
+    And the caller runs inside a herdr pane whose id and terminal id herdr 0.9.5 reports
+    When the caller runs unit rebind <id>
+    Then the unit's herdr pane locator carries the calling pane's id and terminal id
+
+  Scenario: rebind refuses a unit whose herdr pane moved and is still live under a new id
+    Given a registered unit whose herdr pane locator carries a terminal id
+    And herdr lists that terminal under a pane id other than the recorded one
+    And the caller runs inside a different herdr pane that no pane pointer names
+    When the caller runs unit rebind <id>
+    Then the command exits non-zero with an error saying to stop the unit first
+
+  Scenario: rebind from the pane a unit moved to binds that pane
+    Given a registered unit whose herdr pane locator carries a terminal id
+    And the unit's pane moved, so herdr lists that terminal under a new pane id
+    And the caller runs inside that moved pane, its shell still holding the old $HERDR_PANE_ID
+    When the caller runs unit rebind <id>
+    Then the unit's herdr pane locator is the new pane id with the same terminal id
+    And the new pane id resolves to the unit
+
   Scenario: rebind outside any pane refuses
     Given a registered unit with status stopped
     And the caller runs in no tmux or herdr pane
