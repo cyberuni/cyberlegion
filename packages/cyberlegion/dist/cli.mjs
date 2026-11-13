@@ -8,7 +8,7 @@ import { stripVTControlCharacters } from "node:util";
 import { homedir } from "node:os";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { lstat, readFile, readdir, readlink, realpath, unlink, writeFile } from "node:fs/promises";
-//#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/error.js
+// ../../node_modules/.pnpm/commander@15.1.0/node_modules/commander/lib/error.js
 /**
 * CommanderError class
 */
@@ -42,8 +42,7 @@ var InvalidArgumentError = class extends CommanderError {
 		this.name = this.constructor.name;
 	}
 };
-//#endregion
-//#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/argument.js
+// ../../node_modules/.pnpm/commander@15.1.0/node_modules/commander/lib/argument.js
 var Argument = class {
 	/**
 	* Initialize a new command argument with the given name and description.
@@ -161,8 +160,7 @@ function humanReadableArgName(arg) {
 	const nameOutput = arg.name() + (arg.variadic === true ? "..." : "");
 	return arg.required ? "<" + nameOutput + ">" : "[" + nameOutput + "]";
 }
-//#endregion
-//#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/help.js
+// ../../node_modules/.pnpm/commander@15.1.0/node_modules/commander/lib/help.js
 /**
 * TypeScript import types for JSDoc, used by Visual Studio Code IntelliSense and `npm run typescript-checkJS`
 * https://www.typescriptlang.org/docs/handbook/jsdoc-supported-types.html#import-types
@@ -230,8 +228,8 @@ var Help = class {
 			const removeShort = helpOption.short && cmd._findOption(helpOption.short);
 			const removeLong = helpOption.long && cmd._findOption(helpOption.long);
 			if (!removeShort && !removeLong) visibleOptions.push(helpOption);
-			else if (helpOption.long && !removeLong) visibleOptions.push(cmd.createOption(helpOption.long, helpOption.description));
-			else if (helpOption.short && !removeShort) visibleOptions.push(cmd.createOption(helpOption.short, helpOption.description));
+			else if (helpOption.long && !removeLong) visibleOptions.push(cmd.createOption(helpOption.long, helpOption.description).helpGroup(helpOption.helpGroupHeading));
+			else if (helpOption.short && !removeShort) visibleOptions.push(cmd.createOption(helpOption.short, helpOption.description).helpGroup(helpOption.helpGroupHeading));
 		}
 		if (this.sortOptions) visibleOptions.sort(this.compareOptions);
 		return visibleOptions;
@@ -636,8 +634,7 @@ var Help = class {
 		return wrappedLines.join("\n");
 	}
 };
-//#endregion
-//#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/option.js
+// ../../node_modules/.pnpm/commander@15.1.0/node_modules/commander/lib/option.js
 var Option = class {
 	/**
 	* Initialize a new `Option` with the given `flags` and `description`.
@@ -650,7 +647,7 @@ var Option = class {
 		this.description = description || "";
 		this.required = flags.includes("<");
 		this.optional = flags.includes("[");
-		this.variadic = /\w\.\.\.[>\]]$/.test(flags);
+		this.variadic = /\p{ID_Continue}\.\.\.[>\]]$/u.test(flags);
 		this.mandatory = false;
 		const optionFlags = splitOptionFlags(flags);
 		this.short = optionFlags.shortFlag;
@@ -934,8 +931,7 @@ function splitOptionFlags(flags) {
 		longFlag
 	};
 }
-//#endregion
-//#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/suggestSimilar.js
+// ../../node_modules/.pnpm/commander@15.1.0/node_modules/commander/lib/suggestSimilar.js
 const maxDistance = 3;
 function editDistance(a, b) {
 	if (Math.abs(a.length - b.length) > maxDistance) return Math.max(a.length, b.length);
@@ -986,8 +982,7 @@ function suggestSimilar(word, candidates) {
 	if (similar.length === 1) return `\n(Did you mean ${similar[0]}?)`;
 	return "";
 }
-//#endregion
-//#region ../../node_modules/.pnpm/commander@15.0.0/node_modules/commander/lib/command.js
+// ../../node_modules/.pnpm/commander@15.1.0/node_modules/commander/lib/command.js
 var Command = class Command extends EventEmitter {
 	/**
 	* Initialize a new `Command`.
@@ -1737,7 +1732,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	getOptionValueSourceWithGlobals(key) {
 		let source;
 		this._getCommandAndAncestors().forEach((cmd) => {
-			if (cmd.getOptionValueSource(key) !== void 0) source = cmd.getOptionValueSource(key);
+			if (Object.hasOwn(cmd._optionValueSources, key)) source = cmd.getOptionValueSource(key);
 		});
 		return source;
 	}
@@ -2246,7 +2241,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 			return arg.length > 1 && arg[0] === "-";
 		}
 		const negativeNumberArg = (arg) => {
-			if (!/^-(\d+|\d*\.\d+)(e[+-]?\d+)?$/.test(arg)) return false;
+			if (!/^-(\d+|\d*\.\d+)([eE][+-]?\d+)?$/.test(arg)) return false;
 			return !this._getCommandAndAncestors().some((cmd) => cmd.options.map((opt) => opt.short).some((short) => /^-\d$/.test(short)));
 		};
 		let activeVariadicOption = null;
@@ -2646,7 +2641,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	* (This does not override a group set directly on the subcommand using .helpGroup().)
 	*
 	* @example
-	* program.commandsGroup('Development Commands:);
+	* program.commandsGroup('Development Commands:');
 	* program.command('watch')...
 	* program.command('lint')...
 	* ...
@@ -2815,7 +2810,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	* Pass in false to disable the built-in help option.
 	*
 	* @example
-	* program.helpOption('-?, --help' 'show help'); // customise
+	* program.helpOption('-?, --help', 'show help'); // customise
 	* program.helpOption(false); // disable
 	*
 	* @param {(string | boolean)} flags
@@ -2937,12 +2932,12 @@ function incrementNodeInspectorPort(args) {
 		let debugHost = "127.0.0.1";
 		let debugPort = "9229";
 		let match;
-		if ((match = arg.match(/^(--inspect(-brk)?)$/)) !== null) debugOption = match[1];
-		else if ((match = arg.match(/^(--inspect(-brk|-port)?)=([^:]+)$/)) !== null) {
+		if ((match = arg.match(/^(--inspect(-brk|-wait)?)$/)) !== null) debugOption = match[1];
+		else if ((match = arg.match(/^(--inspect(-brk|-port|-wait)?)=(\[[^\]]+\]|[^:]+)$/)) !== null) {
 			debugOption = match[1];
 			if (/^\d+$/.test(match[3])) debugPort = match[3];
 			else debugHost = match[3];
-		} else if ((match = arg.match(/^(--inspect(-brk|-port)?)=([^:]+):(\d+)$/)) !== null) {
+		} else if ((match = arg.match(/^(--inspect(-brk|-port|-wait)?)=(\[[^\]]+\]|[^:]+):(\d+)$/)) !== null) {
 			debugOption = match[1];
 			debugHost = match[3];
 			debugPort = match[4];
@@ -2962,8 +2957,7 @@ function useColor() {
 	if (process$1.env.FORCE_COLOR || process$1.env.CLICOLOR_FORCE !== void 0) return true;
 }
 new Command();
-//#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/exec-Bmdcg_T7.mjs
+// ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/exec-Bmdcg_T7.mjs
 const nodeExec$1 = (cmd, args) => {
 	try {
 		const out = execFileSync(cmd, args, {
@@ -2990,8 +2984,7 @@ const nodeExec$1 = (cmd, args) => {
 function withReason(exec, message) {
 	return exec.lastError ? `${message} — ${exec.lastError}` : message;
 }
-//#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/backend-D3VSsev4.mjs
+// ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/backend-D3VSsev4.mjs
 const KNOWN_MUX = [
 	"tmux",
 	"rmux",
@@ -9138,8 +9131,7 @@ function callerPane(adapter, env) {
 	const self = currentPane(env);
 	return self && self.mux === adapter.name ? { id: self.pane } : void 0;
 }
-//#endregion
-//#region src/admin.ts
+// src/admin.ts
 /**
 * Merge one store's registry + mailboxes + briefs into another (skip agent ids already present at
 * the destination). Used by `admin migrate` when moving state between an old project-local root
@@ -9173,8 +9165,7 @@ function migrateStore(from, to) {
 		briefs
 	};
 }
-//#endregion
-//#region ../../node_modules/.pnpm/cyber-agentkit@2.0.0/node_modules/cyber-agentkit/dist/worktrees.js
+// ../../node_modules/.pnpm/cyber-agentkit@2.2.0/node_modules/cyber-agentkit/dist/worktrees.js
 /**
 * Whether a checkout has uncommitted changes, tracked or untracked, or `undefined` when git could not
 * say. `undefined` is not `false`: a caller deciding whether a worktree is safe to reuse must not read
@@ -10247,8 +10238,7 @@ async function exists(path) {
 		return false;
 	}
 }
-//#endregion
-//#region ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/worktree.mjs
+// ../../node_modules/.pnpm/cyber-mux@0.12.0/node_modules/cyber-mux/dist/worktree.mjs
 /**
 * This module's own refusals and failures — plain cyber-mux prose, never a dependency's raw words.
 * `reportWorktreeFailure` (`cli.ts`) forwards a `WorktreeGitError`'s message onto stdout verbatim
@@ -10309,8 +10299,7 @@ function resolvePrimaryRoot(exec) {
 function assertDistinctFromPrimary(worktreeRoot, primaryRoot) {
 	if (resolve(worktreeRoot) === resolve(primaryRoot)) throw new WorktreeGitError("refusing to run in the primary checkout — spawn a worktree distinct from the primary checkout");
 }
-//#endregion
-//#region src/paths.ts
+// src/paths.ts
 /** The tracked marker file that makes a hub root initialized (see ensureMarker). */
 const MARKER_FILE = "config.json";
 /** Where `spawn` stamps that marker inside a worktree it creates, relative to the worktree root. */
@@ -10406,8 +10395,7 @@ const paths = {
 function sanitizePane(pane) {
 	return pane.replace(/[^A-Za-z0-9_-]/g, "_");
 }
-//#endregion
-//#region src/mux-env.ts
+// src/mux-env.ts
 /**
 * Transitional env-normalization seam (mux.feature: "a pane carrying only the legacy fast-path vars
 * is still honored"). cyber-mux's own fast-path reads `$CYBER_MUX`/`$CYBER_MUX_PANE` — its
@@ -10436,8 +10424,7 @@ function normalizeMuxEnv(env) {
 		CYBER_MUX_PANE: env.CYBERLEGION_MUX_PANE
 	};
 }
-//#endregion
-//#region src/identity.ts
+// src/identity.ts
 const realExec = nodeExec$1;
 /** `currentPane`, narrowed to a backend the registry can actually store a locator under. A caller
 * inside a pane-carrying-but-unstorable multiplexer (wezterm/zellij) is simply unpaned here — it can
@@ -11008,8 +10995,7 @@ function prune(ctx) {
 	}
 	return changed;
 }
-//#endregion
-//#region src/console/prompt-guard.ts
+// src/console/prompt-guard.ts
 const CODEX_PLACEHOLDERS = /* @__PURE__ */ new Set([
 	"Ask Codex to do anything",
 	"Explain this codebase",
@@ -11167,8 +11153,7 @@ async function clearLine(adapter, exec, target, sleep) {
 	adapter.sendText(exec, target, KILL_LINE);
 	await sleep(KEY_SETTLE_MS);
 }
-//#endregion
-//#region src/console/ring.ts
+// src/console/ring.ts
 const DEFAULT_ATTEMPTS = 10;
 const DEFAULT_SETTLE_MS = 400;
 /** cyber-mux's `isStaged` matches on the same prefix length. */
@@ -11273,8 +11258,7 @@ async function ringTurn(adapter, exec, target, message, opts = {}) {
 	const why = state === "lost" ? "the text vanished without the harness posting it" : `input still staged after ${attempts} re-submit attempts`;
 	throw new Error(`nudge failed: peer at pane ${target.id} never took the turn — ${why}`);
 }
-//#endregion
-//#region src/console/doorbell.ts
+// src/console/doorbell.ts
 /** The doorbell text delivered to a woken recipient; also the standalone `unit nudge` default. */
 const DELIVERY_DOORBELL = "You have unread mail — check your inbox.";
 /**
@@ -11473,8 +11457,7 @@ async function wakeSpawn(getAdapter, exec, input, nudgeOpts = SPAWN_NUDGE_OPTS, 
 		};
 	}
 }
-//#endregion
-//#region src/console/trust.ts
+// src/console/trust.ts
 /**
 * Each harness's folder-trust prompt, as it draws it, and the keys that accept it. Read from Claude
 * Code 2.1.286, Codex 0.153.4 (and its newer "Trust this folder?" wording), and cursor-agent
@@ -11584,8 +11567,7 @@ function stuck(where) {
 		message: `${where}, and the prompt is still showing after spawn sent the keys that accept it. A person must answer it.`
 	};
 }
-//#endregion
-//#region src/mux-select.ts
+// src/mux-select.ts
 /**
 * Backend selection via cyber-mux's two-mode mux probe, normalized through the transitional
 * `$CYBERLEGION_MUX*` → `$CYBER_MUX*` env seam (`mux-env.ts`) — tmux/herdr map to their existing
@@ -11605,8 +11587,7 @@ function selectSessionAdapter(env, exec = realExec) {
 	if (probe.mux === "wezterm" || probe.mux === "zellij") throw new Error(`spawn detected ${probe.mux}, a backend unit/registry cannot store a pane locator under (only tmux and herdr) — refusing before opening anything`);
 	throw new Error("spawn requires a session backend — run inside tmux ($TMUX) or herdr ($HERDR_ENV=1)");
 }
-//#endregion
-//#region src/workspace-label.ts
+// src/workspace-label.ts
 /** Leading actions that tear down or revert — the `A2-` class, checked first. */
 const TEARDOWN_ACTIONS = /* @__PURE__ */ new Set([
 	"clean",
@@ -11749,8 +11730,7 @@ function fitWords(words, budget) {
 	}
 	return out;
 }
-//#endregion
-//#region src/worktree-lease.ts
+// src/worktree-lease.ts
 /**
 * The two worktree-library calls a unit's lifetime makes: `unit spawn` acquires a worktree, `unit
 * close` releases it. Gathered here so a test can stand in for them and drive spawn's routing without
@@ -11774,8 +11754,7 @@ function leaseHolder(id) {
 * cyberlegion's own file, not the unit's work, and counting it would keep every slot from reuse in a
 * project that does not track it. */
 const LEASE_IGNORE = [WORKTREE_MARKER];
-//#endregion
-//#region src/session.ts
+// src/session.ts
 /** How each harness's own CLI is launched in the new pane. */
 const LAUNCH_MAP = {
 	claude: "claude",
@@ -12325,8 +12304,7 @@ function resolveBrief(input, readStdin = () => readFileSync(0, "utf8")) {
 	if (input.task != null && input.task !== "") return input.task;
 	return null;
 }
-//#endregion
-//#region src/agentdef/resolve.ts
+// src/agentdef/resolve.ts
 function parseAgentDefFile(text) {
 	const m = /^---\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n)?([\s\S]*)$/.exec(text);
 	if (!m) return {
@@ -12446,8 +12424,7 @@ function listAgentDefs(input = {}) {
 	}
 	return defs;
 }
-//#endregion
-//#region src/agentdef/realize.ts
+// src/agentdef/realize.ts
 const DEFAULT_HARNESS = "claude";
 /** POSIX single-quote a value for safe inclusion in a shell command line. */
 function shellQuote(value) {
@@ -12565,8 +12542,7 @@ function resolveSpawnLaunch(input) {
 		...input.searchRoots ? { searchRoots: input.searchRoots } : {}
 	}), overrides);
 }
-//#endregion
-//#region src/cli-input.ts
+// src/cli-input.ts
 /**
 * Translate `unit spawn`'s options into the spawn input and its wake decision — resolving an
 * `--agent`/`--agent-file` def into the harness and composed launch command, with an explicit
@@ -12614,8 +12590,7 @@ function spawnCommandInput(opts, listCursorModels) {
 function readCommandOutput(format, result) {
 	return format === "json" ? JSON.stringify(result, null, 2) : result.output;
 }
-//#endregion
-//#region src/cursor-models.ts
+// src/cursor-models.ts
 /** The model ids in `cursor-agent models` output: the first token of each line, ANSI colour and list
 * bullets stripped. Headings and tips come along too; callers only test a specific id for membership. */
 function parseCursorModels(output) {
@@ -12638,8 +12613,7 @@ function listCursorModels() {
 		return [];
 	}
 }
-//#endregion
-//#region src/message.ts
+// src/message.ts
 /** Write one message into the recipient's inbox. Collision-free by <epochMs>-<hex>. */
 function send(ctx, input) {
 	const toId = resolveRecipient(ctx.store, input.to);
@@ -12736,8 +12710,7 @@ function deleteMessage(ctx, meId, msgId) {
 function deleteMailbox(store, id) {
 	store.removeMailbox(id);
 }
-//#endregion
-//#region src/decommission.ts
+// src/decommission.ts
 /**
 * Tear a unit down and reap its registry record — the deterministic inverse of `spawn`. Refuses a
 * dirty worktree unless `--force`. Teardown always precedes reap: an already-gone worktree or pane
@@ -12839,10 +12812,9 @@ function isDirty(exec, worktreeRoot) {
 		"--porcelain",
 		"--untracked-files=all"
 	]);
-	return !!status && status.split("\n").some((line) => line && line !== `?? ${WORKTREE_MARKER}`);
+	return !!status && status.split("\n").some((line) => line && line !== `?? .agents/cyberlegion/config.json`);
 }
-//#endregion
-//#region src/install.ts
+// src/install.ts
 const PIN_TOKEN = /^[0-9A-Za-z][0-9A-Za-z._+-]*$/;
 function validatePin(pin) {
 	if (!PIN_TOKEN.test(pin)) throw new Error(`invalid --pin "${pin}" — expected a version or dist-tag token like 0.2.0 or latest (no spaces, ranges, or shell metacharacters)`);
@@ -12995,8 +12967,7 @@ function removeCursor(settings, event, canonical) {
 	else delete hooks[event];
 	return true;
 }
-//#endregion
-//#region src/output.ts
+// src/output.ts
 function stringifyCell(v) {
 	if (v == null) return "";
 	const s = String(v);
@@ -13029,8 +13000,7 @@ function fail(msg) {
 	console.error(JSON.stringify({ error: msg }));
 	process.exit(1);
 }
-//#endregion
-//#region src/participants.ts
+// src/participants.ts
 const UNIT_PREFIX = "cyberlegion:unit/";
 /** This hub's own participant key. One per hub root, so reconciling one hub (a `--space`, say)
 * never retires the units another hub registered in the same cynapse store. */
@@ -13194,8 +13164,7 @@ async function syncCynapse(hub, env = process.env, load = importCynapse) {
 		cyn?.close();
 	}
 }
-//#endregion
-//#region src/permission.ts
+// src/permission.ts
 const CLI_RULE = "Bash(cyberlegion *)";
 const COVERING = /^Bash(?:\((?:\*|cyberlegion(?: \*|:\*|\*))\))?$/;
 /** Claude Code's user settings file: `$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`. */
@@ -13246,8 +13215,7 @@ function addPermissionRule(file) {
 	writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
 	return "added";
 }
-//#endregion
-//#region src/presence-spawn.ts
+// src/presence-spawn.ts
 /** The brief a presence spawned into a standing owner's home starts from: whom it stands in for, and
 * where that owner's mail is. What to *do* with the mail is the home's agent definition's business. */
 function presenceBrief(handle) {
@@ -13342,8 +13310,7 @@ async function spawnPresence(ctx, owner, options = {}) {
 		...turn
 	};
 }
-//#endregion
-//#region src/project.ts
+// src/project.ts
 /**
 * The canonical git common dir for `dir`, or undefined outside a repository. The common dir is the
 * one path every checkout of a repository shares — the default checkout and each linked worktree
@@ -13462,8 +13429,7 @@ function byPath(ctx, dir) {
 	if (!commonDir) throw new Error(`"${dir}" is not inside a git repository`);
 	return ctx.store.getProject(projectIdOf(commonDir)) ?? registerProject(ctx, { dir });
 }
-//#endregion
-//#region src/runtime/inject-inbox.ts
+// src/runtime/inject-inbox.ts
 const EVENTS = ["SessionStart"];
 /**
 * Resolve the calling agent, gather its unread mail (and a standing owner's, when this session is
@@ -13518,8 +13484,7 @@ function injectInbox(ctx, event) {
 		additionalContext: parts.join("\n\n")
 	} };
 }
-//#endregion
-//#region src/service.ts
+// src/service.ts
 /** A refused ownership transition. `stale` means the caller's generation, token, or holder claim is
 * not the current one — the caller is not (or no longer) the authority it claims to be. */
 var ServiceOwnershipError = class extends Error {
@@ -13824,8 +13789,7 @@ async function startService(ctx, projectRef, name, input) {
 		throw err;
 	}
 }
-//#endregion
-//#region src/standing-home.ts
+// src/standing-home.ts
 /**
 * Decide what a registration does to a standing owner's home: `undefined` keeps whatever the record
 * already has, `null` drops it, and a `StandingHome` replaces it. Every way a home can be wrong is
@@ -13872,8 +13836,7 @@ function resolveHomeFlags(exec, flags) {
 		...launch
 	};
 }
-//#endregion
-//#region src/store/errors.ts
+// src/store/errors.ts
 /** A record file exists but its content didn't parse as JSON — a torn write (crash mid-`writeFileSync`,
 * pre-atomic-write code path) or on-disk tampering. Carries the file path and the original parse
 * error so a caller can report exactly what's broken and where, rather than "Unexpected token" with
@@ -13886,8 +13849,7 @@ var CorruptRecordError = class extends Error {
 		this.name = "CorruptRecordError";
 	}
 };
-//#endregion
-//#region src/store/process-liveness.ts
+// src/store/process-liveness.ts
 /**
 * Probe whether `pid` is alive using `process.kill(pid, 0)` — the POSIX "does this process exist"
 * idiom; it sends no signal, it only tests deliverability. `ESRCH` (no such process) is the only
@@ -13907,8 +13869,7 @@ function probeProcess(pid) {
 		return err.code === "ESRCH" ? "dead" : "unknown";
 	}
 }
-//#endregion
-//#region src/store/lock.ts
+// src/store/lock.ts
 var LockTimeoutError = class extends Error {
 	name;
 	constructor(name) {
@@ -14045,8 +14006,7 @@ async function withLockAsync(root, name, fn, opts) {
 		handle.release();
 	}
 }
-//#endregion
-//#region src/store/file-store.ts
+// src/store/file-store.ts
 /** Parse a record file's content, wrapping a `JSON.parse` failure in a typed, file-named
 * `CorruptRecordError` instead of letting a bare `SyntaxError` bubble up from deep inside
 * `listInbox`/`listAgents`/`getAgent` with no indication of WHICH file broke. A file that doesn't
@@ -14256,8 +14216,7 @@ var FileStore = class {
 		return withLockAsync(this.root, name, fn);
 	}
 };
-//#endregion
-//#region src/unit-runtime.ts
+// src/unit-runtime.ts
 /** A standing or service record is an address with no runtime of its own — nothing to stop or start. */
 function assertHasRuntime(rec, ref) {
 	if (rec.kind === "standing" || rec.kind === "service") throw new Error(`"${ref}" is a ${rec.kind} record — it has no runtime to stop, restart, or rebind`);
@@ -14538,8 +14497,7 @@ function recordConversation(ctx, hookInput) {
 		conversation: id
 	});
 }
-//#endregion
-//#region src/wake/await.ts
+// src/wake/await.ts
 /** Internal poll interval — not user-facing (the round-trip cost of one `mail await` cycle). */
 const POLL_MS$1 = 1e3;
 const DEFAULT_TIMEOUT_MS = 6e5;
@@ -14584,8 +14542,7 @@ async function awaitReply(ctx, input) {
 		await sleep(POLL_MS$1);
 	}
 }
-//#endregion
-//#region src/wake/watch.ts
+// src/wake/watch.ts
 const POLL_MS = 1e3;
 /**
 * A continuous foreground observer: prints each NEW matching message as it arrives, polling on a
@@ -14617,8 +14574,7 @@ async function watchMail(ctx, input, onMessage, opts = {}) {
 		await sleep(POLL_MS);
 	}
 }
-//#endregion
-//#region src/cli.ts
+// src/cli.ts
 const VERSION = globalThis.__SKILL_SCRIPT__?.version ?? JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 function ctxOf(opts) {
 	return {
@@ -15819,5 +15775,4 @@ async function runCli(argv = process.argv) {
 		process.exit(1);
 	}
 }
-//#endregion
 export { runCli };
