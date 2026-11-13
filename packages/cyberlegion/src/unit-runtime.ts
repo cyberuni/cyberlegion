@@ -10,6 +10,7 @@ import {
 import { wakeSpawn } from './console/doorbell.ts'
 import {
 	type AgentRecord,
+	callingStorablePane,
 	type Harness,
 	type IdContext,
 	loadAgent,
@@ -17,7 +18,6 @@ import {
 	resolveAgent,
 	resolveSelfId,
 	saveAgent,
-	storablePane,
 } from './identity.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
@@ -258,7 +258,7 @@ function probeLiveness(ctx: RuntimeContext, rec: AgentRecord): Liveness {
 export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 	const rec = resolveAgent(ctx.store, ref)
 	assertHasRuntime(rec, ref)
-	const cur = storablePane(ctx.env ?? process.env)
+	const cur = callingStorablePane(ctx)
 	if (!cur) throw new Error('unit rebind needs to run inside a tmux or herdr pane — there is no pane to bind')
 
 	const oldPane = runtimePane(ctx, rec)

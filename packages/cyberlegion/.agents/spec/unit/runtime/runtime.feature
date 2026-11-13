@@ -350,6 +350,15 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     Then the command succeeds
     And the unit's record file is byte-identical to before
 
+  Scenario: rebind binds the pane herdr reports when the env pane id went stale
+    Given a registered unit with status stopped
+    And a different unit's pane pointer names the pane id in the caller's $HERDR_PANE_ID
+    And herdr reports a different calling pane that no pane pointer names
+    When the caller runs unit rebind <id>
+    Then the unit's record has status active and the pane herdr reports
+    And the pane pointer for the pane herdr reports names the unit
+    And the pane pointer for the stale env pane id still names the other unit
+
   Scenario: rebind refuses a pane that belongs to another unit
     Given a registered unit with status stopped
     And the caller runs inside a herdr pane whose pane pointer names a different active unit

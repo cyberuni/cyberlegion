@@ -629,6 +629,23 @@ describe('spec:cyberlegion/unit/runtime — unit rebind', () => {
 		expect(loadAgent(store, 'u1')?.pane).toEqual(herdrPane('w1:p5'))
 	})
 
+	it("rebind binds the pane herdr reports when the env pane id went stale and names another unit's pane", () => {
+		unit({ id: 'u1', status: 'stopped', pane: null })
+		unit({ id: 'other', handle: 'squatter', pane: herdrPane('w13:p1') })
+		const be = fakeBackend({ name: 'herdr', live: ['w13:p1', 'wH:p1'] })
+		const herdrReports: Exec = (cmd, args) => {
+			if (cmd !== 'herdr') return null
+			if (args[0] === '--version') return 'herdr 0.9.5'
+			if (args[0] === 'pane' && args[1] === 'current')
+				return JSON.stringify({ result: { pane: { pane_id: 'wH:p1' }, type: 'pane_current' } })
+			return null
+		}
+		rebindUnit({ ...rctx(be.adapter, inHerdr('w13:p1')), exec: herdrReports }, 'u1')
+		expect(loadAgent(store, 'u1')?.pane).toEqual(herdrPane('wH:p1'))
+		expect(store.resolvePaneId('wH:p1')).toBe('u1')
+		expect(store.resolvePaneId('w13:p1')).toBe('other')
+	})
+
 	it('rebind refuses a unit that still has a live pane', () => {
 		unit({ id: 'u1', pane: herdrPane('w1:p2') })
 		const be = fakeBackend({ name: 'herdr', live: ['w1:p2', 'w1:p5'] })

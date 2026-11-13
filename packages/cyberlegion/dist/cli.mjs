@@ -10437,6 +10437,11 @@ function storablePane(env) {
 		pane: cur.pane
 	} : void 0;
 }
+/** The calling session's storable pane, resolved the way `register` resolves it: herdr's answer
+* when herdr gives a trustworthy one, `$HERDR_PANE_ID` otherwise (#154, #268). */
+function callingStorablePane(ctx) {
+	return selfPane(storablePane(ctx.env ?? process.env), ctx.exec ?? realExec);
+}
 /**
 * This session's own pane as the multiplexer sees it now. The env names the pane the shell was
 * launched in, and for herdr that goes stale: herdr gives a pane a new id when it moves to another
@@ -14437,7 +14442,7 @@ function probeLiveness(ctx, rec) {
 function rebindUnit(ctx, ref) {
 	const rec = resolveAgent(ctx.store, ref);
 	assertHasRuntime(rec, ref);
-	const cur = storablePane(ctx.env ?? process.env);
+	const cur = callingStorablePane(ctx);
 	if (!cur) throw new Error("unit rebind needs to run inside a tmux or herdr pane — there is no pane to bind");
 	const oldPane = runtimePane(ctx, rec);
 	if (rec.pane?.mux === cur.mux && rec.pane.id === cur.pane && ctx.store.resolvePaneId(cur.pane) === rec.id) return rec;

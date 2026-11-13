@@ -30,9 +30,15 @@ type StorablePaneMux = 'tmux' | 'herdr'
  * inside a pane-carrying-but-unstorable multiplexer (wezterm/zellij) is simply unpaned here — it can
  * still resolve an identity via the `$CYBERLEGION_AGENT_ID` env fallback, it just cannot bind a pane
  * locator to it. */
-export function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pane: string } | undefined {
+function storablePane(env: NodeJS.ProcessEnv): { mux: StorablePaneMux; pane: string } | undefined {
 	const cur = currentPane(normalizeMuxEnv(env))
 	return cur && (cur.mux === 'tmux' || cur.mux === 'herdr') ? { mux: cur.mux, pane: cur.pane } : undefined
+}
+
+/** The calling session's storable pane, resolved the way `register` resolves it: herdr's answer
+ * when herdr gives a trustworthy one, `$HERDR_PANE_ID` otherwise (#154, #268). */
+export function callingStorablePane(ctx: IdContext): { mux: StorablePaneMux; pane: string } | undefined {
+	return selfPane(storablePane(ctx.env ?? process.env), ctx.exec ?? realExec)
 }
 
 /**
