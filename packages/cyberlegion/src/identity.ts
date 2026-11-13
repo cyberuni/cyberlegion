@@ -907,11 +907,19 @@ export function prune(ctx: IdContext): PrunedRecord[] {
 /** Whether an exited record still has a worktree on disk — the one thing it leaves behind that
  * `unit close` must deal with. A record that never had a worktree has nothing on disk. */
 function worktreeOnDisk(rec: AgentRecord): boolean {
-	return rec.worktree?.root != null && existsSync(rec.worktree.root)
+	if (rec.worktree?.root == null || !existsSync(rec.worktree.root)) return false
+	// A seat on the primary checkout leaves nothing for `unit close` to remove: it never touches that checkout.
+	return !isPrimaryCheckout(rec.worktree.root, rec.worktree.primaryRoot)
+}
+
+/** Whether a worktree root is its repository's primary checkout — the one test `unit close` and
+ * `unit prune` share for "a seat on the main checkout, which nothing removes". */
+export function isPrimaryCheckout(worktreeRoot: string | undefined, primaryRoot: string | undefined): boolean {
+	return worktreeRoot != null && primaryRoot != null && resolve(worktreeRoot) === resolve(primaryRoot)
 }
 
 /**
- * Delete every exited unit with no worktree on disk: its record, brief, mailbox, and the pane
+ * Delete every exited unit with no worktree left to close (none on disk, or only the primary checkout): its record, brief, mailbox, and the pane
  * pointer that still names it. Nothing revives an exited unit (`unit restart` takes only a running or
  * stopped one), so these records are read by nobody. A pane pointer is dropped only when it still
  * resolves to the deleted unit, since a multiplexer may have handed the pane id to another unit

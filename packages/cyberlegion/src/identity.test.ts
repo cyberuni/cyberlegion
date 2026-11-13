@@ -479,6 +479,30 @@ describe('spec:cyberlegion/identity', () => {
 			expect(store.hasMailbox('u1')).toBe(true)
 		})
 
+		it("prune deletes an exited unit on its repository's primary checkout without touching the checkout", () => {
+			const root = mkdtempSync(join(tmpdir(), 'cl-primary-'))
+			exitedUnit('u1', { worktree: { root, primaryRoot: root } })
+			const calls: string[][] = []
+			const exec: Exec = (cmd, args) => {
+				calls.push([cmd, ...args])
+				return null
+			}
+			const changed = prune({ store, env: {}, exec, now: () => NOW })
+			expect(changed.map((r) => [r.id, r.pruned])).toEqual([['u1', 'deleted']])
+			expect(loadAgent(store, 'u1')).toBeUndefined()
+			expect(existsSync(root)).toBe(true)
+			expect(calls.filter((c) => c[3] === 'worktree' && c[4] !== 'prune')).toEqual([])
+		})
+
+		it('prune keeps an exited unit whose linked worktree is still on disk', () => {
+			const primaryRoot = mkdtempSync(join(tmpdir(), 'cl-primary-'))
+			const root = mkdtempSync(join(tmpdir(), 'cl-linked-'))
+			exitedUnit('u1', { worktree: { root, primaryRoot } })
+			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+			expect(changed).toEqual([])
+			expect(loadAgent(store, 'u1')?.status).toBe('exited')
+		})
+
 		it('prune deletes a unit it marks exited when the unit has no worktree', () => {
 			const rec = register(ctx({ CYBERLEGION_AGENT_ID: 'legacy' }), { handle: 'legacy', harness: 'claude' })
 			const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW + 999_999_999 })

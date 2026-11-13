@@ -224,6 +224,19 @@ Feature: unit registry — register, discover, and prune legion units
     And its mailbox still exists
     And the pruned list is empty
 
+  Scenario: prune deletes an exited unit on its repository's primary checkout without touching the checkout
+    Given a registered unit with status exited whose recorded worktree is its repository's primary checkout, which exists on disk
+    When a session runs unit prune
+    Then the hub holds no record for that unit
+    And the primary checkout still exists on disk
+    And the pruned list includes that unit as deleted
+
+  Scenario: prune keeps an exited unit whose linked worktree is still on disk
+    Given a registered unit with status exited whose recorded worktree exists on disk and differs from its recorded primary checkout
+    When a session runs unit prune
+    Then that unit's status remains exited
+    And the pruned list is empty
+
   Scenario: prune deletes a unit it marks exited when the unit has no worktree
     Given a registered agent with no pane and no worktree whose lastSeen is older than the staleness window
     When a session runs unit prune

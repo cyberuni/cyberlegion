@@ -285,7 +285,7 @@ help-and-error.
 |---|---|
 | Actor / goal | A maintainer wants dead units out of the addressable set, and the registry to hold only units that are live or still have work on disk. |
 | Trigger | `unit prune` |
-| Outcome | Every non-exited record whose session is gone becomes `exited`. Then every exited unit with no worktree on disk is deleted: its record, brief, mailbox, and the pane pointer that still names it. Only the records it changed are returned, each tagged `exited` (marked and kept) or `deleted`, as a TOON list plus a `<N> pruned (<M> deleted)` aggregate. |
+| Outcome | Every non-exited record whose session is gone becomes `exited`. Then every exited unit with no linked worktree on disk is deleted: its record, brief, mailbox, and the pane pointer that still names it. Only the records it changed are returned, each tagged `exited` (marked and kept) or `deleted`, as a TOON list plus a `<N> pruned (<M> deleted)` aggregate. |
 
 **Why an exited unit is deleted.** Nothing revives one: the multiplexer resumes the agents it
 restores (herdr relaunches each Claude pane with `--resume <session id>`), `unit restart` takes only
@@ -293,7 +293,10 @@ a running or stopped unit (`unit/runtime`), and the mail left in an exited unit'
 traffic about work it can no longer do — reports it sent live in their recipients' inboxes. An
 exited unit whose **worktree is still on disk** is kept, because `unit close` (`unit/lifecycle`)
 owns removing that worktree, and deleting the record would orphan it. A unit that never had a
-worktree has nothing on disk and is deleted.
+worktree has nothing on disk and is deleted. So is one whose recorded worktree is its repository's
+**primary checkout** (`worktree.root` equals `worktree.primaryRoot`, the test `unit close` uses): the
+checkout always exists, but close never removes it, so there is nothing left for close to do. Prune
+never touches that checkout.
 
 A record is judged dead when its pane is gone, or — for a record with **no pane** — when its
 `lastSeen` is older than the staleness window. Liveness is checked **against the pane's own
@@ -640,7 +643,9 @@ graph TD
   PD0{"per record, after every mark: exited and not standing or service?"}
   PD0 -- no --> PDK["keep"]
   PD0 -- yes --> PD1{"its worktree is on disk?"}
-  PD1 -- yes --> PDK
+  PD1 -- yes --> PD1P{"that worktree is the primary checkout?"}
+  PD1P -- no --> PDK
+  PD1P -- yes --> PD2
   PD1 -- "no (or never had one)" --> PD2{"records a primary checkout that exists?"}
   PD2 -- yes --> PD3["git worktree prune there"]
   PD2 -- no --> PD4
@@ -869,6 +874,8 @@ adapters.
 | `PD1 -- no` never | an exited unit with no worktree, a brief, and a mailbox | `prune deletes an exited unit that never had a worktree, with its brief and mailbox` |
 | `PD1 -- no` gone | an exited unit whose worktree is gone from disk | `prune deletes an exited unit whose worktree is gone from disk` |
 | `PD1 -- yes` | an exited unit whose worktree is on disk | `prune keeps an exited unit whose worktree is still on disk` |
+| `PD1P -- yes` | an exited unit whose worktree is its primary checkout | `prune deletes an exited unit on its repository's primary checkout without touching the checkout` |
+| `PD1P -- no` | an exited unit whose linked worktree is on disk beside a different primary checkout | `prune keeps an exited unit whose linked worktree is still on disk` |
 | `PRX` → `PDX` | a pane-less unit with no worktree and a stale lastSeen | `prune deletes a unit it marks exited when the unit has no worktree` |
 | `PD4 -- no` | a deleted unit whose pane pointer now names another unit | `prune leaves the pane pointer of a deleted unit when another unit now holds that pane` |
 | `PD5` | a deleted unit whose own pane pointer remains | `prune drops a deleted unit's own pane pointer` |

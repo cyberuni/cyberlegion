@@ -11193,10 +11193,16 @@ function prune(ctx) {
 /** Whether an exited record still has a worktree on disk — the one thing it leaves behind that
 * `unit close` must deal with. A record that never had a worktree has nothing on disk. */
 function worktreeOnDisk(rec) {
-	return rec.worktree?.root != null && existsSync(rec.worktree.root);
+	if (rec.worktree?.root == null || !existsSync(rec.worktree.root)) return false;
+	return !isPrimaryCheckout(rec.worktree.root, rec.worktree.primaryRoot);
+}
+/** Whether a worktree root is its repository's primary checkout — the one test `unit close` and
+* `unit prune` share for "a seat on the main checkout, which nothing removes". */
+function isPrimaryCheckout(worktreeRoot, primaryRoot) {
+	return worktreeRoot != null && primaryRoot != null && resolve(worktreeRoot) === resolve(primaryRoot);
 }
 /**
-* Delete every exited unit with no worktree on disk: its record, brief, mailbox, and the pane
+* Delete every exited unit with no worktree left to close (none on disk, or only the primary checkout): its record, brief, mailbox, and the pane
 * pointer that still names it. Nothing revives an exited unit (`unit restart` takes only a running or
 * stopped one), so these records are read by nobody. A pane pointer is dropped only when it still
 * resolves to the deleted unit, since a multiplexer may have handed the pane id to another unit
@@ -12974,7 +12980,7 @@ async function decommission(ctx, input) {
 	const worktreeExists = worktreeRoot != null && existsSync(worktreeRoot);
 	const primaryRoot = worktreeExists ? await primaryRootOf(exec, worktreeRoot) : rec.worktree?.primaryRoot;
 	const held = rec.worktree?.lease;
-	const onPrimary = worktreeRoot != null && primaryRoot != null && resolve(worktreeRoot) === resolve(primaryRoot);
+	const onPrimary = isPrimaryCheckout(worktreeRoot, primaryRoot);
 	if (onPrimary && input.force) throw new Error(`refusing to close "${input.id}" with --force — its worktree is the primary checkout, which close never alters; close it without --force to end its session and reap its record`);
 	const removesWorktree = worktreeExists && !input.keepWorktree && !held && !onPrimary;
 	if (removesWorktree && !input.force && isDirty(exec, worktreeRoot)) throw new Error(`unit "${input.id}" has uncommitted changes in its worktree — pass --force to discard them`);
