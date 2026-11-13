@@ -130,6 +130,48 @@ describe('spec:cyberlegion/unit', () => {
 			expect(store.getAgent('kept1')?.status).toBe('exited')
 		})
 
+		it('prune keeps the last sharer of a worktree with unlanded work and deletes the last sharer of one whose work landed', () => {
+			const repo = mkdtempSync(join(tmpdir(), 'cl-repo-'))
+			const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' })
+			const commit = (cwd: string, m: string) =>
+				git(cwd, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', m)
+			git(repo, 'init', '-q', '-b', 'main')
+			commit(repo, 'init')
+			const unlanded = `${repo}.unlanded`
+			const landed = `${repo}.landed`
+			git(repo, 'worktree', 'add', '-q', '-b', 'unlanded', unlanded)
+			git(repo, 'worktree', 'add', '-q', '-b', 'landed', landed)
+			commit(unlanded, 'work not on main')
+			const store = new FileStore(space)
+			const rec = {
+				harness: 'claude' as const,
+				pane: null,
+				status: 'exited' as const,
+				createdAt: '2026-01-01T00:00:00.000Z',
+				lastSeen: '2026-01-01T00:00:00.000Z',
+				worktree: null,
+			}
+			store.putAgent({
+				...rec,
+				id: 'keep1',
+				handle: 'keep1',
+				cwd: unlanded,
+				sharedWorktree: { root: unlanded, primaryRoot: repo, owner: 'gone' },
+			})
+			store.putAgent({
+				...rec,
+				id: 'drop1',
+				handle: 'drop1',
+				cwd: landed,
+				sharedWorktree: { root: landed, primaryRoot: repo, owner: 'gone' },
+			})
+			const out = legion(['unit', 'prune'])
+			expect(out).toContain('drop1,deleted')
+			expect(out).not.toContain('keep1')
+			expect(store.getAgent('drop1')).toBeUndefined()
+			expect(store.getAgent('keep1')?.status).toBe('exited')
+		})
+
 		it('who reports a definitive empty state when nothing is registered', () => {
 			const out = legion(['unit', 'who'])
 			expect(out).toContain('0 units')

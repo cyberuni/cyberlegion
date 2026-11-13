@@ -285,7 +285,7 @@ help-and-error.
 |---|---|
 | Actor / goal | A maintainer wants dead units out of the addressable set, and the registry to hold only units that are live or still have work on disk. |
 | Trigger | `unit prune` |
-| Outcome | Every non-exited record whose session is gone becomes `exited`. Then every exited unit with no linked worktree on disk is deleted: its record, brief, mailbox, and the pane pointer that still names it. Only the records it changed are returned, each tagged `exited` (marked and kept) or `deleted`, as a TOON list plus a `<N> pruned (<M> deleted)` aggregate. |
+| Outcome | Every non-exited record whose session is gone becomes `exited`. Then every exited unit that leaves no work on disk is deleted: its record, brief, mailbox, and the pane pointer that still names it. Only the records it changed are returned, each tagged `exited` (marked and kept) or `deleted`, as a TOON list plus a `<N> pruned (<M> deleted)` aggregate. |
 
 **Why an exited unit is deleted.** Nothing revives one: the multiplexer resumes the agents it
 restores (herdr relaunches each Claude pane with `--resume <session id>`), `unit restart` takes only
@@ -297,6 +297,24 @@ worktree has nothing on disk and is deleted. So is one whose recorded worktree i
 **primary checkout** (`worktree.root` equals `worktree.primaryRoot`, the test `unit close` uses): the
 checkout always exists, but close never removes it, so there is nothing left for close to do. Prune
 never touches that checkout.
+
+**A unit that only shares a worktree** (`sharedWorktree`, recorded by a `--cwd` spawn or a register
+into a checkout another unit owns) is kept while it is the **last record pointing at that worktree**,
+the worktree is a linked worktree still on disk, and its work has **not landed**. Once the owner's
+record is gone, that sharer is the only thing left that leads a consumer (a close-sessions sweep) to
+the work, so deleting it would orphan the work. A record points at a worktree when it owns it
+(`worktree.root`) or shares it (`sharedWorktree.root`), whatever its status. When several exited
+sharers point at one worktree and no other record does, prune deletes all but one. The sharer is
+deleted once the worktree is gone, once it is the primary checkout, once another record points at
+it, or once its work has landed.
+
+"Landed" is the worktree library's judgment, the one its `acquire` uses to recycle a worktree: the
+checkout is clean (the spawn marker aside) and its branch has landed on the default branch
+(`listWorktrees`' `merged` and `dirty` facts). `unit prune` asks it once per repository before the
+synchronous pass. A worktree the library cannot judge (detached, no default branch) does not count
+as landed. A library caller that calls `prune` without a `landed` judgment gets the same fail-closed
+reading: no shared worktree counts as landed, so every last sharer of one on disk is kept;
+`landedWorktrees` supplies the judgment `unit prune` uses.
 
 A record is judged dead when its pane is gone, or — for a record with **no pane** — when its
 `lastSeen` is older than the staleness window. Liveness is checked **against the pane's own
@@ -645,8 +663,14 @@ graph TD
   PD0 -- yes --> PD1{"its worktree is on disk?"}
   PD1 -- yes --> PD1P{"that worktree is the primary checkout?"}
   PD1P -- no --> PDK
-  PD1P -- yes --> PD2
-  PD1 -- "no (or never had one)" --> PD2{"records a primary checkout that exists?"}
+  PD1P -- yes --> PDS
+  PD1 -- "no (or never had one)" --> PDS{"shares a linked worktree still on disk?"}
+  PDS -- no --> PD2
+  PDS -- yes --> PDS1{"another record points at it, owned or shared?"}
+  PDS1 -- yes --> PD2
+  PDS1 -- no --> PDS2{"its work has landed?"}
+  PDS2 -- no --> PDK
+  PDS2 -- yes --> PD2{"records a primary checkout that exists?"}
   PD2 -- yes --> PD3["git worktree prune there"]
   PD2 -- no --> PD4
   PD3 --> PD4{"a pane pointer still names it?"}
@@ -881,6 +905,12 @@ adapters.
 | `PD5` | a deleted unit whose own pane pointer remains | `prune drops a deleted unit's own pane pointer` |
 | `PD3` | a deleted unit whose gone worktree records an existing primary checkout | `prune clears git's registration of a deleted unit's gone worktree in the recorded repository` |
 | `PD0 -- no` stopped | a stopped unit with no worktree | `prune never deletes a stopped unit with no worktree` |
+| `PDS2 -- no` | an exited sharer of a linked worktree on disk, the owner's record gone | `prune keeps an exited sharer that is the last record pointing at a worktree on disk, once the owner's record is gone` |
+| `PDS2 -- yes` | an exited sharer of a linked worktree on disk whose work landed, no other record | `prune deletes the last exited sharer of a worktree on disk once that worktree's work has landed` |
+| `PDS1 -- yes` | an exited sharer and the worktree's owner, both with records | `prune deletes an exited sharer while the owner of its worktree still has a record` |
+| `PDS1` two sharers | two exited sharers of one linked worktree on disk, no owner record | `prune keeps exactly one of two exited sharers left pointing at a worktree on disk` |
+| `PDS -- no` gone | an exited sharer whose shared worktree is gone from disk | `prune deletes an exited sharer whose shared worktree is gone from disk` |
+| `PDS -- no` primary | an exited sharer of its repository's primary checkout | `prune deletes an exited sharer of its repository's primary checkout` |
 | `PRT3` | a herdr record with a terminal id, herdr listing that terminal under a new pane id | `prune keeps a unit whose herdr pane moved and follows it to the new pane id` |
 | `PRT2 -- no` | a herdr record with a terminal id, its pane id now another terminal's, its terminal unlisted | `prune marks a unit exited when its herdr pane id now names another terminal` |
 | `PRT1 -- no` | a herdr record with a terminal id, herdr answering no pane list | `prune keeps a moved unit whose terminal herdr cannot list` |

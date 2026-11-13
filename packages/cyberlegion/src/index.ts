@@ -17,7 +17,7 @@ export { listAgentDefs, resolveAgentDef } from './agentdef/resolve.ts'
 export type { DecommissionInput, DecommissionResult } from './decommission.ts'
 export { decommission } from './decommission.ts'
 // ── Identity + registry ────────────────────────────────────────────────────────────────────────
-export type { Exec, IdContext, RegisterInput } from './identity.ts'
+export type { Exec, IdContext, PruneOptions, RegisterInput } from './identity.ts'
 export {
 	bumpLastSeen,
 	detectHarness,
@@ -32,6 +32,7 @@ export {
 	touch,
 } from './identity.ts'
 export { install } from './install.ts'
+export { landedWorktrees } from './landed.ts'
 // ── Mail ───────────────────────────────────────────────────────────────────────────────────────
 export type { InboxItem, InboxQuery, SendInput } from './message.ts'
 export { ack, deleteMessage, inbox, peek, resolveBody, send } from './message.ts'

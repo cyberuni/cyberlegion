@@ -543,6 +543,63 @@ describe('spec:cyberlegion/identity', () => {
 			expect(changed).toEqual([])
 			expect(loadAgent(store, 'u1')?.status).toBe('stopped')
 		})
+
+		describe('a unit that shares a worktree', () => {
+			const linked = () => {
+				const primaryRoot = mkdtempSync(join(tmpdir(), 'cl-primary-'))
+				const root = mkdtempSync(join(tmpdir(), 'cl-linked-'))
+				return { root, primaryRoot }
+			}
+
+			it("prune keeps an exited sharer that is the last record pointing at a worktree on disk, once the owner's record is gone", () => {
+				const wt = linked()
+				exitedUnit('sharer', { sharedWorktree: { ...wt, owner: 'gone-owner' } })
+				mail('sharer')
+				const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+				expect(changed).toEqual([])
+				expect(loadAgent(store, 'sharer')?.status).toBe('exited')
+				expect(store.hasMailbox('sharer')).toBe(true)
+			})
+
+			it("prune deletes the last exited sharer of a worktree on disk once that worktree's work has landed", () => {
+				const wt = linked()
+				exitedUnit('sharer', { sharedWorktree: wt })
+				const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW }, { landed: (r) => r === wt.root })
+				expect(changed.map((r) => [r.id, r.pruned])).toEqual([['sharer', 'deleted']])
+				expect(loadAgent(store, 'sharer')).toBeUndefined()
+			})
+
+			it('prune deletes an exited sharer while the owner of its worktree still has a record', () => {
+				const wt = linked()
+				exitedUnit('owner', { worktree: wt })
+				exitedUnit('sharer', { sharedWorktree: { ...wt, owner: 'owner' } })
+				const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+				expect(changed.map((r) => [r.id, r.pruned])).toEqual([['sharer', 'deleted']])
+				expect(loadAgent(store, 'owner')?.status).toBe('exited')
+			})
+
+			it('prune keeps exactly one of two exited sharers left pointing at a worktree on disk', () => {
+				const wt = linked()
+				exitedUnit('s1', { sharedWorktree: wt })
+				exitedUnit('s2', { sharedWorktree: wt })
+				const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+				expect(changed.filter((r) => r.pruned === 'deleted')).toHaveLength(1)
+				expect(listAgents(store).map((a) => a.id)).toHaveLength(1)
+			})
+
+			it('prune deletes an exited sharer whose shared worktree is gone from disk', () => {
+				exitedUnit('sharer', { sharedWorktree: { root: join(tmpdir(), 'cl-no-such-worktree') } })
+				const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+				expect(changed.map((r) => [r.id, r.pruned])).toEqual([['sharer', 'deleted']])
+			})
+
+			it("prune deletes an exited sharer of its repository's primary checkout", () => {
+				const root = mkdtempSync(join(tmpdir(), 'cl-primary-'))
+				exitedUnit('sharer', { sharedWorktree: { root, primaryRoot: root } })
+				const changed = prune({ store, env: {}, exec: nullExec, now: () => NOW })
+				expect(changed.map((r) => [r.id, r.pruned])).toEqual([['sharer', 'deleted']])
+			})
+		})
 	})
 
 	describe('reconcile: mux-scoped cull against the live pane set', () => {
