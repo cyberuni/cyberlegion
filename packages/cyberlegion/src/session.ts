@@ -12,6 +12,7 @@ import {
 	type Exec,
 	type Harness,
 	type IdContext,
+	openedPaneLocator,
 	randomId,
 	realExec,
 	resolveAgent,
@@ -329,7 +330,7 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		worktree,
 		...(sharedWorktree ? { sharedWorktree } : {}),
 		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
-		pane: muxName === 'tmux' || muxName === 'herdr' ? { mux: muxName, id: target.id } : null,
+		pane: openedPaneLocator(exec, muxName, target.id),
 		status: 'active',
 		createdAt: ts,
 		lastSeen: ts,

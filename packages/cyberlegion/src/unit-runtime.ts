@@ -14,6 +14,8 @@ import {
 	type Harness,
 	type IdContext,
 	loadAgent,
+	locateTerminal,
+	openedPaneLocator,
 	realExec,
 	resolveAgent,
 	resolveSelfId,
@@ -214,7 +216,7 @@ export async function restartUnit(
 	const bound: AgentRecord = {
 		...stopped,
 		status: 'active',
-		pane: mux === 'tmux' || mux === 'herdr' ? { mux, id: target.id } : null,
+		pane: openedPaneLocator(exec, mux, target.id),
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString(),
 	}
 	saveAgent(ctx.store, bound)
@@ -247,6 +249,11 @@ function probeLiveness(ctx: RuntimeContext, rec: AgentRecord): Liveness {
 	if (rec.kind === 'standing' || rec.kind === 'service') return 'none'
 	if (rec.status === 'stopped') return 'stopped'
 	if (rec.status === 'exited') return 'exited'
+	// A herdr pane that moved has a new id and the same terminal, so its terminal is what is probed (#272).
+	if (rec.pane?.mux === 'herdr' && rec.pane.terminal) {
+		const at = locateTerminal(ctx.exec ?? realExec, rec.pane.terminal)
+		return at === undefined ? 'unknown' : at === 'gone' ? 'gone' : 'live'
+	}
 	const pane = runtimePane(ctx, rec)
 	const adapter = pane ? paneAdapter(ctx, rec) : undefined
 	if (!pane || !adapter) return 'unknown'
@@ -280,7 +287,9 @@ export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 	}
 	// Fail closed like service ownership: a runtime the backend cannot rule out is treated as running.
 	const liveness = probeLiveness(ctx, rec)
-	if (oldPane && oldPane !== cur.pane && (liveness === 'live' || liveness === 'unknown')) {
+	// The calling pane's terminal is the unit's own when the unit's herdr pane moved here (#272).
+	const ownTerminal = !!cur.terminal && rec.pane?.mux === 'herdr' && rec.pane.terminal === cur.terminal
+	if (oldPane && oldPane !== cur.pane && !ownTerminal && (liveness === 'live' || liveness === 'unknown')) {
 		throw new Error(
 			`unit "${rec.handle}" may still be running in pane ${oldPane} — stop it first (unit stop ${rec.handle})`,
 		)
@@ -289,7 +298,7 @@ export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 	const bound: AgentRecord = {
 		...rec,
 		status: 'active',
-		pane: { mux: cur.mux, id: cur.pane },
+		pane: { mux: cur.mux, id: cur.pane, ...(cur.terminal ? { terminal: cur.terminal } : {}) },
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString(),
 	}
 	saveAgent(ctx.store, bound)

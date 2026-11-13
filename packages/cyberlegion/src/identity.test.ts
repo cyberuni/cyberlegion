@@ -1154,3 +1154,107 @@ describe('resolveUnitMailbox — whose mailbox mail inbox --unit reads', () => {
 		expect(() => resolveUnitMailbox(store, 'ghost')).toThrow(/no unit addressable as "ghost" \(tried id and handle\)/)
 	})
 })
+
+// #272: herdr gives a pane a new id when it moves to another workspace, and keeps its terminal id
+// (`herdr pane move wRD:p2 --tab wRE:t1` answered `wRE:p2` with the same `terminal_id`, herdr 0.9.5).
+// A herdr pane record carries that terminal id, and prune/reconcile/touch follow it across a move.
+describe('spec:cyberlegion/identity — a moved herdr pane keeps its unit', () => {
+	const FRESH = 1_700_000_000_000
+	type HerdrPane = { pane_id: string; terminal_id: string; agent?: string }
+	/** A herdr 0.9.5 that lists `panes` and answers `pane current` / `pane get` from them. */
+	const herdrAt =
+		(panes: HerdrPane[], current?: string): Exec =>
+		(cmd, args) => {
+			if (cmd !== 'herdr') return null
+			if (args[0] === '--version') return 'herdr 0.9.5'
+			const find = (id: string | undefined) => panes.find((p) => p.pane_id === id)
+			if (args[0] === 'pane' && args[1] === 'list') return JSON.stringify({ result: { panes } })
+			if (args[0] === 'pane' && args[1] === 'read') return find(args[2]) ? '' : null
+			if (args[0] === 'pane' && args[1] === 'current') {
+				const p = find(current)
+				return p ? JSON.stringify({ result: { pane: p, type: 'pane_current' } }) : null
+			}
+			if (args[0] === 'pane' && args[1] === 'get') {
+				const p = find(args[2])
+				return p ? JSON.stringify({ result: { pane: p } }) : null
+			}
+			return null
+		}
+	const before: HerdrPane[] = [{ pane_id: 'wA:p2', terminal_id: 'term_a', agent: 'claude' }]
+	const moved: HerdrPane[] = [{ pane_id: 'wB:p2', terminal_id: 'term_a', agent: 'claude' }]
+
+	function registerInA(): AgentRecord {
+		return register(
+			{ store, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'wA:p2' }, exec: herdrAt(before, 'wA:p2'), now: () => FRESH },
+			{ handle: 'mover', harness: 'claude' },
+		)
+	}
+
+	it('register in a herdr pane records the pane terminal id', () => {
+		expect(registerInA().pane).toEqual({ mux: 'herdr', id: 'wA:p2', terminal: 'term_a' })
+	})
+
+	it('prune keeps a unit whose herdr pane moved and follows it to the new pane id', () => {
+		const rec = registerInA()
+		const changed = prune({ store, env: {}, exec: herdrAt(moved), now: () => FRESH })
+		expect(changed).toEqual([])
+		expect(loadAgent(store, rec.id)?.status).toBe('active')
+		expect(loadAgent(store, rec.id)?.pane).toEqual({ mux: 'herdr', id: 'wB:p2', terminal: 'term_a' })
+		expect(store.resolvePaneId('wB:p2')).toBe(rec.id)
+		expect(store.resolvePaneId('wA:p2')).toBeUndefined()
+	})
+
+	it('reconcile keeps a unit whose herdr pane moved and follows it to the new pane id', () => {
+		const rec = registerInA()
+		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'wB:p9' }
+		const changed = reconcile({ store, env, exec: herdrAt(moved), now: () => FRESH })
+		expect(changed.map((r) => r.id)).not.toContain(rec.id)
+		expect(loadAgent(store, rec.id)?.status).toBe('active')
+		expect(loadAgent(store, rec.id)?.pane?.id).toBe('wB:p2')
+	})
+
+	it('prune marks a unit exited when its herdr pane id now names another terminal', () => {
+		const rec = registerInA()
+		withWorktreeOnDisk(rec.id)
+		const reused: HerdrPane[] = [{ pane_id: 'wA:p2', terminal_id: 'term_other', agent: 'claude' }]
+		const changed = prune({ store, env: {}, exec: herdrAt(reused), now: () => FRESH })
+		expect(changed.map((r) => r.id)).toContain(rec.id)
+		expect(loadAgent(store, rec.id)?.status).toBe('exited')
+	})
+
+	it('prune keeps a moved unit whose terminal herdr cannot list', () => {
+		const rec = registerInA()
+		expect(prune({ store, env: {}, exec: nullExec, now: () => FRESH })).toEqual([])
+		expect(loadAgent(store, rec.id)?.status).toBe('active')
+	})
+
+	it('touch in a moved herdr pane refreshes the unit pane to the one herdr reports', () => {
+		const rec = registerInA()
+		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'wA:p2' }
+		touch({ store, env, exec: herdrAt(moved, 'wB:p2'), now: () => FRESH + 60_000 })
+		const after = loadAgent(store, rec.id)
+		expect(after?.pane).toEqual({ mux: 'herdr', id: 'wB:p2', terminal: 'term_a' })
+		expect(after?.lastSeen).toBe(new Date(FRESH + 60_000).toISOString())
+		expect(store.resolvePaneId('wB:p2')).toBe(rec.id)
+	})
+
+	it('resolveSelfId in a moved herdr pane finds the unit by its terminal', () => {
+		const rec = registerInA()
+		const env = { HERDR_ENV: '1', HERDR_PANE_ID: 'wA:p2' }
+		expect(resolveSelfId({ store, env, exec: herdrAt(moved, 'wB:p2') })).toBe(rec.id)
+	})
+
+	it('a herdr record with no terminal id is pruned by its pane id as before', () => {
+		const rec = registerInA()
+		saveAgent(store, { ...rec, pane: { mux: 'herdr', id: 'wA:p2' } })
+		withWorktreeOnDisk(rec.id)
+		const changed = prune({ store, env: {}, exec: herdrAt(moved), now: () => FRESH })
+		expect(changed.map((r) => r.id)).toContain(rec.id)
+		expect(loadAgent(store, rec.id)?.status).toBe('exited')
+	})
+
+	it('sessionLive reads a unit whose herdr pane moved as live', () => {
+		const rec = registerInA()
+		expect(sessionLive({ store, exec: herdrAt(moved) }, rec)).toBe(true)
+	})
+})

@@ -51,8 +51,11 @@ export interface AgentRecord {
 		owner?: string
 	}
 	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
-	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only. */
-	pane?: { mux: 'tmux' | 'herdr'; id: string; window?: string; session?: string } | null
+	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only.
+	 * `terminal` is herdr-only: the pane's herdr terminal id, which survives a `herdr pane move` that
+	 * gives the pane a new id (#272), so prune and touch follow a moved pane by it. Absent on records
+	 * written before it existed, which are judged by `id` alone. */
+	pane?: { mux: 'tmux' | 'herdr'; id: string; terminal?: string; window?: string; session?: string } | null
 	pid?: number
 	/** A record migrated from an older hub (`admin migrate`) may carry a status this version no
 	 * longer writes — the retired `spawning` is the known case. **Reads preserve it verbatim**: no

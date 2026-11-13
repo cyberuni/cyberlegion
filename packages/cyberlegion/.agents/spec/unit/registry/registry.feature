@@ -362,6 +362,74 @@ Feature: unit registry — register, discover, and prune legion units
     When touch runs
     Then it does not throw and writes nothing
 
+  # ── A moved herdr pane keeps its unit (#272) ──
+
+  Scenario: register in a herdr pane records the pane terminal id
+    Given an unregistered session inside a herdr pane whose terminal id herdr reports
+    When it runs unit register --handle mover --harness claude
+    Then the record's herdr pane locator carries that terminal id
+
+  Scenario: prune keeps a unit whose herdr pane moved and follows it to the new pane id
+    Given a registered agent whose herdr pane locator carries a terminal id
+    And herdr now lists that terminal under a different pane id
+    When a session outside herdr runs unit prune
+    Then that agent's status remains active
+    And the pruned list is empty
+    And the record's pane id is the new pane id
+    And the new pane id resolves to that agent's id
+    And the old pane id resolves to no agent
+
+  Scenario: reconcile keeps a unit whose herdr pane moved and follows it to the new pane id
+    Given a registered agent whose herdr pane locator carries a terminal id
+    And herdr now lists that terminal under a different pane id
+    When reconcile runs from within a herdr session
+    Then that agent is not in the changes
+    And that agent's status remains active
+    And the record's pane id is the new pane id
+
+  Scenario: prune marks a unit exited when its herdr pane id now names another terminal
+    Given a registered agent whose herdr pane locator carries a terminal id
+    And the agent's worktree is on disk
+    And herdr lists the agent's pane id under another terminal and does not list the agent's terminal
+    When a session runs unit prune
+    Then that agent's status becomes exited
+    And it is included in the pruned list
+
+  Scenario: prune keeps a moved unit whose terminal herdr cannot list
+    Given a registered agent whose herdr pane locator carries a terminal id
+    And herdr answers no pane list
+    When a session runs unit prune
+    Then that agent's status remains active
+    And the pruned list is empty
+
+  Scenario: touch in a moved herdr pane refreshes the unit pane to the one herdr reports
+    Given a registered agent whose herdr pane moved, its shell still holding the old $HERDR_PANE_ID
+    And herdr 0.9.5 reports the calling pane's new id and its terminal id
+    When the caller runs a command that resolves its own identity
+    Then that agent's lastSeen is refreshed to now
+    And the record's herdr pane locator is the new pane id with that terminal id
+    And the new pane id resolves to that agent's id
+
+  Scenario: resolveSelfId in a moved herdr pane finds the unit by its terminal
+    Given a registered agent whose herdr pane moved, with no pane pointer for the new pane id
+    And herdr 0.9.5 reports the calling pane's new id and the agent's terminal id
+    When resolveSelfId runs
+    Then it returns that agent's id
+
+  Scenario: a herdr record with no terminal id is pruned by its pane id as before
+    Given a registered agent whose herdr pane locator carries no terminal id
+    And the agent's worktree is on disk
+    And herdr lists the agent's terminal under a different pane id
+    When a session runs unit prune
+    Then that agent's status becomes exited
+    And it is included in the pruned list
+
+  Scenario: sessionLive reads a unit whose herdr pane moved as live
+    Given a registered agent whose herdr pane locator carries a terminal id
+    And herdr now lists that terminal under a different pane id
+    When sessionLive judges the agent
+    Then it answers live
+
   # ── Standing identity (a session-independent, prune-exempt owner inbox) ──
 
   Scenario: unit register --standing mints a standing record with a handle-derived stable id

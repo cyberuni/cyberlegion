@@ -19,6 +19,10 @@ result and exit. A standing owner can have a **presence**: one live unit standin
 
 - **record** — one entry in the registry: id, handle, harness, cwd, worktree, a pane locator tagged
   with its multiplexer (tmux or herdr), status, and timestamps (`createdAt`, `lastSeen`).
+- **terminal id** — herdr's `terminal_id` for a pane, carried on a herdr pane locator as `terminal`.
+  herdr gives a pane a new pane id when it moves to another workspace but keeps its terminal id, so
+  the terminal id is what identifies a herdr unit's pane across a move (#272). A record written
+  before the field existed has none and is judged by its pane id alone.
 - **pane pointer** — a pane-id → unit-id entry, written when a session registers inside a pane.
   It is how a later call finds its own id.
 - **self id** — the caller's own unit id, recovered by `resolveSelfId`.
@@ -209,6 +213,14 @@ trusted only when `herdr --version` reads 0.8.2 or later; an older or unreadable
 env id. `register` keys its record and
 pane pointer by the same checked pane. tmux pane ids last as long as the pane and need no check.
 
+herdr's `pane current` answer also names the calling pane's terminal id. When it does, the pane
+pointer is checked against it: a pointer whose record carries a different terminal id is stale
+(herdr handed the id to this pane after the unit's own pane moved away), and a pane with no pointer
+may be one that moved. Either way the record bearing this terminal id is the caller. A pointer
+whose record carries no terminal id is trusted as before. `register` records that terminal id on
+the herdr pane locator, as `unit rebind` and `unit spawn` / `unit restart` do (`unit/runtime`,
+`unit/lifecycle`).
+
 Extensions: an **unmapped pane** resolves to `undefined` and does **not** fall back to
 `$CYBERLEGION_AGENT_ID`.
 
@@ -222,6 +234,12 @@ Extensions: an **unmapped pane** resolves to `undefined` and does **not** fall b
 
 Extensions: an unregistered caller — a no-op, never throwing (best-effort). `prune` reads
 `lastSeen` only for a pane-less record; a pane-bound one is judged by its pane.
+
+**A unit whose herdr pane moved heals its own record.** When herdr reports the calling pane and its
+terminal id, and the caller's record is a herdr record, `touch` writes that pane id and terminal id
+to the record and moves its pane pointer with it, so a unit that takes a turn after a move is found
+by its new pane id (#272). The old pointer is dropped only while it still names this unit. A herdr
+that does not report the calling pane leaves the record's pane as it was.
 
 ### unit whoami — print this session's own identity
 
@@ -282,6 +300,14 @@ A record is judged dead when its pane is gone, or — for a record with **no pan
 multiplexer** — a tmux locator through `tmux has-session`/`list-panes`, a herdr locator through a
 herdr pane-existence query — so a live herdr pane is never false-reaped by a tmux check, and the
 reverse. `prune` reconcile-culls too, before judging each record.
+
+**A herdr record that carries its terminal id is judged by that terminal, not its pane id.** herdr
+gives a pane a new id when it moves to another workspace and keeps its terminal id, and herdr pane
+ids recur, so the recorded pane id can be absent for a live unit or present for a dead one. A
+record whose terminal herdr lists under some pane is live; when that pane id differs from the
+record's, the record and its pane pointer follow it to the new id. A record whose terminal is
+absent from a non-empty list is gone, even if its old pane id now names another terminal's pane. No
+list at all decides nothing. `sessionLive` judges such a record the same way.
 
 Extensions — each is a record `prune` leaves alone:
 
@@ -520,8 +546,14 @@ graph TD
   SI1 -- yes --> SIH{"herdr pane, and herdr >= 0.8.2 reports the calling pane?"}
   SIH -- yes --> SIHY["key by herdr's pane id"] --> SI2
   SIH -- no --> SI2{"a pane pointer for this pane?"}
-  SI2 -- yes --> SI2Y["the pointer's id"]
-  SI2 -- no --> SI2N["undefined — no fallback to the env var"]
+  SI2 -- yes --> SIT{"herdr named the terminal, and the pointer's record carries a different one?"}
+  SIT -- no --> SI2Y["the pointer's id"]
+  SIT -- yes --> SIT1
+  SI2 -- no --> SIT0{"herdr named the terminal?"}
+  SIT0 -- no --> SI2N["undefined — no fallback to the env var"]
+  SIT0 -- yes --> SIT1{"a herdr record carries that terminal?"}
+  SIT1 -- yes --> SITY["that record's id"]
+  SIT1 -- no --> SI2N
   SI1 -- no --> SI3{"$CYBERLEGION_AGENT_ID set?"}
   SI3 -- yes --> SI3Y["that id"]
   SI3 -- no --> SI3N["undefined"]
@@ -534,6 +566,9 @@ graph TD
   TC0["touch"] --> TC1{"self id resolves to a record?"}
   TC1 -- no --> TC1N["no-op; never throws, writes nothing"]
   TC1 -- yes --> TC2["lastSeen := now"]
+  TC2 --> TC3{"herdr reported the calling pane and its terminal, and the record is a herdr record?"}
+  TC3 -- no --> TC3N["done"]
+  TC3 -- yes --> TC4["pane id, terminal := herdr's; pane pointer moves with it"]
 ```
 
 ### whoami
@@ -586,7 +621,13 @@ graph TD
   PR4 -- no --> PR5{"lastSeen older than 15 minutes?"}
   PR5 -- yes --> PRX["mark exited; return it"]
   PR5 -- no --> PRK["keep"]
-  PR4 -- yes --> PR6{"the pane's own mux says the pane exists?"}
+  PR4 -- yes --> PRT{"a herdr pane with a terminal id?"}
+  PRT -- yes --> PRT1{"herdr answers a non-empty pane list?"}
+  PRT1 -- no --> PRK
+  PRT1 -- yes --> PRT2{"the terminal is in the list?"}
+  PRT2 -- no --> PRX
+  PRT2 -- yes --> PRT3["follow it: pane id and pointer := the listed pane id"] --> PRK
+  PRT -- no --> PR6{"the pane's own mux says the pane exists?"}
   PR6 -- yes --> PRK
   PR6 -- no --> PR7{"that mux answers a non-empty pane list?"}
   PR7 -- no --> PRK
@@ -627,7 +668,11 @@ graph TD
   RC5 -- no --> RC5S["skip — left to prune's timer"]
   RC5 -- yes --> RC6{"the pane is on the caller's mux?"}
   RC6 -- no --> RC6S["skip — the other mux is unseen"]
-  RC6 -- yes --> RC7{"the pane is in the live list?"}
+  RC6 -- yes --> RCT{"a herdr pane with a terminal id?"}
+  RCT -- yes --> RCT1{"the terminal is in herdr's pane list?"}
+  RCT1 -- no --> RC7X
+  RCT1 -- yes --> RCT2["follow it: pane id and pointer := the listed pane id"] --> RC7K
+  RCT -- no --> RC7{"the pane is in the live list?"}
   RC7 -- yes --> RC7K["keep"]
   RC7 -- no --> RC7X["mark exited; return it"]
   RC4S --> RC8{"adopt on?"}
@@ -773,6 +818,8 @@ adapters.
 | `SIH` no | herdr gives no answer for the calling pane | `a herdr pane herdr cannot report resolves self-id from $HERDR_PANE_ID` |
 | `SIH` no, by version | a herdr older than 0.8.2, or of unreadable version, reports a pane that differs from `$HERDR_PANE_ID` | `a herdr that cannot be trusted to report the calling pane keeps $HERDR_PANE_ID` |
 | `SIHY` via register | register in a herdr pane whose `$HERDR_PANE_ID` names another unit's pane | `register in a herdr pane whose $HERDR_PANE_ID went stale keys the pane herdr reports` |
+| `SITY` | a moved herdr pane with no pointer for its new id, herdr naming the unit's terminal | `resolveSelfId in a moved herdr pane finds the unit by its terminal` |
+| `SITY` via register | register in a herdr pane whose terminal id herdr reports | `register in a herdr pane records the pane terminal id` |
 
 ### touch
 
@@ -780,6 +827,7 @@ adapters.
 |---|---|---|
 | `TC2` | a registered agent with an old lastSeen | `touch refreshes the caller's last-seen` |
 | `TC1N` | no resolvable self id | `touch is a no-op for an unregistered caller` |
+| `TC4` | a unit whose herdr pane moved, herdr reporting the new pane and its terminal | `touch in a moved herdr pane refreshes the unit pane to the one herdr reports` |
 
 ### unit whoami
 
@@ -826,6 +874,11 @@ adapters.
 | `PD5` | a deleted unit whose own pane pointer remains | `prune drops a deleted unit's own pane pointer` |
 | `PD3` | a deleted unit whose gone worktree records an existing primary checkout | `prune clears git's registration of a deleted unit's gone worktree in the recorded repository` |
 | `PD0 -- no` stopped | a stopped unit with no worktree | `prune never deletes a stopped unit with no worktree` |
+| `PRT3` | a herdr record with a terminal id, herdr listing that terminal under a new pane id | `prune keeps a unit whose herdr pane moved and follows it to the new pane id` |
+| `PRT2 -- no` | a herdr record with a terminal id, its pane id now another terminal's, its terminal unlisted | `prune marks a unit exited when its herdr pane id now names another terminal` |
+| `PRT1 -- no` | a herdr record with a terminal id, herdr answering no pane list | `prune keeps a moved unit whose terminal herdr cannot list` |
+| `PRT -- no` | a herdr record with no terminal id, its pane id unlisted | `a herdr record with no terminal id is pruned by its pane id as before` |
+| `PRT3` via `sessionLive` | a herdr record with a terminal id, herdr listing that terminal under a new pane id | `sessionLive reads a unit whose herdr pane moved as live` |
 
 ### unit who --reconcile
 
@@ -839,6 +892,7 @@ adapters.
 | `RC1N` | caller in no multiplexer pane | `reconcile outside any multiplexer pane culls nothing` |
 | `RC3N` | caller in tmux, tmux answering no pane list | `reconcile culls nothing when the current multiplexer cannot be queried` |
 | `PR2` → `RC7X` | caller in tmux, a record's tmux pane absent, run through `unit prune` | `prune reconcile-culls too` |
+| `RCT2` | caller in herdr, a herdr record with a terminal id listed under a new pane id | `reconcile keeps a unit whose herdr pane moved and follows it to the new pane id` |
 | `AD4` | caller in herdr, a live claude pane with no record | `reconcile adopts a live herdr pane with a detectable harness and no record` |
 | `AD3Y` | a live unregistered claude pane with a cwd | `an adopted record's handle derives from the pane's reported cwd basename` |
 | `AD3N` | a live unregistered claude pane with no cwd | `an adopted pane with no reported cwd falls back to the id-prefix handle` |

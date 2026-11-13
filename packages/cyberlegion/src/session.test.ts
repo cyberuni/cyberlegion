@@ -1110,6 +1110,26 @@ describe('spec:cyberlegion/mux', () => {
 			expect(loadAgent(store, res.agent.id)?.pane).toEqual({ mux: 'herdr', id: 'herdr-pane-1' })
 		})
 
+		it('a herdr spawn records the new pane terminal id', async () => {
+			const exec: Exec = (cmd, args) => {
+				if (cmd === 'git') {
+					if (args.includes('--git-common-dir')) return `${primaryRoot}/.git`
+					if (args.includes('worktree')) return ''
+					return null
+				}
+				if (cmd === 'herdr' && args[1] === 'split')
+					return JSON.stringify({ result: { pane: { pane_id: 'herdr-pane-1', tab_id: 'w3:tT' }, type: 'pane_info' } })
+				if (cmd === 'herdr' && args[1] === 'get' && args[2] === 'herdr-pane-1')
+					return JSON.stringify({ result: { pane: { pane_id: 'herdr-pane-1', terminal_id: 'term_1' } } })
+				return null
+			}
+			const res = await spawn(
+				{ store, env: { HERDR_ENV: '1' }, exec },
+				{ harness: 'claude', task: 't', at: 'pane:right' },
+			)
+			expect(loadAgent(store, res.agent.id)?.pane).toEqual({ mux: 'herdr', id: 'herdr-pane-1', terminal: 'term_1' })
+		})
+
 		it("with --at workspace, creates the worktree via herdr's own atomic worktree create, not git worktree add", async () => {
 			const gitWorktreeCalls: string[][] = []
 			const herdrCalls: string[][] = []

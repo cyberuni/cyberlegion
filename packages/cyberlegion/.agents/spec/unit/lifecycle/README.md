@@ -504,7 +504,7 @@ graph TD
   SPBK -- yes --> SPBK1["throw — fires AFTER creation; nothing rolls it back"]
   SPBK -- no --> SPL["stamp the worktree's own .agents/cyberlegion marker (a recycle's clean took it)"]
   SPO --> SPN
-  SPL --> SPN["register: status active, handle, harness, cwd, worktree and its repository's primary checkout, pane locator, brief path, launch command, spawnedBy when the caller has an id"]
+  SPL --> SPN["register: status active, handle, harness, cwd, worktree and its repository's primary checkout, pane locator (a herdr one with its terminal id), brief path, launch command, spawnedBy when the caller has an id"]
   SPN --> SPIB{"the realized launch hands the def's instructions to the brief? — cursor only"}
   SPIB -- yes --> SPIB1["write the brief FILE: '## Agent instructions' + the instructions, then '## Brief' + the task (the label already read the task alone)"]
   SPIB -- no --> SPIB2["write the brief FILE: the task as given"]

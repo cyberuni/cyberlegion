@@ -646,6 +646,53 @@ describe('spec:cyberlegion/unit/runtime — unit rebind', () => {
 		expect(store.resolvePaneId('w13:p1')).toBe('other')
 	})
 
+	it('rebind records the calling pane terminal id herdr reports', () => {
+		unit({ id: 'u1', status: 'stopped', pane: null })
+		const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
+		const herdrReports: Exec = (cmd, args) => {
+			if (cmd !== 'herdr') return null
+			if (args[0] === '--version') return 'herdr 0.9.5'
+			if (args[0] === 'pane' && args[1] === 'current')
+				return JSON.stringify({ result: { pane: { pane_id: 'w1:p5', terminal_id: 'term_5' }, type: 'pane_current' } })
+			return null
+		}
+		rebindUnit({ ...rctx(be.adapter, inHerdr('w1:p5')), exec: herdrReports }, 'u1')
+		expect(loadAgent(store, 'u1')?.pane).toEqual({ mux: 'herdr', id: 'w1:p5', terminal: 'term_5' })
+	})
+
+	it('rebind refuses a unit whose herdr pane moved and is still live under a new id', () => {
+		unit({ id: 'u1', pane: { mux: 'herdr', id: 'w1:p2', terminal: 'term_2' } })
+		const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
+		const herdrMoved: Exec = (cmd, args) => {
+			if (cmd !== 'herdr' || args[0] !== 'pane' || args[1] !== 'list') return null
+			return JSON.stringify({
+				result: {
+					panes: [
+						{ pane_id: 'w9:p2', terminal_id: 'term_2' },
+						{ pane_id: 'w1:p5', terminal_id: 'term_5' },
+					],
+				},
+			})
+		}
+		expect(() => rebindUnit({ ...rctx(be.adapter, inHerdr('w1:p5')), exec: herdrMoved }, 'u1')).toThrow(/stop/)
+	})
+
+	it('rebind from the pane a unit moved to binds that pane', () => {
+		unit({ id: 'u1', pane: { mux: 'herdr', id: 'w1:p2', terminal: 'term_2' } })
+		const be = fakeBackend({ name: 'herdr', live: ['w9:p2'] })
+		const herdrMoved: Exec = (cmd, args) => {
+			if (cmd !== 'herdr') return null
+			if (args[0] === '--version') return 'herdr 0.9.5'
+			const pane = { pane_id: 'w9:p2', terminal_id: 'term_2' }
+			if (args[0] === 'pane' && args[1] === 'list') return JSON.stringify({ result: { panes: [pane] } })
+			if (args[0] === 'pane' && args[1] === 'current') return JSON.stringify({ result: { pane } })
+			return null
+		}
+		rebindUnit({ ...rctx(be.adapter, inHerdr('w1:p2')), exec: herdrMoved }, 'u1')
+		expect(loadAgent(store, 'u1')?.pane).toEqual({ mux: 'herdr', id: 'w9:p2', terminal: 'term_2' })
+		expect(store.resolvePaneId('w9:p2')).toBe('u1')
+	})
+
 	it('rebind refuses a unit that still has a live pane', () => {
 		unit({ id: 'u1', pane: herdrPane('w1:p2') })
 		const be = fakeBackend({ name: 'herdr', live: ['w1:p2', 'w1:p5'] })
