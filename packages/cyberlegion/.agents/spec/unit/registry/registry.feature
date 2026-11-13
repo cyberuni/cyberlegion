@@ -150,12 +150,14 @@ Feature: unit registry — register, discover, and prune legion units
 
   Scenario: prune marks an agent exited when its tmux pane is gone
     Given a registered agent whose tmux pane no longer exists
+    And the agent's worktree is on disk
     When a session runs unit prune
     Then that agent's status becomes exited
     And it is included in the pruned list
 
   Scenario: prune marks an agent exited when its herdr pane is gone
     Given a registered agent whose record locates a herdr pane that no longer exists
+    And the agent's worktree is on disk
     When a session runs unit prune
     Then that agent's status becomes exited
     And it is included in the pruned list
@@ -168,6 +170,7 @@ Feature: unit registry — register, discover, and prune legion units
 
   Scenario: prune marks a pane-less agent exited when its last-seen is stale
     Given a registered agent with no pane whose lastSeen is older than the staleness window
+    And the agent's worktree is on disk
     When a session runs unit prune
     Then that agent's status becomes exited
 
@@ -193,6 +196,60 @@ Feature: unit registry — register, discover, and prune legion units
   Scenario: prune leaves a stopped unit untouched however stale its last-seen
     Given a registered unit with status stopped and no pane
     And the unit's lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then that unit's status remains stopped
+    And the pruned list is empty
+
+  # ── prune deletes exited units with nothing left on disk ──
+
+  Scenario: prune deletes an exited unit that never had a worktree, with its brief and mailbox
+    Given a registered unit with status exited and no worktree
+    And the unit has a stored brief and a mailbox holding one message
+    When a session runs unit prune
+    Then the hub holds no record for that unit
+    And the hub holds no brief and no mailbox for that unit
+    And the pruned list includes that unit as deleted
+
+  Scenario: prune deletes an exited unit whose worktree is gone from disk
+    Given a registered unit with status exited whose recorded worktree no longer exists on disk
+    When a session runs unit prune
+    Then the hub holds no record for that unit
+    And the pruned list includes that unit as deleted
+
+  Scenario: prune keeps an exited unit whose worktree is still on disk
+    Given a registered unit with status exited whose recorded worktree exists on disk
+    And the unit has a mailbox holding one message
+    When a session runs unit prune
+    Then that unit's status remains exited
+    And its mailbox still exists
+    And the pruned list is empty
+
+  Scenario: prune deletes a unit it marks exited when the unit has no worktree
+    Given a registered agent with no pane and no worktree whose lastSeen is older than the staleness window
+    When a session runs unit prune
+    Then the hub holds no record for that agent
+    And the pruned list includes that agent as deleted
+
+  Scenario: prune leaves the pane pointer of a deleted unit when another unit now holds that pane
+    Given a registered unit with status exited and no worktree whose record locates herdr pane w1:p1
+    And the pane pointer for w1:p1 names a different unit
+    When a session runs unit prune
+    Then the pane pointer for w1:p1 still names the different unit
+
+  Scenario: prune drops a deleted unit's own pane pointer
+    Given a registered unit with status exited and no worktree whose record locates herdr pane w1:p1
+    And the pane pointer for w1:p1 names that unit
+    When a session runs unit prune
+    Then no pane pointer for w1:p1 exists
+
+  Scenario: prune clears git's registration of a deleted unit's gone worktree in the recorded repository
+    Given a registered unit with status exited whose recorded worktree is gone from disk
+    And the record names the worktree's primary checkout, which exists on disk
+    When a session runs unit prune
+    Then git worktree prune runs in that primary checkout
+
+  Scenario: prune never deletes a stopped unit with no worktree
+    Given a registered unit with status stopped and no worktree
     When a session runs unit prune
     Then that unit's status remains stopped
     And the pruned list is empty
@@ -582,6 +639,7 @@ Feature: unit registry — register, discover, and prune legion units
 
   Scenario: prune reconcile-culls too
     Given a session inside a tmux pane and a registered agent whose tmux pane is not in the live tmux pane list
+    And the agent's worktree is on disk
     When a session runs unit prune
     Then that agent's status becomes exited
 

@@ -140,8 +140,9 @@ export interface RestartResult {
  * record to the new pane, and ring it. When the record carries the harness's conversation id and the
  * harness can resume by id, the session resumes that conversation and is rung to continue, with the
  * plain launch as a shell fallback should the harness reject the id; otherwise (or with `fresh`) it
- * starts empty and is rung to read its brief — a rebrief. Every refusal runs before anything is torn
- * down.
+ * starts empty and is rung to read its brief — a rebrief. An exited unit is refused: its session
+ * ended without a `unit stop`, and the multiplexer that resumes agents has already brought back any
+ * that were coming back. Every refusal runs before anything is torn down.
  *
  * The unit is recorded `stopped` before the open, so a restart interrupted between the two leaves an
  * ordinary stopped unit and a rerun recovers it; nothing needs a separate repair path.
@@ -154,6 +155,11 @@ export async function restartUnit(
 	const rec = resolveAgent(ctx.store, ref)
 	assertHasRuntime(rec, ref)
 	assertNotSelf(ctx, rec, 'restart')
+	if (rec.status === 'exited') {
+		throw new Error(
+			`unit "${rec.handle}" has exited — restart takes only a running or stopped unit; spawn a new unit instead, or run unit rebind ${rec.handle} from a session resumed by hand`,
+		)
+	}
 	const harness = rec.harness as Harness | undefined
 	if (!harness || !(harness in LAUNCH_MAP)) {
 		throw new Error(
@@ -332,7 +338,7 @@ function controlsFor(ctx: RuntimeContext, rec: AgentRecord, liveness: Liveness):
 	}
 	const hasPane = runtimePane(ctx, rec) !== undefined
 	if (hasPane && (liveness === 'live' || liveness === 'gone' || liveness === 'unknown')) controls.push('stop')
-	if (rec.harness && rec.harness in LAUNCH_MAP && existsSync(rec.cwd)) controls.push('restart')
+	if (liveness !== 'exited' && rec.harness && rec.harness in LAUNCH_MAP && existsSync(rec.cwd)) controls.push('restart')
 	if (liveness === 'stopped' || liveness === 'exited' || liveness === 'gone') controls.push('rebind')
 	controls.push('close')
 	return controls

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import {
 	currentPane,
@@ -728,14 +729,21 @@ function paneGone(exec: Exec, pane: NonNullable<AgentRecord['pane']>, lists: Map
 	return panes.length > 0 && !panes.some((p) => p.id === pane.id)
 }
 
-/** Mark agents whose session is gone as exited. Reconcile-culls against the current mux's live set
- * first, then judges each remaining record (covers the other mux and sessions outside any
- * multiplexer pane): a pane-bound record by its pane alone — a live or unprobeable pane keeps it
- * whatever its last-seen — and a pane-less record by the staleness timer, its only signal. */
-export function prune(ctx: IdContext): AgentRecord[] {
+/** A record `prune` changed: `exited` when it was marked and kept, `deleted` when it was removed. */
+export type PrunedRecord = AgentRecord & { pruned: 'exited' | 'deleted' }
+
+/**
+ * Mark agents whose session is gone as exited, then delete every exited unit with nothing left to
+ * work from. Reconcile-culls against the current mux's live set first, then judges each remaining
+ * record (covers the other mux and sessions outside any multiplexer pane): a pane-bound record by its
+ * pane alone — a live or unprobeable pane keeps it whatever its last-seen — and a pane-less record by
+ * the staleness timer, its only signal. An exited unit whose worktree is still on disk is kept, since
+ * `unit close` owns removing that worktree; every other exited unit is deleted with `deleteExited`.
+ */
+export function prune(ctx: IdContext): PrunedRecord[] {
 	const exec = ctx.exec ?? realExec
 	const now = ctx.now?.() ?? Date.now()
-	const changed: AgentRecord[] = reconcile(ctx)
+	const marked: AgentRecord[] = reconcile(ctx)
 	const lists = new Map<string, LivePane[]>()
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
@@ -743,8 +751,46 @@ export function prune(ctx: IdContext): AgentRecord[] {
 		if (dead) {
 			rec.status = 'exited'
 			saveAgent(ctx.store, rec)
-			changed.push(rec)
+			marked.push(rec)
 		}
 	}
-	return changed
+	const deleted = deleteExited(ctx)
+	const gone = new Set(deleted.map((r) => r.id))
+	return [
+		...marked.filter((r) => !gone.has(r.id)).map((r): PrunedRecord => ({ ...r, pruned: 'exited' })),
+		...deleted.map((r): PrunedRecord => ({ ...r, pruned: 'deleted' })),
+	]
+}
+
+/** Whether an exited record still has a worktree on disk — the one thing it leaves behind that
+ * `unit close` must deal with. A record that never had a worktree has nothing on disk. */
+function worktreeOnDisk(rec: AgentRecord): boolean {
+	return rec.worktree?.root != null && existsSync(rec.worktree.root)
+}
+
+/**
+ * Delete every exited unit with no worktree on disk: its record, brief, mailbox, and the pane
+ * pointer that still names it. Nothing revives an exited unit (`unit restart` takes only a running or
+ * stopped one), so these records are read by nobody. A pane pointer is dropped only when it still
+ * resolves to the deleted unit, since a multiplexer may have handed the pane id to another unit
+ * since. A worktree that is gone from disk may still be registered with git, and the record is the
+ * last place that names its repository, so that registration is cleared first, best-effort, as
+ * `unit close` does. No pane is torn down: an exited unit's pane is already gone or belongs to
+ * someone else.
+ */
+function deleteExited(ctx: IdContext): AgentRecord[] {
+	const exec = ctx.exec ?? realExec
+	const deleted: AgentRecord[] = []
+	for (const rec of listAgents(ctx.store)) {
+		if (rec.status !== 'exited' || isSessionIndependent(rec) || worktreeOnDisk(rec)) continue
+		const primaryRoot = rec.worktree?.primaryRoot
+		if (primaryRoot && existsSync(primaryRoot)) exec('git', ['-C', primaryRoot, 'worktree', 'prune'])
+		const pane = rec.pane?.id ?? ctx.store.findPaneByAgentId(rec.id)
+		if (pane && ctx.store.resolvePaneId(pane) === rec.id) ctx.store.removePaneIndex(pane)
+		ctx.store.removeAgent(rec.id)
+		ctx.store.removeAgentData(rec.id)
+		ctx.store.removeMailbox(rec.id)
+		deleted.push(rec)
+	}
+	return deleted
 }

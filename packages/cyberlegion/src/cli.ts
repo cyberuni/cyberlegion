@@ -298,7 +298,7 @@ syncsUnits(withGlobals(unit.command('who')))
 	.action(runWho)
 
 syncsUnits(withGlobals(unit.command('prune')))
-	.description('mark dead units exited and sweep')
+	.description('mark dead units exited and delete exited units with no worktree on disk')
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		touch(ctx)
@@ -310,8 +310,9 @@ syncsUnits(withGlobals(unit.command('prune')))
 				[
 					{ key: 'id', get: (a) => a.id },
 					{ key: 'handle', get: (a) => a.handle },
+					{ key: 'pruned', get: (a) => a.pruned },
 				],
-				`${changed.length} pruned`,
+				`${changed.length} pruned (${changed.filter((a) => a.pruned === 'deleted').length} deleted)`,
 			),
 			json: changed,
 		})
