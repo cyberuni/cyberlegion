@@ -1,5 +1,12 @@
 # cyberlegion
 
+## 2.0.2
+
+### Patch Changes
+
+- c0a4376: Update runtime dependencies.
+- fbb0921: Update runtime dependencies.
+
 ## 2.0.1
 
 ### Patch Changes

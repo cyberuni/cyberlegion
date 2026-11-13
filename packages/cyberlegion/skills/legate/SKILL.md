@@ -14,7 +14,7 @@ its own.
 > **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
 > this plugin ships. The path is relative to this skill's own directory, not the working directory.
 > If you cannot resolve it, run the published CLI of the version that shipped this skill instead,
-> with the same arguments: `npx -y cyberlegion@2.0.1`.
+> with the same arguments: `npx -y cyberlegion@2.0.2`.
 
 ## Doorbell vs mailbox
 
