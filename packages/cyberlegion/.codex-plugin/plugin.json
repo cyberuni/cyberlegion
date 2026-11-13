@@ -1,6 +1,6 @@
 {
 	"name": "cyberlegion",
-	"version": "2.0.1",
+	"version": "2.0.2",
 	"description": "Agent session spawning, messaging, and dispatch — the Legion and its Legate.",
 	"author": {
 		"name": "unional"
