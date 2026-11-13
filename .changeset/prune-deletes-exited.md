@@ -1,5 +1,5 @@
 ---
-'cyberlegion': minor
+'cyberlegion': major
 ---
 
 `unit prune` now deletes every exited unit with no worktree on disk: its record, brief, mailbox, and the pane pointer that still names it. An exited unit whose worktree is still on disk is kept for `unit close`, and a stopped unit is never touched. Each pruned row now says whether the unit was `exited` or `deleted`.
