@@ -30,4 +30,4 @@ minimumReleaseAgeExclude:
   # Renovate security update: smol-toml@1.9.0
   - smol-toml@1.9.0
   # min-release-age: lift cyber-mux@0.11.0 until 2026-11-07T12:00:00Z
-  - 'cyber-mux@0.11.0'
+  - "cyber-mux@0.11.0"
