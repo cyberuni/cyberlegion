@@ -204,7 +204,10 @@ In a herdr pane the env id is checked against herdr's own `pane current`, and he
 The env names the pane the shell was launched in, and herdr gives a pane a new id when it moves to
 another tab or workspace while the shell keeps its launch-time `$HERDR_PANE_ID`. herdr pane ids
 also recur on a hub, so a stale env id can name another unit's pane, and the caller would act as
-that unit (#154). When herdr gives no answer, the env id stands. `register` keys its record and
+that unit (#154). When herdr gives no answer, the env id stands. Before 0.8.2, `pane current`
+answered another client's focused pane (herdr #2297), so an answer that differs from the env id is
+trusted only when `herdr --version` reads 0.8.2 or later; an older or unreadable version keeps the
+env id. `register` keys its record and
 pane pointer by the same checked pane. tmux pane ids last as long as the pane and need no check.
 
 Extensions: an **unmapped pane** resolves to `undefined` and does **not** fall back to
@@ -496,7 +499,7 @@ graph TD
 ```mermaid
 graph TD
   SI0["resolveSelfId"] --> SI1{"in a tmux or herdr pane? ($TMUX_PANE, $HERDR_PANE_ID, $CYBER_MUX_PANE)"}
-  SI1 -- yes --> SIH{"herdr pane, and herdr reports the calling pane?"}
+  SI1 -- yes --> SIH{"herdr pane, and herdr >= 0.8.2 reports the calling pane?"}
   SIH -- yes --> SIHY["key by herdr's pane id"] --> SI2
   SIH -- no --> SI2{"a pane pointer for this pane?"}
   SI2 -- yes --> SI2Y["the pointer's id"]
@@ -735,6 +738,7 @@ adapters.
 | `SI2N` | a tmux or herdr pane with no pointer, `$CYBERLEGION_AGENT_ID` set | `an unregistered multiplexer pane does not fall back to $CYBERLEGION_AGENT_ID` |
 | `SIHY` | a herdr pane whose `$HERDR_PANE_ID` names another unit's pane | `a herdr pane whose $HERDR_PANE_ID went stale resolves the pane herdr reports, not the unit holding the stale id` |
 | `SIH` no | herdr gives no answer for the calling pane | `a herdr pane herdr cannot report resolves self-id from $HERDR_PANE_ID` |
+| `SIH` no, by version | a herdr older than 0.8.2, or of unreadable version, reports a pane that differs from `$HERDR_PANE_ID` | `a herdr that cannot be trusted to report the calling pane keeps $HERDR_PANE_ID` |
 | `SIHY` via register | register in a herdr pane whose `$HERDR_PANE_ID` names another unit's pane | `register in a herdr pane whose $HERDR_PANE_ID went stale keys the pane herdr reports` |
 
 ### touch

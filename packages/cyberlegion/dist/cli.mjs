@@ -10442,16 +10442,27 @@ function storablePane(env) {
 * launched in, and for herdr that goes stale: herdr gives a pane a new id when it moves to another
 * tab or workspace, while the shell keeps its launch-time `$HERDR_PANE_ID`, and herdr ids recur on a
 * hub, so the stale id can be another unit's pane (#154). herdr's `pane current` resolves the
-* calling pane itself, so its answer wins. When herdr gives no answer, the env id stands. tmux pane
+* calling pane itself, so its answer wins on a herdr that answers it truly (0.8.2 on). When herdr
+* gives no answer, or an older herdr disagrees with the env, the env id stands. tmux pane
 * ids last as long as the pane, so tmux needs no second opinion.
 */
 function selfPane(cur, exec) {
 	if (cur?.mux !== "herdr") return cur;
 	const live = herdrCallingPane(exec);
-	return live ? {
+	if (!live || live === cur.pane || !herdrReportsCallingPane(exec)) return cur;
+	return {
 		...cur,
 		pane: live
-	} : cur;
+	};
+}
+/** herdr 0.8.2 fixed `pane current` to answer the calling pane; before it, the command answered
+* another client's focused pane (herdr #2297), which would misattribute exactly as a stale env id
+* does. A version that cannot be read is treated as too old. */
+function herdrReportsCallingPane(exec) {
+	const m = exec("herdr", ["--version"])?.match(/(\d+)\.(\d+)\.(\d+)/);
+	if (!m) return false;
+	const [major, minor, patch] = m.slice(1).map(Number);
+	return major > 0 || minor > 8 || minor === 8 && patch >= 2;
 }
 function herdrCallingPane(exec) {
 	const out = exec("herdr", ["pane", "current"]);

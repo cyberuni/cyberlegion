@@ -226,6 +226,18 @@ Feature: unit registry — register, discover, and prune legion units
     When it resolves its own identity
     Then it resolves that agent's id via the pane pointer for $HERDR_PANE_ID
 
+  Scenario Outline: a herdr that cannot be trusted to report the calling pane keeps $HERDR_PANE_ID
+    Given unit A's pane pointer is keyed by herdr pane wH:p1 and unit B's by herdr pane w13:p1
+    And the calling session's $HERDR_PANE_ID is w13:p1 while herdr reports the calling pane as wH:p1
+    And herdr --version reads <version>
+    When it resolves its own identity
+    Then it resolves to unit B's id
+
+    Examples:
+      | version             |
+      | herdr 0.8.1         |
+      | an unreadable value |
+
   Scenario: register in a herdr pane whose $HERDR_PANE_ID went stale keys the pane herdr reports
     Given unit B's pane pointer is keyed by herdr pane w13:p1
     And the calling session's $HERDR_PANE_ID is w13:p1 while herdr reports the calling pane as wH:p1
