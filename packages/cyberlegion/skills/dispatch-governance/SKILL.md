@@ -12,7 +12,8 @@ place that judgment lives, loaded in-session by the `legate` gateway on a dispat
 realized headless by the `headless-legate` agent. Both loads run the exact same procedure below.
 
 **Input:** an intent to fulfill role `R` with brief `B`, optionally expecting a result that
-satisfies verdict schema `V`.
+satisfies verdict schema `V`, and optionally the path `P` of an agent definition file. When the
+caller supplies `P`, it is the definition to use; the by-name lookup is skipped.
 
 > **Running the CLI.** Every `node scripts/cyberlegion.mjs …` command below runs the `cyberlegion` CLI
 > this plugin ships. The path is relative to this skill's own directory, not the working directory.
@@ -24,6 +25,18 @@ satisfies verdict schema `V`.
 ```bash
 node scripts/cyberlegion.mjs agent resolve <R> --format json
 ```
+
+When the intent carries a definition path `P`, resolve that file instead and do not look `<R>` up by
+name (a definition a plugin ships is not under the project's `.agents/agents/`, so by name it is not
+found):
+
+```bash
+node scripts/cyberlegion.mjs agent resolve --file <P> --format json
+```
+
+Everything below reads the same resolved def either way. Wherever a step passes `--agent <R>` to
+`unit spawn`, pass `--agent-file <P>` instead when `P` was given, and the subagent path builds its
+instruction from the def resolved from `P`.
 
 Read `model`, `effort`, `harness`, `warm`, `interactive` off the resolved def. `warm` marks a role
 that should run as a live peer session (not a fire-and-forget unit); `interactive` marks a role that
@@ -53,7 +66,7 @@ to open a pane in; its absence rules that strategy out regardless of what the ag
   mint a thread id, weave it (and an instruction to reply on it) into brief `B`, then:
 
   ```bash
-  node scripts/cyberlegion.mjs unit spawn --agent <R> --brief-file <B> --at <placement>
+  node scripts/cyberlegion.mjs unit spawn --agent <R> --brief-file <B> --at <placement>   # or --agent-file <P> when given
   node scripts/cyberlegion.mjs mail await --thread <the-minted-thread-id> [--timeout <ms>] [--max-wait <s>]
   ```
 
