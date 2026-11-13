@@ -21,7 +21,6 @@ When reading any `SKILL.md` file, always check whether a `SKILL.local.md` exists
 ### References
 
 - **`commit-work` skill** — staging, splitting, and message writing when committing
-- `npx cyber-skills@<version> governance show skill-repo-structure` — discipline section format rules
 
 ## Development Workflow
 
