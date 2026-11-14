@@ -21,13 +21,5 @@ minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
   # Renovate security update: astro@7.2.8
   - astro@7.2.8
-  # min-release-age: lift universal-plugin@0.14.0 until 2026-10-13T02:00:00Z
-  - universal-plugin@0.14.0
-  # min-release-age: lift cyber-agentkit@1.0.0 until 2026-10-22T09:00:00Z
-  - cyber-agentkit@1.0.0
-  # min-release-age: lift cyber-agentkit@2.0.0 until 2026-11-05T04:01:00Z
-  - cyber-agentkit@2.0.0
   # Renovate security update: smol-toml@1.9.0
   - smol-toml@1.9.0
-  # min-release-age: lift cyber-mux@0.11.0 until 2026-11-07T12:00:00Z
-  - "cyber-mux@0.11.0"
