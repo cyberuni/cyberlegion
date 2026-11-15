@@ -181,6 +181,12 @@ Feature: mux — the unit-agnostic pane abstraction
     And it prints a next-step toward init --allow-cli
     And once a covering rule is added it reports the permission rule as present with no such next-step
 
+  Scenario: mux doctor reports the Claude Code auto-mode force-close rule and mail note
+    Given a claude session whose Claude Code user settings carry no autoMode lists
+    When it runs cyberlegion mux doctor
+    Then it reports the force-close rule and the mail environment as missing
+    And once autoMode.allow carries a cyberlegion force-close entry and autoMode.environment a cyberlegion mail send entry it reports both as present
+
   Scenario: unit spawn propagates the fast-path to the spawned child
     Given a caller spawning a new peer session behind a detected multiplexer
     When cyberlegion unit spawn opens the new session

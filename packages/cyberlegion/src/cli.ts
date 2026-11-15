@@ -39,9 +39,12 @@ import { emit, type Format, fail, nextStep, toonList, toonObject } from './outpu
 import { projectAddress, syncCynapse } from './participants.ts'
 import { resolveRoot } from './paths.ts'
 import {
+	addForceCloseRule,
+	addMailEnvironmentNote,
 	addPermissionRule,
-	CLI_RULE,
 	claudeUserSettingsFile,
+	forceCloseRuleState,
+	mailEnvironmentState,
 	type PermissionRuleState,
 	permissionRuleState,
 } from './permission.ts'
@@ -1281,7 +1284,8 @@ withGlobals(agent.command('path'))
 // mux — the unit-agnostic pane layer: multiplexer detection and diagnostics (ADR-0024)
 // -------------------------------------------------------------------------------------------
 // Without the rule, Claude Code's auto-mode classifier can deny a unit's `mail send` (#120).
-const ALLOW_CLI_HINT = `cyberlegion init --allow-cli to add ${CLI_RULE} to Claude Code's permissions.allow, so units can mail their results back`
+const ALLOW_CLI_HINT =
+	"cyberlegion init --allow-cli to add the cyberlegion rules to Claude Code's permissions.allow, so units can mail their results back"
 
 const mux = program.command('mux').description('the unit-agnostic pane layer — multiplexer detection and diagnostics')
 
@@ -1292,13 +1296,20 @@ withGlobals(mux.command('doctor'))
 		const harness = detectHarness(undefined, ctx) ?? 'unknown'
 		const probe = probeMultiplexer(ctx.exec ?? realExec, normalizeMuxEnv(ctx.env ?? process.env))
 		const selfId = resolveSelfId(ctx) ?? '-'
-		// Only Claude Code's auto-mode classifier gates the CLI on a permission rule.
-		const permissionRule =
-			harness === 'claude' ? permissionRuleState(claudeUserSettingsFile(ctx.env ?? process.env)) : 'n/a'
+		// Only Claude Code's auto-mode classifier gates the CLI on a permission rule and auto-mode entries.
+		const settingsFile = claudeUserSettingsFile(ctx.env ?? process.env)
+		const claudeState = (state: (file: string) => PermissionRuleState) =>
+			harness === 'claude' ? state(settingsFile) : 'n/a'
+		const permissionRule = claudeState(permissionRuleState)
+		const settings = {
+			permissionRule,
+			forceCloseRule: claudeState(forceCloseRuleState),
+			mailEnvironment: claudeState(mailEnvironmentState),
+		}
 		const report = { harness, mux: probe.mux, pane: probe.pane, via: probe.via, hubRoot: ctx.store.root, selfId }
 		emit(formatOf(opts), {
-			toon: toonObject({ ...report, permissionRule }),
-			json: { ...report, permissionRule },
+			toon: toonObject({ ...report, ...settings }),
+			json: { ...report, ...settings },
 		})
 		if (permissionRule === 'missing') nextStep(ALLOW_CLI_HINT)
 		if (probe.mux !== 'none') {
@@ -1376,7 +1387,15 @@ withGlobals(program.command('init'))
 	.option('--agent <h>', 'claude | cursor | codex (else auto-detected)')
 	.option('--dir <path>', 'project dir to write config into', process.cwd())
 	.option('--pin <version>', 'version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)')
-	.option('--allow-cli', `add ${CLI_RULE} to Claude Code's user permissions.allow (claude only)`)
+	.option('--allow-cli', "add the cyberlegion rules to Claude Code's user permissions.allow (claude only)")
+	.option(
+		'--allow-force-close',
+		"add the user-approved `unit close --force` rule to Claude Code's user autoMode.allow (claude only)",
+	)
+	.option(
+		'--mail-environment',
+		"add a note that `mail send` is local messaging to Claude Code's user autoMode.environment (claude only)",
+	)
 	.action((opts) => {
 		const ctx = ctxOf(opts)
 		let harness: Harness
@@ -1387,13 +1406,26 @@ withGlobals(program.command('init'))
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err))
 		}
-		if (opts.allowCli && harness !== 'claude') fail(`--allow-cli applies to claude only, not ${harness}`)
-		// The permission rule goes first: a settings file it refuses to rewrite fails init before any hook is touched.
-		let permissionRule: PermissionRuleState | 'added' | undefined
+		for (const [flag, set] of [
+			['--allow-cli', opts.allowCli],
+			['--allow-force-close', opts.allowForceClose],
+			['--mail-environment', opts.mailEnvironment],
+		] as const) {
+			if (set && harness !== 'claude') fail(`${flag} applies to claude only, not ${harness}`)
+		}
+		// The settings go first: a settings file they refuse to rewrite fails init before any hook is touched.
+		type SettingState = PermissionRuleState | 'added'
+		let permissionRule: SettingState | undefined
+		let forceCloseRule: SettingState | undefined
+		let mailEnvironment: SettingState | undefined
 		if (harness === 'claude') {
 			const settingsFile = claudeUserSettingsFile(ctx.env ?? process.env)
+			const setting = (add: boolean, write: (f: string) => 'added' | 'present', state: (f: string) => SettingState) =>
+				add ? write(settingsFile) : state(settingsFile)
 			try {
-				permissionRule = opts.allowCli ? addPermissionRule(settingsFile) : permissionRuleState(settingsFile)
+				permissionRule = setting(opts.allowCli, addPermissionRule, permissionRuleState)
+				forceCloseRule = setting(opts.allowForceClose, addForceCloseRule, forceCloseRuleState)
+				mailEnvironment = setting(opts.mailEnvironment, addMailEnvironmentNote, mailEnvironmentState)
 			} catch (err) {
 				fail(err instanceof Error ? err.message : String(err))
 			}
@@ -1413,9 +1445,13 @@ withGlobals(program.command('init'))
 					{ key: 'status', get: (r) => r.status },
 					{ key: 'file', get: (r) => r.file },
 				],
-				`harness ${harness}, ${results.length} hooks${permissionRule ? `, permission rule ${permissionRule}` : ''}`,
+				`harness ${harness}, ${results.length} hooks${
+					permissionRule
+						? `, permission rule ${permissionRule}, force-close rule ${forceCloseRule}, mail environment ${mailEnvironment}`
+						: ''
+				}`,
 			),
-			json: { harness, hooks: results, ...(permissionRule && { permissionRule }) },
+			json: { harness, hooks: results, ...(permissionRule && { permissionRule, forceCloseRule, mailEnvironment }) },
 		})
 		if (permissionRule === 'missing') nextStep(ALLOW_CLI_HINT)
 		const hasStandingOwner = listAgents(ctx.store).some((a) => a.kind === 'standing')
