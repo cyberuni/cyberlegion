@@ -20,6 +20,7 @@ beforeEach(() => {
 
 // Strip mux + harness-detection env so each test controls detection precisely.
 const MUX_ENV_KEYS = [
+	'CLAUDE_CODE_SESSION_ID', // the host harness's conversation id keys self-identity (#284)
 	'TMUX',
 	'TMUX_PANE',
 	'HERDR_ENV',

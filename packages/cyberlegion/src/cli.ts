@@ -21,7 +21,7 @@ import {
 	prune,
 	realExec,
 	reconcile,
-	register,
+	registerSelf,
 	registerStanding,
 	resolveAgent,
 	resolveOwnerMailbox,
@@ -206,11 +206,14 @@ syncsUnits(withGlobals(unit.command('register')))
 			runStanding(ctx, opts, home)
 			return
 		}
-		const rec = register(ctx, { handle: opts.handle, harness: opts.harness })
+		const { rec, minted } = registerSelf(ctx, { handle: opts.handle, harness: opts.harness })
 		emit(formatOf(opts), {
 			toon: toonObject({ id: rec.id, handle: rec.handle, harness: rec.harness ?? '-', status: rec.status }),
 			json: rec,
 		})
+		// stderr only: a session in a pane that expected to be an existing unit learns it was not found
+		// (#284). Outside any pane nothing can identify a session, so a mint there says nothing new.
+		if (minted && rec.pane) nextStep(`minted new unit ${rec.id} — no unit is registered for this pane or conversation`)
 	})
 
 withGlobals(unit.command('claim'))

@@ -393,7 +393,9 @@ export function recordConversation(ctx: IdContext, hookInput: string): void {
 		return
 	}
 	if (typeof id !== 'string' || id === '') return
-	const meId = resolveSelfId(ctx)
+	// Resolved by the hook's own id first, so a session herdr resumed into a pane its unit does not
+	// know finds that unit again (#284); a fresh `/clear` conversation falls back to the pane.
+	const meId = resolveSelfId(ctx, { conversation: id })
 	const rec = meId ? loadAgent(ctx.store, meId) : undefined
 	if (!rec || rec.kind === 'standing' || rec.kind === 'service' || rec.conversation === id) return
 	saveAgent(ctx.store, { ...rec, conversation: id })

@@ -316,6 +316,11 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     When the harness's SessionStart hook runs mail hook with the input {"session_id":"c-2"}
     Then the unit's record carries the conversation id "c-2"
 
+  Scenario: the session-start hook never writes its conversation onto another unit's pane pointer
+    Given unit u1 carries the conversation id "c-2" and unit u2, carrying "c-9", holds the calling pane's pointer
+    When the harness's SessionStart hook runs mail hook with the input {"session_id":"c-2"}
+    Then unit u2's record still carries the conversation id "c-9"
+
   Scenario: a session-start hook input with no conversation id records nothing
     Given a registered unit bound to the calling pane whose record carries the conversation id "c-1"
     When the hook runs mail hook with an empty input, an input that is not JSON, and an input with no session_id

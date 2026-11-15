@@ -388,6 +388,7 @@ convergence claim.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | hook records | a unit bound to the calling pane, a hook input with a session id | `the session-start hook records the harness's conversation id on the calling unit` |
+| hook by conversation | the calling pane's pointer naming another unit, a unit carrying the hook's session id (#284) | `the session-start hook never writes its conversation onto another unit's pane pointer` |
 | hook ignores | a hook input that is empty, not JSON, or has no session id | `a session-start hook input with no conversation id records nothing` |
 | CLI stdin | the CLI hook run with the harness's JSON on stdin | `the session-start hook records the harness's conversation id from its stdin` |
 

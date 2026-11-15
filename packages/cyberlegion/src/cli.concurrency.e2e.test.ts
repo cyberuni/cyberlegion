@@ -22,6 +22,7 @@ const BIN = fileURLToPath(new URL('../bin/cyberlegion.mjs', import.meta.url))
 // the test would appear to catch a store-level id collision that never happened. Mirrors
 // cli.e2e.test.ts's `baseEnv`.
 const MUX_ENV_KEYS = [
+	'CLAUDE_CODE_SESSION_ID', // the host harness's conversation id keys self-identity (#284)
 	'TMUX',
 	'TMUX_PANE',
 	'HERDR_ENV',

@@ -1339,3 +1339,134 @@ describe('spec:cyberlegion/identity — a moved herdr pane keeps its unit', () =
 		expect(sessionLive({ store, exec: herdrAt(moved) }, rec)).toBe(true)
 	})
 })
+
+// #284: a device shutdown and herdr resume gives every pane a new terminal id (and may hand pane ids
+// out afresh), so neither the pane pointer nor the terminal id finds the unit again. The harness
+// conversation id is what survives: herdr resumes the pane with it (`agent_session`), and Claude Code
+// carries it as `$CLAUDE_CODE_SESSION_ID`.
+describe('spec:cyberlegion/identity — a resumed session keeps its unit', () => {
+	const FRESH = 1_700_000_000_000
+	type HerdrPane = { pane_id: string; terminal_id: string; agent?: string; agent_session?: unknown }
+	const herdrAt =
+		(panes: HerdrPane[], current?: string): Exec =>
+		(cmd, args) => {
+			if (cmd !== 'herdr') return null
+			if (args[0] === '--version') return 'herdr 0.9.5'
+			const find = (id: string | undefined) => panes.find((p) => p.pane_id === id)
+			if (args[0] === 'pane' && args[1] === 'list') return JSON.stringify({ result: { panes } })
+			if (args[0] === 'pane' && args[1] === 'current') {
+				const p = find(current)
+				return p ? JSON.stringify({ result: { pane: p, type: 'pane_current' } }) : null
+			}
+			if (args[0] === 'pane' && args[1] === 'get') {
+				const p = find(args[2])
+				return p ? JSON.stringify({ result: { pane: p } }) : null
+			}
+			return null
+		}
+	const session = (value: string) => ({ agent: 'claude', kind: 'id', source: 'herdr:claude', value })
+	const before: HerdrPane[] = [
+		{ pane_id: 'w1:p1', terminal_id: 'term_old', agent: 'claude', agent_session: session('conv-a') },
+	]
+	const resumed: HerdrPane[] = [
+		{ pane_id: 'w1:p1', terminal_id: 'term_new', agent: 'claude', agent_session: session('conv-a') },
+	]
+	const resumedElsewhere: HerdrPane[] = [
+		{ pane_id: 'w7:p3', terminal_id: 'term_new', agent: 'claude', agent_session: session('conv-a') },
+	]
+	const ctxAt = (panes: HerdrPane[], pane: string, env: NodeJS.ProcessEnv = {}, now = FRESH): IdContext => ({
+		store,
+		env: { HERDR_ENV: '1', HERDR_PANE_ID: pane, ...env },
+		exec: herdrAt(panes, pane),
+		now: () => now,
+	})
+
+	function registerBefore(): AgentRecord {
+		return register(ctxAt(before, 'w1:p1'), { handle: 'operator', harness: 'claude' })
+	}
+
+	it('register records the conversation herdr reports for the calling pane', () => {
+		expect(registerBefore().conversation).toBe('conv-a')
+	})
+
+	it('register records the conversation from $CLAUDE_CODE_SESSION_ID', () => {
+		const rec = register(
+			{ store, env: { TMUX_PANE: '%5', CLAUDE_CODE_SESSION_ID: 'conv-t' }, exec: nullExec, now: () => FRESH },
+			{ handle: 't', harness: 'claude' },
+		)
+		expect(rec.conversation).toBe('conv-t')
+	})
+
+	it('a resumed herdr pane with a new terminal id resolves to the unit that carries its conversation', () => {
+		const rec = registerBefore()
+		expect(resolveSelfId(ctxAt(resumed, 'w1:p1'))).toBe(rec.id)
+	})
+
+	it('a session resumed in a different pane resolves to the unit that carries its conversation', () => {
+		const rec = registerBefore()
+		expect(resolveSelfId(ctxAt(resumedElsewhere, 'w7:p3'))).toBe(rec.id)
+	})
+
+	it('a resumed tmux session resolves by $CLAUDE_CODE_SESSION_ID when its pane has no pointer', () => {
+		const rec = register(
+			{ store, env: { TMUX_PANE: '%5', CLAUDE_CODE_SESSION_ID: 'conv-t' }, exec: nullExec, now: () => FRESH },
+			{ handle: 't', harness: 'claude' },
+		)
+		expect(resolveSelfId({ store, env: { TMUX_PANE: '%9', CLAUDE_CODE_SESSION_ID: 'conv-t' }, exec: nullExec })).toBe(
+			rec.id,
+		)
+	})
+
+	it('a pane pointer whose unit carries another conversation yields to the unit that carries the caller conversation', () => {
+		const rec = registerBefore()
+		const other = register(ctxAt(resumedElsewhere, 'w7:p3', { CLAUDE_CODE_SESSION_ID: 'conv-b' }), {
+			handle: 'other',
+			harness: 'claude',
+		})
+		expect(other.id).not.toBe(rec.id)
+		// herdr hands w7:p3 to the resumed conv-a session; the pointer still names `other`.
+		expect(resolveSelfId(ctxAt(resumedElsewhere, 'w7:p3'))).toBe(rec.id)
+	})
+
+	it('a pane pointer whose unit carries another conversation still resolves when no unit carries the caller conversation', () => {
+		const rec = registerBefore()
+		// `/clear` starts a new conversation in the same pane: the unit is still this pane's.
+		expect(resolveSelfId(ctxAt(before, 'w1:p1', { CLAUDE_CODE_SESSION_ID: 'conv-new' }))).toBe(rec.id)
+	})
+
+	it('register in a resumed session rebinds the existing unit rather than minting one', () => {
+		const rec = registerBefore()
+		const again = register(ctxAt(resumedElsewhere, 'w7:p3', {}, FRESH + 60_000), { harness: 'claude' })
+		expect(again.id).toBe(rec.id)
+		expect(again.handle).toBe('operator')
+		expect(again.pane).toEqual({ mux: 'herdr', id: 'w7:p3', terminal: 'term_new' })
+		expect(store.resolvePaneId('w7:p3')).toBe(rec.id)
+		expect(listAgents(store)).toHaveLength(1)
+	})
+
+	it('touch in a resumed session heals the unit pane, terminal, and status', () => {
+		const rec = registerBefore()
+		saveAgent(store, { ...(loadAgent(store, rec.id) as AgentRecord), status: 'exited' })
+		touch(ctxAt(resumedElsewhere, 'w7:p3', {}, FRESH + 60_000))
+		const after = loadAgent(store, rec.id)
+		expect(after?.pane).toEqual({ mux: 'herdr', id: 'w7:p3', terminal: 'term_new' })
+		expect(after?.status).toBe('active')
+		expect(after?.lastSeen).toBe(new Date(FRESH + 60_000).toISOString())
+		expect(store.resolvePaneId('w7:p3')).toBe(rec.id)
+		expect(store.resolvePaneId('w1:p1')).toBeUndefined()
+	})
+
+	it('touch records the caller conversation on a unit that has none', () => {
+		const rec = registerBefore()
+		saveAgent(store, { ...(loadAgent(store, rec.id) as AgentRecord), conversation: undefined })
+		touch(ctxAt(before, 'w1:p1'))
+		expect(loadAgent(store, rec.id)?.conversation).toBe('conv-a')
+	})
+
+	it('a standing record that carries a conversation is never resolved as the caller', () => {
+		registerStanding({ store, env: {}, exec: nullExec, now: () => FRESH }, { handle: 'homa' })
+		const standing = loadAgent(store, standingId('homa')) as AgentRecord
+		saveAgent(store, { ...standing, conversation: 'conv-a' })
+		expect(resolveSelfId(ctxAt(resumedElsewhere, 'w7:p3'))).toBeUndefined()
+	})
+})

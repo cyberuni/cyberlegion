@@ -98,7 +98,16 @@ describe('an install without cynapse', () => {
 		const hub = join(root, 'hub')
 		const home = join(root, 'cynapse-home')
 		const env: NodeJS.ProcessEnv = { ...process.env, CYNAPSE_HOME: home }
-		for (const k of ['TMUX', 'TMUX_PANE', 'HERDR_ENV', 'HERDR_PANE_ID', 'CYBER_MUX', 'CYBER_MUX_PANE']) delete env[k]
+		for (const k of [
+			'TMUX',
+			'TMUX_PANE',
+			'HERDR_ENV',
+			'HERDR_PANE_ID',
+			'CYBER_MUX',
+			'CYBER_MUX_PANE',
+			'CLAUDE_CODE_SESSION_ID',
+		])
+			delete env[k]
 		const run = (args: string[]) =>
 			spawnSync('node', [join(root, 'bin', 'cyberlegion.mjs'), ...args, '--space', hub], {
 				cwd: root,

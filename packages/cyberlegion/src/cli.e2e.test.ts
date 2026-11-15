@@ -19,7 +19,9 @@ beforeEach(() => {
 // Strip any ambient multiplexer signal from the inherited env: these tests drive identity through
 // fresh registration or an explicit $CYBERLEGION_AGENT_ID, so a real tmux/herdr pane in the host
 // env (this suite may itself run inside one) must not key or override the caller's self-identity.
+// The host harness's conversation id keys self-identity too (#284), so it goes with them.
 const MUX_ENV_KEYS = [
+	'CLAUDE_CODE_SESSION_ID',
 	'TMUX',
 	'TMUX_PANE',
 	'HERDR_ENV',
@@ -390,6 +392,25 @@ describe('spec:cyberlegion/unit', () => {
 			})
 			expect(JSON.parse(legion(['unit', 'claim', 'homa', '--clear', '--format', 'json']))).toEqual({ presence: null })
 			expect(JSON.parse(legion(['unit', 'claim', 'homa', '--show', '--format', 'json']))).toEqual({ presence: null })
+		})
+	})
+
+	describe('register says when it mints a unit (#284)', () => {
+		const pane = { TMUX: 't', TMUX_PANE: '%41', CLAUDE_CODE_SESSION_ID: 'conv-e2e' }
+
+		it('register in a pane no unit holds says on stderr that it minted a new unit', () => {
+			const first = legionOut(['unit', 'register', '--harness', 'claude', '--format', 'json'], pane)
+			expect(first.stderr).toContain(`minted new unit ${JSON.parse(first.stdout).id}`)
+		})
+
+		it('register in a session resumed into a new pane rebinds its unit and says nothing about minting', () => {
+			const first = JSON.parse(legion(['unit', 'register', '--harness', 'claude', '--format', 'json'], pane))
+			const again = legionOut(['unit', 'register', '--harness', 'claude', '--format', 'json'], {
+				...pane,
+				TMUX_PANE: '%42',
+			})
+			expect(JSON.parse(again.stdout).id).toBe(first.id)
+			expect(again.stderr).not.toContain('minted')
 		})
 	})
 

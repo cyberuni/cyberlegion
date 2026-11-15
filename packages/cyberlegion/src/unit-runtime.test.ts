@@ -567,6 +567,14 @@ describe('spec:cyberlegion/unit/runtime — restart resumes the conversation', (
 		expect(loadAgent(store, 'u1')?.conversation).toBe('c-2')
 	})
 
+	it("the session-start hook never writes its conversation onto another unit's pane pointer", () => {
+		// A resume put conversation c-2 in pane %9, whose pointer still names u2; u1 carries c-2.
+		unit({ id: 'u1', conversation: 'c-2', pane: { mux: 'tmux', id: '%1' } })
+		unit({ id: 'u2', conversation: 'c-9' })
+		recordConversation(ctx(tmux().exec, { TMUX: 't', TMUX_PANE: '%9' }), '{"session_id":"c-2","source":"resume"}')
+		expect(loadAgent(store, 'u2')?.conversation).toBe('c-9')
+	})
+
 	it('a session-start hook input with no conversation id records nothing', () => {
 		unit({ id: 'u1', conversation: 'c-1' })
 		const before = recordBytes('u1')
