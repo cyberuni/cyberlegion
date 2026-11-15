@@ -23,6 +23,13 @@ result and exit. A standing owner can have a **presence**: one live unit standin
   herdr gives a pane a new pane id when it moves to another workspace but keeps its terminal id, so
   the terminal id is what identifies a herdr unit's pane across a move (#272). A record written
   before the field existed has none and is judged by its pane id alone.
+- **server** — the multiplexer server a pane lives on, carried on a pane locator as `server`: the
+  herdr socket (`$HERDR_SOCKET_PATH`, one per herdr session) or the tmux socket (the first field of
+  `$TMUX`). A pane id is unique only within one server, since every herdr session has a `w1:p1`
+  (#241). The locator's `session` is that server's session name: the herdr session the socket belongs
+  to (`herdr session list --json`), or the tmux session holding the pane. Each is absent when it
+  cannot be read. A tmux record written before `server` existed may carry its socket path under
+  `session`.
 - **pane pointer** — a pane-id → unit-id entry, written when a session registers inside a pane.
   It is how a later call finds its own id.
 - **self id** — the caller's own unit id, recovered by `resolveSelfId`.
@@ -98,6 +105,10 @@ Inside a git repository the record's `worktree` carries the checkout's root, its
 in a linked worktree runs in a folder named after the worktree, so the primary root is what a
 lookup by repository (`unit focus --repo`) matches. Re-registering keeps an existing record's
 worktree, and fills in its primary root when an older record lacks one.
+
+The pane locator names the caller's **server** and its session name. `unit spawn` and `unit restart`
+name the server the opener's env reaches, since the multiplexer opens the pane there, and `unit
+rebind` names the calling pane's.
 
 Registering is **safe to repeat per pane** (idempotent): from the same pane it keeps the same id and
 refreshes the record rather than minting a second identity. Registration never happens implicitly.
@@ -259,6 +270,10 @@ to the record and moves its pane pointer with it, so a unit that takes a turn af
 by its new pane id (#272). The old pointer is dropped only while it still names this unit. A herdr
 that does not report the calling pane leaves the record's pane as it was.
 
+**A record with no server gets one (#241).** When the caller's own pane record names no server and
+the caller's env names one, `touch` writes the server and its session name to the record, so a unit
+recorded before `server` existed becomes placeable on its next command.
+
 **A resumed session heals its own record (#284).** `touch` records the caller's conversation on its
 unit. A unit found by its conversation from a pane it does not hold takes the calling pane (pane id,
 terminal id, pane pointer) and is active again, so a session herdr resumed reaches its own mail on
@@ -280,7 +295,7 @@ record — errors.
 | | |
 |---|---|
 | Actor / goal | A controller or peer wants the units it can address. |
-| Trigger | `unit who [--all] [--reconcile]`; top-level `who` is a plain alias |
+| Trigger | `unit who [--all] [--reconcile] [--same-server]`; top-level `who` is a plain alias |
 | Outcome | A TOON list `units[N]{id,handle,harness,status,pane,shared}:` plus a `<N> units` aggregate line, exit 0. `shared` is the root of the unit's shared worktree, else `-`; `--format json` lists the full records. |
 
 `unit who` is the single list command: the old `session list` folded in here (CR-2 resolution #1).
@@ -290,6 +305,10 @@ Extensions:
 - **Empty registry** — `0 units`, never an error.
 - **Exited units** — filtered out by default; `--all` includes them.
 - **`--reconcile`** — runs reconcile, with adopt, before listing (see `unit who --reconcile`).
+- **`--same-server`** — lists only units whose pane is on the caller's server: same multiplexer, same
+  `server` (#241). A unit whose record names another server, the other multiplexer, no server, or no
+  pane is left out, so a sweep never acts on a unit it cannot place. Outside a tmux or herdr pane, or
+  when the caller's env names no server, it fails before listing.
 
 ### cyberlegion (bare) — a content-first status
 
@@ -638,15 +657,21 @@ graph TD
 
 ```mermaid
 graph TD
-  WH0["unit who or top-level who [--all] [--reconcile]"] --> WH1["touch"]
+  WH0["unit who or top-level who [--all] [--reconcile] [--same-server]"] --> WHS{"--same-server?"}
+  WHS -- "yes, caller's server unknown or no pane" --> WHF["fail; exit non-zero"]
+  WHS -- "yes, server known" --> WH1
+  WHS -- no --> WH1["touch"]
   WH1 --> WH2{"--reconcile?"}
   WH2 -- yes --> WH2R["reconcile with adopt"]
   WH2 -- no --> WH3
   WH2R --> WH3{"--all?"}
   WH3 -- yes --> WH4["every record, any kind and status"]
   WH3 -- no --> WH5["every record except exited, any kind"]
-  WH4 --> WH6["print units list (id, handle, harness, status, pane, shared) and 'N units'; exit 0"]
-  WH5 --> WH6
+  WH4 --> WHK{"--same-server?"}
+  WH5 --> WHK
+  WHK -- yes --> WHL["keep only records whose pane is on the caller's mux and server"]
+  WHK -- no --> WH6["print units list (id, handle, harness, status, pane, shared) and 'N units'; exit 0"]
+  WHL --> WH6
 ```
 
 ### bare status
@@ -820,6 +845,10 @@ adapters.
 | `RG4` backfill | a registered session whose record lacks a primary root | `re-register fills in a primary root an older record lacks` |
 | `RGS -- yes` → `RG5S` owned by another | an unregistered session in a linked worktree another unit's record owns | `register in a worktree another unit owns records it as shared, not as its own` |
 | `RGS -- yes` → `RG5S` already shared | a registered session whose record shares a worktree no unit owns any more | `re-register of a unit holding a shared worktree keeps it shared, never owned` |
+| `RG8` herdr server | a session in a herdr pane whose env names its herdr session's socket | `register in a herdr pane records the herdr socket as the server and its session name` |
+| `RG8` herdr no socket | a session in a herdr pane whose env names no socket | `register in a herdr pane records no server when the env names no socket` |
+| `RG8` tmux server | a session in a tmux pane whose `$TMUX` names its socket | `register in a tmux pane records the tmux socket as the server and the tmux session name` |
+| `RG8` opened pane | a spawner in a herdr pane whose env names its herdr session's socket | `a pane a spawn opens names the server of the spawner's env` |
 
 ### unit register --standing
 
@@ -905,6 +934,7 @@ adapters.
 | `TC4` | a unit whose herdr pane moved, herdr reporting the new pane and its terminal | `touch in a moved herdr pane refreshes the unit pane to the one herdr reports` |
 | `TCCY` | a unit found by its conversation from a resumed pane, its status exited | `touch in a resumed session heals the unit pane, terminal, and status` |
 | `TC2` conversation | a unit with no recorded conversation, herdr reporting one | `touch records the caller conversation on a unit that has none` |
+| `TC2` server | a unit whose pane record names no server, the caller's env naming one | `touch records the server on a caller record that names none` |
 
 ### unit whoami
 
@@ -923,6 +953,10 @@ adapters.
 | `WH6` shared | a unit sharing a worktree and one sharing none | `who shows the worktree a unit shares, and "-" for a unit that shares none` |
 | `WH5` then `WH4` | one active agent and one exited agent | `who excludes exited agents by default, --all includes them` |
 | `WH0` alias | a registered agent | `the top-level who command behaves like unit who` |
+| `WHS` → `WHL` | units on the caller's tmux server, on another server, and in no pane | `who --same-server lists only the units on the caller's multiplexer server` |
+| `WHL` unknown | a herdr unit whose record names no server | `who --same-server leaves out a unit whose record names no server` |
+| `WHF` no pane | a caller in no multiplexer pane | `who --same-server fails outside a multiplexer pane` |
+| `WHF` no server | a caller in a herdr pane whose env names no socket | `who --same-server fails when the caller's server is unknown` |
 
 ### cyberlegion (bare)
 

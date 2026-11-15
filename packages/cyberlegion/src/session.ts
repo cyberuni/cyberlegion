@@ -330,7 +330,7 @@ export async function spawn(ctx: IdContext, input: SpawnInput): Promise<SpawnRes
 		worktree,
 		...(sharedWorktree ? { sharedWorktree } : {}),
 		// Tag the pane with its multiplexer so the unit's own `prune` runs the right liveness check.
-		pane: openedPaneLocator(exec, muxName, target.id),
+		pane: openedPaneLocator(exec, muxName, target.id, ctx.env ?? process.env),
 		status: 'active',
 		createdAt: ts,
 		lastSeen: ts,

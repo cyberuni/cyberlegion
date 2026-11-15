@@ -405,6 +405,7 @@ convergence claim.
 | Edge | Path (Given) | Scenario |
 |---|---|---|
 | `RB7` | a stopped unit, a caller in an unbound herdr pane | `rebind binds a stopped unit to the calling pane` |
+| `RB7` server | a stopped unit, the caller's env naming its herdr socket | `rebind records the server the calling pane is on` |
 | `RB7` old pointer | an exited unit whose old pane pointer remains | `rebind drops the unit's old pane pointer` |
 | `RB3Y` herdr | a stopped unit, a herdr pane whose `$HERDR_PANE_ID` is stale and names another unit's pane | `rebind binds the pane herdr reports when the env pane id went stale` |
 | `RB4Y` | a unit already bound to the calling pane | `rebind to the pane the unit already holds changes nothing` |

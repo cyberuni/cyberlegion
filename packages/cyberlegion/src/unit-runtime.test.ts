@@ -278,7 +278,7 @@ describe('spec:cyberlegion/unit/runtime — unit restart', () => {
 		expect(be.opened.map((o) => o.cwd)).toEqual([unitDir])
 		const after = loadAgent(store, 'u1') as AgentRecord
 		expect(after.status).toBe('active')
-		expect(after.pane).toEqual({ mux: 'tmux', id: '%20' })
+		expect(after.pane).toEqual({ mux: 'tmux', id: '%20', server: 't' })
 		expect([after.id, after.handle, after.harness, after.worktree]).toEqual([
 			before.id,
 			'keeper',
@@ -296,7 +296,7 @@ describe('spec:cyberlegion/unit/runtime — unit restart', () => {
 		expect(be.opened.map((o) => o.cwd)).toEqual([unitDir])
 		const after = loadAgent(store, 'u1') as AgentRecord
 		expect(after.status).toBe('active')
-		expect(after.pane).toEqual({ mux: 'tmux', id: '%20' })
+		expect(after.pane).toEqual({ mux: 'tmux', id: '%20', server: 't' })
 		expect(store.resolvePaneId('%20')).toBe('u1')
 		expect(after.lastSeen).toBe(new Date(1_700_000_000_000).toISOString())
 	})
@@ -390,7 +390,7 @@ describe('spec:cyberlegion/unit/runtime — unit restart', () => {
 		).rejects.toThrow()
 		await restartUnit(rctx(fakeBackend().adapter), 'u1', noSleep)
 		expect(loadAgent(store, 'u1')?.status).toBe('active')
-		expect(loadAgent(store, 'u1')?.pane).toEqual({ mux: 'tmux', id: '%20' })
+		expect(loadAgent(store, 'u1')?.pane).toEqual({ mux: 'tmux', id: '%20', server: 't' })
 	})
 
 	it('a restart that dies after the open leaves the new session bound to the unit', async () => {
@@ -599,6 +599,13 @@ describe('spec:cyberlegion/unit/runtime — unit rebind', () => {
 		expect(after.pane).toEqual(herdrPane('w1:p5'))
 		expect(store.resolvePaneId('w1:p5')).toBe('u1')
 		expect(after.lastSeen).toBe(new Date(1_700_000_000_000).toISOString())
+	})
+
+	it('rebind records the server the calling pane is on (#241)', () => {
+		unit({ id: 'u1', status: 'stopped', pane: null })
+		const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
+		rebindUnit(rctx(be.adapter, { ...inHerdr('w1:p5'), HERDR_SOCKET_PATH: '/s/herdr.sock' }), 'u1')
+		expect(loadAgent(store, 'u1')?.pane).toEqual({ ...herdrPane('w1:p5'), server: '/s/herdr.sock' })
 	})
 
 	it("rebind drops the unit's old pane pointer", () => {

@@ -120,13 +120,70 @@ function herdrTerminalOf(exec: Exec, paneId: string): string | undefined {
 }
 
 /** The pane locator for a pane a spawn or restart just opened: tagged with its multiplexer so the
- * unit's own `prune` runs the right liveness check, and for herdr carrying the terminal id a move
- * keeps. `null` for a backend a record cannot carry. */
-export function openedPaneLocator(exec: Exec, mux: string, id: string): AgentRecord['pane'] {
-	if (mux === 'tmux') return { mux, id }
+ * unit's own `prune` runs the right liveness check, for herdr carrying the terminal id a move
+ * keeps, and naming the server it opened on — the opener's own, since the multiplexer CLI addresses
+ * the server the opener's env names (#241). `null` for a backend a record cannot carry. */
+export function openedPaneLocator(exec: Exec, mux: string, id: string, env: NodeJS.ProcessEnv): AgentRecord['pane'] {
+	if (mux === 'tmux') return { mux, id, ...muxScope(exec, env, mux, id) }
 	if (mux !== 'herdr') return null
 	const terminal = herdrTerminalOf(exec, id)
-	return { mux, id, ...(terminal ? { terminal } : {}) }
+	return { mux, id, ...(terminal ? { terminal } : {}), ...muxScope(exec, env, mux, id) }
+}
+
+/** The multiplexer server a caller with this env reaches: the herdr socket, or the tmux socket (the
+ * first field of `$TMUX`). Undefined when the env names none. */
+function serverOf(env: NodeJS.ProcessEnv, mux: StorablePaneMux): string | undefined {
+	if (mux === 'herdr') return env.HERDR_SOCKET_PATH || undefined
+	return env.TMUX?.split(',')[0] || undefined
+}
+
+/**
+ * The server a pane reached from this env lives on, and its session name there (#241): for herdr the
+ * session whose socket is that server (`herdr session list --json`), for tmux the session holding the
+ * pane. Each is left out when it cannot be read.
+ */
+export function muxScope(
+	exec: Exec,
+	env: NodeJS.ProcessEnv,
+	mux: StorablePaneMux,
+	paneId: string,
+): { server?: string; session?: string } {
+	const server = serverOf(env, mux)
+	const session =
+		mux === 'tmux'
+			? exec('tmux', ['display-message', '-p', '-t', paneId, '#{session_name}']) || undefined
+			: server
+				? herdrSessionAt(exec, server)
+				: undefined
+	return { ...(server ? { server } : {}), ...(session ? { session } : {}) }
+}
+
+/** The name of the herdr session whose socket is `server`, when herdr lists one. */
+function herdrSessionAt(exec: Exec, server: string): string | undefined {
+	const out = exec('herdr', ['session', 'list', '--json'])
+	if (!out) return undefined
+	try {
+		const sessions = JSON.parse(out)?.sessions
+		if (!Array.isArray(sessions)) return undefined
+		const name = sessions.find((s) => s?.socket_path === server)?.name
+		return typeof name === 'string' && name ? name : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * A filter for the units whose pane is on the caller's multiplexer server (`unit who --same-server`,
+ * #241). A unit on another server, on the other multiplexer, with no pane, or whose record names no
+ * server is left out: a sweep must never act on a unit it cannot place in its own server. Throws for
+ * a caller in no tmux or herdr pane, or whose env names no server.
+ */
+export function onCallerServer(ctx: IdContext): (rec: AgentRecord) => boolean {
+	const cur = storablePane(ctx.env ?? process.env)
+	if (!cur) throw new Error('--same-server needs to run inside a tmux or herdr pane')
+	const server = serverOf(ctx.env ?? process.env, cur.mux)
+	if (!server) throw new Error(`--same-server cannot tell which ${cur.mux} server this pane is on`)
+	return (rec) => rec.pane?.mux === cur.mux && rec.pane.server === server
 }
 
 /** herdr's live panes keyed by terminal id → current pane id. Empty when herdr gives no list, which
@@ -362,22 +419,23 @@ export function registerSelf(ctx: IdContext, input: RegisterInput): { rec: Agent
 	return { rec, minted: !existingId }
 }
 
-/** Build the record's pane locator. `window`/`session` are tmux-only (herdr's pane id is
- * self-contained and its CLI needs nothing more to address a pane). */
+/** Build the record's pane locator. `window` is tmux-only; `server` and `session` name where the
+ * pane lives for either multiplexer (#241). */
 function paneLocator(
 	cur: SelfPane<StorablePaneMux>,
 	exec: Exec,
 	env: NodeJS.ProcessEnv,
 ): NonNullable<AgentRecord['pane']> {
 	if (cur.mux === 'tmux') {
-		return {
-			mux: 'tmux',
-			id: cur.pane,
-			window: exec('tmux', ['display-message', '-p', '-t', cur.pane, '#{window_id}']) ?? undefined,
-			session: env.TMUX?.split(',')[0],
-		}
+		const window = exec('tmux', ['display-message', '-p', '-t', cur.pane, '#{window_id}']) || undefined
+		return { mux: 'tmux', id: cur.pane, ...(window ? { window } : {}), ...muxScope(exec, env, cur.mux, cur.pane) }
 	}
-	return { mux: cur.mux, id: cur.pane, ...(cur.terminal ? { terminal: cur.terminal } : {}) }
+	return {
+		mux: cur.mux,
+		id: cur.pane,
+		...(cur.terminal ? { terminal: cur.terminal } : {}),
+		...muxScope(exec, env, cur.mux, cur.pane),
+	}
 }
 
 /** Derive a standing record's stable id from its handle — same slug rule as `sanitizePane`, prefixed
@@ -785,6 +843,7 @@ export function touch(ctx: IdContext, opts: { conversation?: string } = {}): voi
 		rebindToCaller(ctx, rec)
 		return
 	}
+	recordServer(ctx, rec, cur)
 	if (cur?.mux !== 'herdr' || !cur.terminal) return
 	if (rec?.pane?.mux !== 'herdr') return
 	if (rec.pane.terminal !== cur.terminal) {
@@ -792,6 +851,17 @@ export function touch(ctx: IdContext, opts: { conversation?: string } = {}): voi
 		saveAgent(ctx.store, rec)
 	}
 	followMove(ctx, rec, cur.pane)
+}
+
+/** Name the server on the caller's own pane record when it names none (a record written before
+ * `server` existed), so a unit that takes a turn becomes placeable by `--same-server` (#241). */
+function recordServer(ctx: IdContext, rec: AgentRecord, cur: SelfPane<string> | undefined): void {
+	const pane = rec.pane
+	if (!pane || pane.server || !cur || pane.mux !== cur.mux || pane.id !== cur.pane) return
+	const scope = muxScope(ctx.exec ?? realExec, ctx.env ?? process.env, pane.mux, pane.id)
+	if (!scope.server) return
+	rec.pane = { ...pane, ...scope }
+	saveAgent(ctx.store, rec)
 }
 
 /** Point a unit found by its conversation at the calling pane, the way `register` would. */

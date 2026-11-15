@@ -10,6 +10,7 @@ import { DELIVERY_DOORBELL, spawnDoorbell, wakeRecipient } from './console/doorb
 import { listCursorModels } from './cursor-models.ts'
 import { decommission } from './decommission.ts'
 import {
+	type AgentRecord,
 	bumpLastSeen,
 	claimPresence,
 	clearPresence,
@@ -18,6 +19,7 @@ import {
 	type IdContext,
 	listAgents,
 	loadAgent,
+	onCallerServer,
 	prune,
 	realExec,
 	reconcile,
@@ -271,11 +273,19 @@ withGlobals(unit.command('whoami'))
 		})
 	})
 
-function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean }): void {
+function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean; sameServer?: boolean }): void {
 	const ctx = ctxOf(opts)
+	let here: (a: AgentRecord) => boolean = () => true
+	if (opts.sameServer) {
+		try {
+			here = onCallerServer(ctx)
+		} catch (err) {
+			fail(err instanceof Error ? err.message : String(err))
+		}
+	}
 	touch(ctx)
 	if (opts.reconcile) reconcile(ctx, { adopt: true })
-	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== 'exited')
+	const agents = listAgents(ctx.store).filter((a) => (opts.all || a.status !== 'exited') && here(a))
 	emit(formatOf(opts), {
 		toon: toonList(
 			'units',
@@ -301,6 +311,10 @@ syncsUnits(withGlobals(unit.command('who')))
 	.option(
 		'--reconcile',
 		'live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing',
+	)
+	.option(
+		'--same-server',
+		"only units whose pane is on the caller's multiplexer server (its herdr session or tmux server)",
 	)
 	.action(runWho)
 
@@ -1483,6 +1497,10 @@ syncsUnits(withGlobals(program.command('who')))
 	.option(
 		'--reconcile',
 		'live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing',
+	)
+	.option(
+		'--same-server',
+		"only units whose pane is on the caller's multiplexer server (its herdr session or tmux server)",
 	)
 	.action(runWho)
 
