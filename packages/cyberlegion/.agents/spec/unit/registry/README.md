@@ -229,7 +229,13 @@ with it, and reports it as the pane's `agent_session`. The caller's conversation
 calling pane. When the pane's record carries that conversation, the pointer stands. Otherwise the
 unit that carries it is the caller (the most recently seen one, if a duplicate carries it too).
 When no unit carries it, the pane answers as before, so a `/clear` in the same pane keeps its unit.
-Standing and service records are never found by a conversation. `register` records the caller's
+Standing and service records are never found by a conversation.
+
+**A resumed pane keeps its unit even with no conversation known (#284).** When the pointer's record
+carries a terminal id herdr no longer lists anywhere, the pane was resumed, not moved: a moved pane
+keeps its terminal live under another pane id, and a resume keeps the pane id and gives it a new
+terminal. The pointer's unit is then the caller, and `touch` records the new terminal id. A herdr
+that gives no pane list cannot tell the two apart, and the pointer stays untrusted. `register` records the caller's
 conversation, rebinds a unit found by it to the calling pane instead of minting one, and says on
 stderr when it does mint one.
 
@@ -595,7 +601,9 @@ graph TD
   SIT0 -- no --> SI2N["undefined — no fallback to the env var"]
   SIT0 -- yes --> SIT1{"a herdr record carries that terminal?"}
   SIT1 -- yes --> SITY["that record's id"]
-  SIT1 -- no --> SI2N
+  SIT1 -- no --> SIR{"the pointer's record carries a terminal herdr's pane list lacks?"}
+  SIR -- yes --> SIRY["the pointer's id — a resumed pane"]
+  SIR -- no --> SI2N
   SI1 -- no --> SI3{"$CYBERLEGION_AGENT_ID set?"}
   SI3 -- yes --> SI3Y["that id"]
   SI3 -- no --> SI3N["undefined"]
@@ -881,6 +889,10 @@ adapters.
 | `SICY` via register | register in a session herdr resumed into a new pane | `register in a resumed session rebinds the existing unit rather than minting one` |
 | `SICY` via the CLI | `unit register` in a tmux session resumed into a new pane | `register in a session resumed into a new pane rebinds its unit and says nothing about minting` |
 | mint notice | `unit register` in a pane no unit holds, in a conversation no unit carries | `register in a pane no unit holds says on stderr that it minted a new unit` |
+| `SIRY` | a herdr resume that keeps the pane id, no conversation known, the old terminal unlisted | `a pane pointer whose unit terminal herdr no longer lists resolves to that unit with no conversation known` |
+| `SIR -- no` moved | the pointer's record's terminal listed under another pane id | `a pane pointer whose unit terminal is still live under another pane id resolves to no unit` |
+| `SIR -- no` no list | herdr naming the calling pane's terminal but giving no pane list | `a pane pointer whose unit terminal herdr cannot list resolves to no unit` |
+| `SIRY` via touch | touch in a resumed pane whose old terminal herdr lists nowhere | `touch in a resumed pane whose unit terminal herdr no longer lists records the new terminal id` |
 | register, herdr | register in a herdr pane whose agent session herdr reports | `register records the conversation herdr reports for the calling pane` |
 | register, env | register with `$CLAUDE_CODE_SESSION_ID` set | `register records the conversation from $CLAUDE_CODE_SESSION_ID` |
 

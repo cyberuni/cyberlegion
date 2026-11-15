@@ -250,7 +250,7 @@ function resolveSelf(ctx: IdContext, opts: { conversation?: string } = {}): Reso
 	const cur = selfPane(currentPane(normalizeMuxEnv(env)), ctx.exec ?? realExec)
 	if (!cur) return { id: env.CYBERLEGION_AGENT_ID || undefined, cur, conversation: undefined, byConversation: false }
 	const conversation = opts.conversation || callerConversation(env, cur)
-	const byPane = selfIdAt(ctx.store, cur)
+	const byPane = selfIdAt(ctx.store, ctx.exec ?? realExec, cur)
 	if (!conversation) return { id: byPane, cur, conversation, byConversation: false }
 	const paneRec = byPane ? loadAgent(ctx.store, byPane) : undefined
 	if (paneRec?.conversation === conversation) return { id: byPane, cur, conversation, byConversation: false }
@@ -285,13 +285,21 @@ function conversationHolder(store: Store, conversation: string): AgentRecord | u
  * this pane after the unit's own pane moved away), and a missing pointer may mean this pane moved:
  * either way the record bearing this terminal is the caller (#272). A record without a terminal id
  * is trusted by its pointer as before.
+ *
+ * A pointer whose record's terminal herdr lists nowhere is not a move: a moved pane keeps its terminal
+ * live under another pane id. It is a resume, which keeps the pane id and hands it a new terminal, so
+ * the pointer's unit is the caller and `touch` records the new terminal (#284). A herdr that gives no
+ * pane list cannot tell a resume from a move, and the pointer stays untrusted.
  */
-function selfIdAt(store: Store, cur: SelfPane<string>): string | undefined {
+function selfIdAt(store: Store, exec: Exec, cur: SelfPane<string>): string | undefined {
 	const indexed = store.resolvePaneId(cur.pane)
 	if (!cur.terminal) return indexed
 	const terminal = indexed ? loadAgent(store, indexed)?.pane?.terminal : undefined
 	if (indexed && (!terminal || terminal === cur.terminal)) return indexed
-	return listAgents(store).find((a) => a.pane?.mux === 'herdr' && a.pane.terminal === cur.terminal)?.id
+	const bearer = listAgents(store).find((a) => a.pane?.mux === 'herdr' && a.pane.terminal === cur.terminal)?.id
+	if (bearer) return bearer
+	if (indexed && terminal && locateTerminal(exec, terminal) === 'gone') return indexed
+	return undefined
 }
 
 export interface RegisterInput {

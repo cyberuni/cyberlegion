@@ -573,6 +573,31 @@ Feature: unit registry — register, discover, and prune legion units
     When it resolves its own identity
     Then the resolved self id is undefined
 
+  Scenario: a pane pointer whose unit terminal herdr no longer lists resolves to that unit with no conversation known
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr resumed the pane as w1:p1 on terminal term_new and lists term_old nowhere
+    When it resolves its own identity
+    Then it resolves to that unit's id
+
+  Scenario: a pane pointer whose unit terminal is still live under another pane id resolves to no unit
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr lists w1:p1 on terminal term_new and term_old under pane w9:p9
+    When it resolves its own identity
+    Then the resolved self id is undefined
+
+  Scenario: a pane pointer whose unit terminal herdr cannot list resolves to no unit
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr reports the calling pane as w1:p1 on terminal term_new and gives no pane list
+    When it resolves its own identity
+    Then the resolved self id is undefined
+
+  Scenario: touch in a resumed pane whose unit terminal herdr no longer lists records the new terminal id
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr resumed the pane as w1:p1 on terminal term_new and lists term_old nowhere
+    When the caller runs a command that resolves its own identity
+    Then the unit's herdr pane locator is w1:p1 with terminal term_new
+    And w1:p1 resolves to that unit's id
+
   # ── Standing identity (a session-independent, prune-exempt owner inbox) ──
 
   Scenario: unit register --standing mints a standing record with a handle-derived stable id

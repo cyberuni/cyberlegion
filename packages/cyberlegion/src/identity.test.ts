@@ -1469,4 +1469,37 @@ describe('spec:cyberlegion/identity — a resumed session keeps its unit', () =>
 		saveAgent(store, { ...standing, conversation: 'conv-a' })
 		expect(resolveSelfId(ctxAt(resumedElsewhere, 'w7:p3'))).toBeUndefined()
 	})
+
+	// P2: a resume keeps the pane id and gives it a new terminal; the unit's old terminal is live nowhere.
+	// A #272 move is the other way round: the old terminal is still listed, under another pane id.
+	const noConversation = (panes: HerdrPane[]) => panes.map(({ agent_session: _, ...p }) => p)
+
+	it('a pane pointer whose unit terminal herdr no longer lists resolves to that unit with no conversation known', () => {
+		const rec = register(ctxAt(noConversation(before), 'w1:p1'), { handle: 'operator', harness: 'claude' })
+		expect(resolveSelfId(ctxAt(noConversation(resumed), 'w1:p1'))).toBe(rec.id)
+	})
+
+	it('a pane pointer whose unit terminal is still live under another pane id resolves to no unit', () => {
+		register(ctxAt(noConversation(before), 'w1:p1'), { handle: 'operator', harness: 'claude' })
+		const panes = noConversation([
+			...resumed.map((p) => ({ ...p, pane_id: 'w1:p1' })),
+			{ ...before[0]!, pane_id: 'w9:p9' },
+		])
+		expect(resolveSelfId(ctxAt(panes, 'w1:p1'))).toBeUndefined()
+	})
+
+	it('a pane pointer whose unit terminal herdr cannot list resolves to no unit', () => {
+		register(ctxAt(noConversation(before), 'w1:p1'), { handle: 'operator', harness: 'claude' })
+		const current = noConversation(resumed)
+		const noList: Exec = (cmd, args) =>
+			args[0] === 'pane' && args[1] === 'list' ? null : herdrAt(current, 'w1:p1')(cmd, args)
+		expect(resolveSelfId({ store, env: { HERDR_ENV: '1', HERDR_PANE_ID: 'w1:p1' }, exec: noList })).toBeUndefined()
+	})
+
+	it('touch in a resumed pane whose unit terminal herdr no longer lists records the new terminal id', () => {
+		const rec = register(ctxAt(noConversation(before), 'w1:p1'), { handle: 'operator', harness: 'claude' })
+		touch(ctxAt(noConversation(resumed), 'w1:p1', {}, FRESH + 60_000))
+		expect(loadAgent(store, rec.id)?.pane).toEqual({ mux: 'herdr', id: 'w1:p1', terminal: 'term_new' })
+		expect(store.resolvePaneId('w1:p1')).toBe(rec.id)
+	})
 })
