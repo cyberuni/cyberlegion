@@ -488,6 +488,116 @@ Feature: unit registry — register, discover, and prune legion units
     When sessionLive judges the agent
     Then it answers live
 
+  # ── A resumed session keeps its unit (#284) ──
+
+  Scenario: register records the conversation herdr reports for the calling pane
+    Given an unregistered session inside a herdr pane whose agent session herdr reports as conv-a
+    When it runs unit register --handle operator --harness claude
+    Then the record's conversation is conv-a
+
+  Scenario: register records the conversation from $CLAUDE_CODE_SESSION_ID
+    Given an unregistered session inside a tmux pane with $CLAUDE_CODE_SESSION_ID=conv-t
+    When it runs unit register --handle t --harness claude
+    Then the record's conversation is conv-t
+
+  Scenario: a resumed herdr pane with a new terminal id resolves to the unit that carries its conversation
+    Given a unit registered in herdr pane w1:p1 on terminal term_old with conversation conv-a
+    And herdr resumed the session in pane w1:p1 on terminal term_new with agent session conv-a
+    When it resolves its own identity
+    Then it resolves to that unit's id
+
+  Scenario: a session resumed in a different pane resolves to the unit that carries its conversation
+    Given a unit registered in herdr pane w1:p1 with conversation conv-a
+    And herdr resumed the session in pane w7:p3, which has no pane pointer, with agent session conv-a
+    When it resolves its own identity
+    Then it resolves to that unit's id
+
+  Scenario: a resumed tmux session resolves by $CLAUDE_CODE_SESSION_ID when its pane has no pointer
+    Given a unit registered in tmux pane %5 with $CLAUDE_CODE_SESSION_ID=conv-t
+    And the session now runs in tmux pane %9, which has no pane pointer, with the same $CLAUDE_CODE_SESSION_ID
+    When it resolves its own identity
+    Then it resolves to that unit's id
+
+  Scenario: a pane pointer whose unit carries another conversation yields to the unit that carries the caller conversation
+    Given unit A carries conversation conv-a and unit B carries conv-b and holds the pane pointer for w7:p3
+    And herdr resumed conv-a in pane w7:p3
+    When it resolves its own identity
+    Then it resolves to unit A's id
+
+  Scenario: a pane pointer whose unit carries another conversation still resolves when no unit carries the caller conversation
+    Given a unit registered in herdr pane w1:p1 with conversation conv-a
+    And the session in w1:p1 is now in conversation conv-new, which no unit carries
+    When it resolves its own identity
+    Then it resolves to that unit's id
+
+  Scenario: register in a resumed session rebinds the existing unit rather than minting one
+    Given a unit with handle operator registered in herdr pane w1:p1 with conversation conv-a
+    And herdr resumed conv-a in pane w7:p3 on terminal term_new
+    When the session runs unit register --harness claude
+    Then the registry still holds exactly one unit
+    And that unit keeps its id and handle operator
+    And its herdr pane locator is w7:p3 with terminal term_new
+    And w7:p3 resolves to that unit's id
+
+  Scenario: register in a pane no unit holds says on stderr that it minted a new unit
+    Given a session in a tmux pane that no unit holds, in a conversation no unit carries
+    When it runs unit register --harness claude
+    Then stderr names the new unit's id as minted
+
+  Scenario: register in a session resumed into a new pane rebinds its unit and says nothing about minting
+    Given a unit registered in tmux pane %41 with $CLAUDE_CODE_SESSION_ID=conv-e2e
+    And the session now runs in tmux pane %42 with the same $CLAUDE_CODE_SESSION_ID
+    When it runs unit register --harness claude
+    Then it reports the same unit id
+    And stderr does not mention minting
+
+  Scenario: touch in a resumed session heals the unit pane, terminal, and status
+    Given a unit with conversation conv-a whose status is exited and whose pane pointer is w1:p1
+    And herdr resumed conv-a in pane w7:p3 on terminal term_new
+    When the caller runs a command that resolves its own identity
+    Then the unit's herdr pane locator is w7:p3 with terminal term_new
+    And the unit's status is active
+    And the unit's lastSeen is refreshed to now
+    And w7:p3 resolves to that unit's id
+    And w1:p1 resolves to no agent
+
+  Scenario: touch records the caller conversation on a unit that has none
+    Given a unit registered in herdr pane w1:p1 with no recorded conversation
+    And herdr reports conv-a as the calling pane's agent session
+    When the caller runs a command that resolves its own identity
+    Then the unit's conversation is conv-a
+
+  Scenario: a standing record that carries a conversation is never resolved as the caller
+    Given a standing identity homa whose record carries conversation conv-a
+    And a herdr session in conversation conv-a in a pane with no pointer
+    When it resolves its own identity
+    Then the resolved self id is undefined
+
+  Scenario: a pane pointer whose unit terminal herdr no longer lists resolves to that unit with no conversation known
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr resumed the pane as w1:p1 on terminal term_new and lists term_old nowhere
+    When it resolves its own identity
+    Then it resolves to that unit's id
+
+  Scenario: a pane pointer whose unit terminal is still live under another pane id resolves to no unit
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr lists w1:p1 on terminal term_new and term_old under pane w9:p9
+    When it resolves its own identity
+    Then the resolved self id is undefined
+
+  Scenario: a pane pointer whose unit terminal herdr cannot list resolves to no unit
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr reports the calling pane as w1:p1 on terminal term_new and gives no pane list
+    When it resolves its own identity
+    Then the resolved self id is undefined
+
+  Scenario: touch in a resumed pane whose unit terminal herdr no longer lists records the new terminal id
+    Given a unit registered in herdr pane w1:p1 on terminal term_old, with no conversation known
+    And herdr resumed the pane as w1:p1 on terminal term_new and lists term_old nowhere
+    When the caller runs a command that resolves its own identity
+    Then the unit's herdr pane locator is w1:p1 with terminal term_new
+    And w1:p1 resolves to that unit's id
+
   # ── Standing identity (a session-independent, prune-exempt owner inbox) ──
 
   Scenario: unit register --standing mints a standing record with a handle-derived stable id

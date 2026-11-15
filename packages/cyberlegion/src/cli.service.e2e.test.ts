@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 const BIN = fileURLToPath(new URL('../bin/cyberlegion.mjs', import.meta.url))
 
 const MUX_ENV_KEYS = [
+	'CLAUDE_CODE_SESSION_ID', // the host harness's conversation id keys self-identity (#284)
 	'TMUX',
 	'TMUX_PANE',
 	'HERDR_ENV',

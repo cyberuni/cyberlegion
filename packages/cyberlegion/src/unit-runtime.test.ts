@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { MuxAdapter } from 'cyber-mux'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type AgentRecord, type Exec, type IdContext, loadAgent, saveAgent } from './identity.ts'
+import { type AgentRecord, type Exec, type IdContext, loadAgent, resolveSelfId, saveAgent } from './identity.ts'
 import { send } from './message.ts'
 import { paths } from './paths.ts'
 import { LAUNCH_MAP } from './session.ts'
@@ -567,6 +567,14 @@ describe('spec:cyberlegion/unit/runtime — restart resumes the conversation', (
 		expect(loadAgent(store, 'u1')?.conversation).toBe('c-2')
 	})
 
+	it("the session-start hook never writes its conversation onto another unit's pane pointer", () => {
+		// A resume put conversation c-2 in pane %9, whose pointer still names u2; u1 carries c-2.
+		unit({ id: 'u1', conversation: 'c-2', pane: { mux: 'tmux', id: '%1' } })
+		unit({ id: 'u2', conversation: 'c-9' })
+		recordConversation(ctx(tmux().exec, { TMUX: 't', TMUX_PANE: '%9' }), '{"session_id":"c-2","source":"resume"}')
+		expect(loadAgent(store, 'u2')?.conversation).toBe('c-9')
+	})
+
 	it('a session-start hook input with no conversation id records nothing', () => {
 		unit({ id: 'u1', conversation: 'c-1' })
 		const before = recordBytes('u1')
@@ -609,9 +617,52 @@ describe('spec:cyberlegion/unit/runtime — unit rebind', () => {
 		expect(recordBytes('u1')).toBe(before)
 	})
 
+	// #284: a session that `unit register` minted a duplicate for may leave that
+	// duplicate for its own stranded unit, when the duplicate holds nothing a spawn or a sender put there.
+	const resumedIn = (pane: string) => ({ ...inHerdr(pane), CLAUDE_CODE_SESSION_ID: 'conv-r' })
+
+	it('rebind moves a session off its own register-minted unit with no unread mail and stops that unit', () => {
+		unit({ id: 'stranded', status: 'active', pane: herdrPane('w1:p1') })
+		unit({ id: 'dup', handle: 'dup', pane: herdrPane('w1:p5'), conversation: 'conv-r' })
+		const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
+		const bound = rebindUnit(rctx(be.adapter, resumedIn('w1:p5')), 'stranded')
+		expect(bound.id).toBe('stranded')
+		expect(store.resolvePaneId('w1:p5')).toBe('stranded')
+		expect(loadAgent(store, 'stranded')?.pane).toEqual(herdrPane('w1:p5'))
+		expect(loadAgent(store, 'stranded')?.conversation).toBe('conv-r')
+		const left = loadAgent(store, 'dup')
+		expect(left?.status).toBe('stopped')
+		expect(left?.pane).toBeNull()
+		expect(left?.conversation).toBeUndefined()
+		expect(resolveSelfId(ctx(() => null, resumedIn('w1:p5')))).toBe('stranded')
+	})
+
+	it("rebind refuses to leave the caller's own unit when that unit holds unread mail", () => {
+		unit({ id: 'stranded', status: 'stopped', pane: null })
+		unit({ id: 'dup', handle: 'dup', pane: herdrPane('w1:p5') })
+		send({ store }, { fromId: 'stranded', to: 'dup', body: 'waiting' })
+		const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
+		expect(() => rebindUnit(rctx(be.adapter, resumedIn('w1:p5')), 'stranded')).toThrow(/unread/)
+		expect(store.resolvePaneId('w1:p5')).toBe('dup')
+		expect(loadAgent(store, 'dup')?.status).toBe('active')
+	})
+
+	it("rebind refuses to leave the caller's own unit when spawn made that unit", () => {
+		for (const spawned of [
+			{ brief: '/hub/data/dup/brief.md' },
+			{ worktree: { root: unitDir, lease: { leaseId: 'l1', holder: 'dup' } } },
+		]) {
+			unit({ id: 'stranded', status: 'stopped', pane: null })
+			unit({ id: 'dup', handle: 'dup', pane: herdrPane('w1:p5'), ...spawned })
+			const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
+			expect(() => rebindUnit(rctx(be.adapter, resumedIn('w1:p5')), 'stranded')).toThrow(/dup/)
+			expect(store.resolvePaneId('w1:p5')).toBe('dup')
+		}
+	})
+
 	it('rebind refuses a pane that belongs to another unit', () => {
 		unit({ id: 'u1', status: 'stopped', pane: null })
-		unit({ id: 'other', handle: 'squatter', pane: herdrPane('w1:p5') })
+		unit({ id: 'other', handle: 'squatter', pane: herdrPane('w1:p5'), brief: '/hub/data/other/brief.md' })
 		const be = fakeBackend({ name: 'herdr', live: ['w1:p5'] })
 		expect(() => rebindUnit(rctx(be.adapter, inHerdr('w1:p5')), 'u1')).toThrow(/squatter/)
 		expect(store.resolvePaneId('w1:p5')).toBe('other')

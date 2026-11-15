@@ -221,8 +221,26 @@ whose record carries no terminal id is trusted as before. `register` records tha
 the herdr pane locator, as `unit rebind` and `unit spawn` / `unit restart` do (`unit/runtime`,
 `unit/lifecycle`).
 
-Extensions: an **unmapped pane** resolves to `undefined` and does **not** fall back to
-`$CYBERLEGION_AGENT_ID`.
+**A resumed session finds its unit by its conversation (#284).** A device shutdown and herdr
+resume give every pane a new terminal id and may hand pane ids out afresh, so neither the pointer
+nor the terminal finds the unit again. The harness conversation id survives: herdr resumes the pane
+with it, and reports it as the pane's `agent_session`. The caller's conversation is
+`$CLAUDE_CODE_SESSION_ID` when the harness sets it, else the agent session herdr reports for the
+calling pane. When the pane's record carries that conversation, the pointer stands. Otherwise the
+unit that carries it is the caller (the most recently seen one, if a duplicate carries it too).
+When no unit carries it, the pane answers as before, so a `/clear` in the same pane keeps its unit.
+Standing and service records are never found by a conversation.
+
+**A resumed pane keeps its unit even with no conversation known (#284).** When the pointer's record
+carries a terminal id herdr no longer lists anywhere, the pane was resumed, not moved: a moved pane
+keeps its terminal live under another pane id, and a resume keeps the pane id and gives it a new
+terminal. The pointer's unit is then the caller, and `touch` records the new terminal id. A herdr
+that gives no pane list cannot tell the two apart, and the pointer stays untrusted. `register` records the caller's
+conversation, rebinds a unit found by it to the calling pane instead of minting one, and says on
+stderr when it does mint one.
+
+Extensions: an **unmapped pane** with no conversation a unit carries resolves to `undefined` and
+does **not** fall back to `$CYBERLEGION_AGENT_ID`.
 
 ### touch — every call refreshes last-seen
 
@@ -240,6 +258,11 @@ terminal id, and the caller's record is a herdr record, `touch` writes that pane
 to the record and moves its pane pointer with it, so a unit that takes a turn after a move is found
 by its new pane id (#272). The old pointer is dropped only while it still names this unit. A herdr
 that does not report the calling pane leaves the record's pane as it was.
+
+**A resumed session heals its own record (#284).** `touch` records the caller's conversation on its
+unit. A unit found by its conversation from a pane it does not hold takes the calling pane (pane id,
+terminal id, pane pointer) and is active again, so a session herdr resumed reaches its own mail on
+its next command.
 
 ### unit whoami — print this session's own identity
 
@@ -565,8 +588,12 @@ graph TD
 graph TD
   SI0["resolveSelfId"] --> SI1{"in a tmux or herdr pane? ($TMUX_PANE, $HERDR_PANE_ID, $CYBER_MUX_PANE)"}
   SI1 -- yes --> SIH{"herdr pane, and herdr >= 0.8.2 reports the calling pane?"}
-  SIH -- yes --> SIHY["key by herdr's pane id"] --> SI2
-  SIH -- no --> SI2{"a pane pointer for this pane?"}
+  SIH -- yes --> SIHY["key by herdr's pane id"] --> SIC
+  SIH -- no --> SIC{"the caller's conversation known, and the pane's record does not carry it?"}
+  SIC -- yes --> SIC1{"a session unit carries that conversation?"}
+  SIC1 -- yes --> SICY["that unit's id"]
+  SIC1 -- no --> SI2
+  SIC -- no --> SI2{"a pane pointer for this pane?"}
   SI2 -- yes --> SIT{"herdr named the terminal, and the pointer's record carries a different one?"}
   SIT -- no --> SI2Y["the pointer's id"]
   SIT -- yes --> SIT1
@@ -574,7 +601,9 @@ graph TD
   SIT0 -- no --> SI2N["undefined — no fallback to the env var"]
   SIT0 -- yes --> SIT1{"a herdr record carries that terminal?"}
   SIT1 -- yes --> SITY["that record's id"]
-  SIT1 -- no --> SI2N
+  SIT1 -- no --> SIR{"the pointer's record carries a terminal herdr's pane list lacks?"}
+  SIR -- yes --> SIRY["the pointer's id — a resumed pane"]
+  SIR -- no --> SI2N
   SI1 -- no --> SI3{"$CYBERLEGION_AGENT_ID set?"}
   SI3 -- yes --> SI3Y["that id"]
   SI3 -- no --> SI3N["undefined"]
@@ -586,8 +615,10 @@ graph TD
 graph TD
   TC0["touch"] --> TC1{"self id resolves to a record?"}
   TC1 -- no --> TC1N["no-op; never throws, writes nothing"]
-  TC1 -- yes --> TC2["lastSeen := now"]
-  TC2 --> TC3{"herdr reported the calling pane and its terminal, and the record is a herdr record?"}
+  TC1 -- yes --> TC2["lastSeen := now; conversation := the caller's, when known"]
+  TC2 --> TCC{"found by its conversation from a pane it does not hold?"}
+  TCC -- yes --> TCCY["pane, terminal, pointer := the calling pane; status := active"]
+  TCC -- no --> TC3{"herdr reported the calling pane and its terminal, and the record is a herdr record?"}
   TC3 -- no --> TC3N["done"]
   TC3 -- yes --> TC4["pane id, terminal := herdr's; pane pointer moves with it"]
 ```
@@ -849,6 +880,21 @@ adapters.
 | `SIHY` via register | register in a herdr pane whose `$HERDR_PANE_ID` names another unit's pane | `register in a herdr pane whose $HERDR_PANE_ID went stale keys the pane herdr reports` |
 | `SITY` | a moved herdr pane with no pointer for its new id, herdr naming the unit's terminal | `resolveSelfId in a moved herdr pane finds the unit by its terminal` |
 | `SITY` via register | register in a herdr pane whose terminal id herdr reports | `register in a herdr pane records the pane terminal id` |
+| `SICY` new terminal | a herdr resume that keeps the pane id and gives a new terminal id | `a resumed herdr pane with a new terminal id resolves to the unit that carries its conversation` |
+| `SICY` new pane | a herdr resume into a pane with no pointer | `a session resumed in a different pane resolves to the unit that carries its conversation` |
+| `SICY` tmux | a tmux session in a new pane, `$CLAUDE_CODE_SESSION_ID` unchanged | `a resumed tmux session resolves by $CLAUDE_CODE_SESSION_ID when its pane has no pointer` |
+| `SICY` over a pointer | a pane pointer naming a unit of another conversation, a unit carrying the caller's | `a pane pointer whose unit carries another conversation yields to the unit that carries the caller conversation` |
+| `SIC1 -- no` | a pane's unit in another conversation, no unit carrying the caller's | `a pane pointer whose unit carries another conversation still resolves when no unit carries the caller conversation` |
+| `SIC1 -- no` standing | only a standing record carries the caller's conversation | `a standing record that carries a conversation is never resolved as the caller` |
+| `SICY` via register | register in a session herdr resumed into a new pane | `register in a resumed session rebinds the existing unit rather than minting one` |
+| `SICY` via the CLI | `unit register` in a tmux session resumed into a new pane | `register in a session resumed into a new pane rebinds its unit and says nothing about minting` |
+| mint notice | `unit register` in a pane no unit holds, in a conversation no unit carries | `register in a pane no unit holds says on stderr that it minted a new unit` |
+| `SIRY` | a herdr resume that keeps the pane id, no conversation known, the old terminal unlisted | `a pane pointer whose unit terminal herdr no longer lists resolves to that unit with no conversation known` |
+| `SIR -- no` moved | the pointer's record's terminal listed under another pane id | `a pane pointer whose unit terminal is still live under another pane id resolves to no unit` |
+| `SIR -- no` no list | herdr naming the calling pane's terminal but giving no pane list | `a pane pointer whose unit terminal herdr cannot list resolves to no unit` |
+| `SIRY` via touch | touch in a resumed pane whose old terminal herdr lists nowhere | `touch in a resumed pane whose unit terminal herdr no longer lists records the new terminal id` |
+| register, herdr | register in a herdr pane whose agent session herdr reports | `register records the conversation herdr reports for the calling pane` |
+| register, env | register with `$CLAUDE_CODE_SESSION_ID` set | `register records the conversation from $CLAUDE_CODE_SESSION_ID` |
 
 ### touch
 
@@ -857,6 +903,8 @@ adapters.
 | `TC2` | a registered agent with an old lastSeen | `touch refreshes the caller's last-seen` |
 | `TC1N` | no resolvable self id | `touch is a no-op for an unregistered caller` |
 | `TC4` | a unit whose herdr pane moved, herdr reporting the new pane and its terminal | `touch in a moved herdr pane refreshes the unit pane to the one herdr reports` |
+| `TCCY` | a unit found by its conversation from a resumed pane, its status exited | `touch in a resumed session heals the unit pane, terminal, and status` |
+| `TC2` conversation | a unit with no recorded conversation, herdr reporting one | `touch records the caller conversation on a unit that has none` |
 
 ### unit whoami
 

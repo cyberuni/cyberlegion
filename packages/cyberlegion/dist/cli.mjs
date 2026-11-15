@@ -10457,13 +10457,19 @@ function selfPane(cur, exec) {
 	if (!live) return cur;
 	if (live.pane === cur.pane) return {
 		...cur,
-		...live.terminal ? { terminal: live.terminal } : {}
+		...liveFacts(live)
 	};
 	if (!herdrReportsCallingPane(exec)) return cur;
 	return {
 		...cur,
 		pane: live.pane,
-		...live.terminal ? { terminal: live.terminal } : {}
+		...liveFacts(live)
+	};
+}
+function liveFacts(live) {
+	return {
+		...live.terminal ? { terminal: live.terminal } : {},
+		...live.conversation ? { conversation: live.conversation } : {}
 	};
 }
 /** herdr 0.8.2 fixed `pane current` to answer the calling pane; before it, the command answered
@@ -10478,7 +10484,8 @@ function herdrReportsCallingPane(exec) {
 function herdrCallingPane(exec) {
 	return herdrPaneAnswer(exec("herdr", ["pane", "current"]));
 }
-/** Parse a herdr `pane current` / `pane get` answer into its pane id and terminal id. */
+/** Parse a herdr `pane current` / `pane get` answer into its pane id, terminal id, and the agent
+* session id herdr resumes the pane with (`agent_session.value`, #242). */
 function herdrPaneAnswer(out) {
 	if (!out) return void 0;
 	try {
@@ -10486,9 +10493,11 @@ function herdrPaneAnswer(out) {
 		const id = pane?.pane_id;
 		if (typeof id !== "string" || !id) return void 0;
 		const terminal = pane.terminal_id;
+		const conversation = pane.agent_session?.value;
 		return {
 			pane: id,
-			...typeof terminal === "string" && terminal ? { terminal } : {}
+			...typeof terminal === "string" && terminal ? { terminal } : {},
+			...typeof conversation === "string" && conversation ? { conversation } : {}
 		};
 	} catch {
 		return;
@@ -10608,20 +10617,67 @@ function detectHarness(explicit, ctx) {
 * multiplexer pane at all). There is no shared bare "self" file — self-id is always pane-keyed or
 * explicit via the env var.
 */
-function resolveSelfId(ctx) {
-	return resolveSelf(ctx).id;
+function resolveSelfId(ctx, opts = {}) {
+	return resolveSelf(ctx, opts).id;
 }
-function resolveSelf(ctx) {
+function resolveSelf(ctx, opts = {}) {
 	const env = ctx.env ?? process.env;
 	const cur = selfPane(currentPane(normalizeMuxEnv(env)), ctx.exec ?? realExec);
-	if (cur) return {
-		id: selfIdAt(ctx.store, cur),
-		cur
+	if (!cur) return {
+		id: env.CYBERLEGION_AGENT_ID || void 0,
+		cur,
+		conversation: void 0,
+		byConversation: false
+	};
+	const conversation = opts.conversation || callerConversation(env, cur);
+	const byPane = selfIdAt(ctx.store, ctx.exec ?? realExec, cur);
+	if (!conversation) return {
+		id: byPane,
+		cur,
+		conversation,
+		byConversation: false
+	};
+	if ((byPane ? loadAgent(ctx.store, byPane) : void 0)?.conversation === conversation) return {
+		id: byPane,
+		cur,
+		conversation,
+		byConversation: false
+	};
+	const holder = conversationHolder(ctx.store, conversation);
+	if (holder) return {
+		id: holder.id,
+		cur,
+		conversation,
+		byConversation: holder.id !== byPane
 	};
 	return {
-		id: env.CYBERLEGION_AGENT_ID || void 0,
-		cur
+		id: byPane,
+		cur,
+		conversation,
+		byConversation: false
 	};
+}
+/** The harness conversation the calling session is in, when the harness or herdr names it. */
+function callingConversation(ctx) {
+	return resolveSelf(ctx).conversation;
+}
+/**
+* The harness conversation the caller is in: the harness's own word for it (`$CLAUDE_CODE_SESSION_ID`)
+* first, else the agent session herdr reports for the calling pane. It survives a device shutdown and
+* a herdr resume, which hand out new terminal ids and may hand out new pane ids (#284).
+*/
+function callerConversation(env, cur) {
+	return env.CLAUDE_CODE_SESSION_ID || cur.conversation || void 0;
+}
+/** The unit that carries this conversation — the most recently seen one, if a duplicate minted before
+* the conversation was recorded carries it too. Standing and service records have no session. */
+function conversationHolder(store, conversation) {
+	let best;
+	for (const a of listAgents(store)) {
+		if (a.conversation !== conversation || isSessionIndependent(a)) continue;
+		if (!best || a.lastSeen > best.lastSeen) best = a;
+	}
+	return best;
 }
 /**
 * The unit a pane belongs to. The pane pointer answers first. When herdr named the calling pane's
@@ -10629,26 +10685,44 @@ function resolveSelf(ctx) {
 * this pane after the unit's own pane moved away), and a missing pointer may mean this pane moved:
 * either way the record bearing this terminal is the caller (#272). A record without a terminal id
 * is trusted by its pointer as before.
+*
+* A pointer whose record's terminal herdr lists nowhere is not a move: a moved pane keeps its terminal
+* live under another pane id. It is a resume, which keeps the pane id and hands it a new terminal, so
+* the pointer's unit is the caller and `touch` records the new terminal (#284). A herdr that gives no
+* pane list cannot tell a resume from a move, and the pointer stays untrusted.
 */
-function selfIdAt(store, cur) {
+function selfIdAt(store, exec, cur) {
 	const indexed = store.resolvePaneId(cur.pane);
 	if (!cur.terminal) return indexed;
 	const terminal = indexed ? loadAgent(store, indexed)?.pane?.terminal : void 0;
 	if (indexed && (!terminal || terminal === cur.terminal)) return indexed;
-	return listAgents(store).find((a) => a.pane?.mux === "herdr" && a.pane.terminal === cur.terminal)?.id;
+	const bearer = listAgents(store).find((a) => a.pane?.mux === "herdr" && a.pane.terminal === cur.terminal)?.id;
+	if (bearer) return bearer;
+	if (indexed && terminal && locateTerminal(exec, terminal) === "gone") return indexed;
 }
 /** Register (or idempotently refresh) this session's identity. */
 function register(ctx, input) {
+	return registerSelf(ctx, input).rec;
+}
+/**
+* `register`, also saying whether it minted a new unit. A session already registered — found by its
+* pane, or by its harness conversation after a resume moved it to a pane the unit does not know
+* (#284) — refreshes that unit and moves its pane pointer here; only a session nothing identifies
+* mints one.
+*/
+function registerSelf(ctx, input) {
 	ctx.store.ensureMarker();
 	const env = ctx.env ?? process.env;
 	const harness = detectHarness(input.harness, ctx);
 	if (!harness) throw new Error("could not detect harness — pass --harness claude|cursor|codex");
-	const existingId = resolveSelfId(ctx);
+	const self = resolveSelf(ctx);
+	const existingId = self.id;
 	const existing = existingId ? loadAgent(ctx.store, existingId) : void 0;
 	const id = existing?.id ?? existingId ?? randomId();
 	const ts = nowIso(ctx);
 	const exec = ctx.exec ?? realExec;
 	const cur = selfPane(storablePane(env), exec);
+	const conversation = self.conversation ?? existing?.conversation;
 	const rec = {
 		id,
 		handle: input.handle ?? existing?.handle ?? id.slice(0, 6),
@@ -10660,11 +10734,17 @@ function register(ctx, input) {
 		createdAt: existing?.createdAt ?? ts,
 		lastSeen: ts,
 		...existing?.brief ? { brief: existing.brief } : {},
-		...existing?.spawnedBy ? { spawnedBy: existing.spawnedBy } : {}
+		...existing?.spawnedBy ? { spawnedBy: existing.spawnedBy } : {},
+		...conversation ? { conversation } : {}
 	};
 	saveAgent(ctx.store, rec);
+	const oldPane = existing?.pane?.id;
+	if (oldPane && oldPane !== cur?.pane && ctx.store.resolvePaneId(oldPane) === id) ctx.store.removePaneIndex(oldPane);
 	if (cur) ctx.store.putPaneIndex(cur.pane, id);
-	return rec;
+	return {
+		rec,
+		minted: !existingId
+	};
 }
 /** Build the record's pane locator. `window`/`session` are tmux-only (herdr's pane id is
 * self-contained and its CLI needs nothing more to address a pane). */
@@ -10996,14 +11076,26 @@ function bumpLastSeen(ctx, id) {
 /**
 * Refresh this session's own last-seen if it is registered — best-effort, never throws. In a herdr
 * pane whose calling pane herdr reported, it also heals the record's pane to the id and terminal
-* herdr gave, so a unit whose pane moved fixes its own record on its next turn (#272).
+* herdr gave, so a unit whose pane moved fixes its own record on its next turn (#272). It records the
+* harness conversation the caller is in, and a unit found by that conversation from a pane it does not
+* hold — a session a device shutdown and resume put in a new pane or terminal — takes this pane and is
+* active again (#284).
 */
-function touch(ctx) {
-	const { id, cur } = resolveSelf(ctx);
+function touch(ctx, opts = {}) {
+	const { id, cur, conversation, byConversation } = resolveSelf(ctx, opts);
 	if (!id) return;
 	bumpLastSeen(ctx, id);
-	if (cur?.mux !== "herdr" || !cur.terminal) return;
 	const rec = loadAgent(ctx.store, id);
+	if (!rec || isSessionIndependent(rec)) return;
+	if (conversation && rec.conversation !== conversation) {
+		rec.conversation = conversation;
+		saveAgent(ctx.store, rec);
+	}
+	if (byConversation && cur) {
+		rebindToCaller(ctx, rec);
+		return;
+	}
+	if (cur?.mux !== "herdr" || !cur.terminal) return;
 	if (rec?.pane?.mux !== "herdr") return;
 	if (rec.pane.terminal !== cur.terminal) {
 		rec.pane = {
@@ -11013,6 +11105,19 @@ function touch(ctx) {
 		saveAgent(ctx.store, rec);
 	}
 	followMove(ctx, rec, cur.pane);
+}
+/** Point a unit found by its conversation at the calling pane, the way `register` would. */
+function rebindToCaller(ctx, rec) {
+	const env = ctx.env ?? process.env;
+	const exec = ctx.exec ?? realExec;
+	const cur = selfPane(storablePane(env), exec);
+	if (!cur) return;
+	const oldPane = rec.pane?.id;
+	rec.pane = paneLocator(cur, exec, env);
+	rec.status = "active";
+	saveAgent(ctx.store, rec);
+	if (oldPane && oldPane !== cur.pane && ctx.store.resolvePaneId(oldPane) === rec.id) ctx.store.removePaneIndex(oldPane);
+	ctx.store.putPaneIndex(cur.pane, rec.id);
 }
 const STALE_MS = 9e5;
 /** Standing and service records have no session of their own, so nothing about a pane or a timer
@@ -14758,7 +14863,8 @@ function rebindUnit(ctx, ref) {
 	if (rec.pane?.mux === cur.mux && rec.pane.id === cur.pane && ctx.store.resolvePaneId(cur.pane) === rec.id) return rec;
 	const holderId = ctx.store.resolvePaneId(cur.pane);
 	const holder = holderId && holderId !== rec.id ? loadAgent(ctx.store, holderId) : void 0;
-	if (holder && holder.status !== "stopped" && holder.status !== "exited") throw new Error(`this pane belongs to unit "${holder.handle}" (${holder.id}) — rebind never takes another unit's pane`);
+	const leaving = holder && holder.status !== "stopped" && holder.status !== "exited" ? holder : void 0;
+	if (leaving) assertMayLeave(ctx, leaving);
 	const liveness = probeLiveness(ctx, rec);
 	const ownTerminal = !!cur.terminal && rec.pane?.mux === "herdr" && rec.pane.terminal === cur.terminal;
 	if (oldPane && oldPane !== cur.pane && !ownTerminal && (liveness === "live" || liveness === "unknown")) throw new Error(`unit "${rec.handle}" may still be running in pane ${oldPane} — stop it first (unit stop ${rec.handle})`);
@@ -14772,10 +14878,37 @@ function rebindUnit(ctx, ref) {
 		},
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString()
 	};
+	const conversation = leaving ? callingConversation(ctx) : void 0;
+	if (conversation) bound.conversation = conversation;
+	if (leaving) {
+		const { conversation: _gone, ...rest } = leaving;
+		saveAgent(ctx.store, {
+			...rest,
+			status: "stopped",
+			pane: null
+		});
+	}
 	saveAgent(ctx.store, bound);
 	if (oldPane && oldPane !== cur.pane) ctx.store.removePaneIndex(oldPane);
 	ctx.store.putPaneIndex(cur.pane, rec.id);
 	return bound;
+}
+/**
+* A session may leave its own live unit for the one it is rebinding to only when that unit is a
+* duplicate a plain `unit register` minted (#284) — the session herdr resumed registered again before
+* it could find its unit. A unit `spawn` made (a brief, or a worktree spawn leased) is real work, and
+* a unit with unread mail would strand that mail, so both keep the pane. A pane held by a unit that is
+* not the caller's is never taken.
+*/
+function assertMayLeave(ctx, holder) {
+	function refuse(why) {
+		throw new Error(`this pane belongs to unit "${holder.handle}" (${holder.id}) — ${why}`);
+	}
+	if (resolveSelfId(ctx) !== holder.id) refuse("rebind never takes another unit's pane");
+	if (holder.brief || holder.worktree?.lease) refuse("rebind never leaves a unit that spawn made");
+	const unread = unreadCount(ctx, holder.id);
+	if (unread === void 0) refuse("its mailbox is unreadable, so rebind cannot tell whether it holds unread mail");
+	if (unread > 0) refuse(`it holds ${unread} unread message(s); read or ack them before rebind leaves it`);
 }
 function hasHonestReset(harness) {
 	if (!harness) return false;
@@ -14843,13 +14976,22 @@ function recordConversation(ctx, hookInput) {
 		return;
 	}
 	if (typeof id !== "string" || id === "") return;
-	const meId = resolveSelfId(ctx);
+	const meId = resolveSelfId(ctx, { conversation: id });
 	const rec = meId ? loadAgent(ctx.store, meId) : void 0;
 	if (!rec || rec.kind === "standing" || rec.kind === "service" || rec.conversation === id) return;
 	saveAgent(ctx.store, {
 		...rec,
 		conversation: id
 	});
+}
+/** How many unread messages a unit holds: 0 for a unit never mailed, undefined when its mailbox
+* cannot be read. */
+function unreadCount(ctx, id) {
+	try {
+		return ctx.store.hasMailbox(id) ? ctx.store.listInbox(id).unread.length : 0;
+	} catch {
+		return;
+	}
 }
 // src/wake/await.ts
 /** Internal poll interval — not user-facing (the round-trip cost of one `mail await` cycle). */
@@ -15020,7 +15162,7 @@ syncsUnits(withGlobals(unit.command("register"))).description("register or refre
 		runStanding(ctx, opts, home);
 		return;
 	}
-	const rec = register(ctx, {
+	const { rec, minted } = registerSelf(ctx, {
 		handle: opts.handle,
 		harness: opts.harness
 	});
@@ -15033,6 +15175,7 @@ syncsUnits(withGlobals(unit.command("register"))).description("register or refre
 		}),
 		json: rec
 	});
+	if (minted && rec.pane) nextStep(`minted new unit ${rec.id} — no unit is registered for this pane or conversation`);
 });
 withGlobals(unit.command("claim")).description("bind the caller's unit as a standing owner's presence; --show reads it, --clear unbinds").argument("<handle>", "standing owner handle").option("--clear", "unbind the presence (a no-op when nothing is bound)").option("--show", "print the bound presence instead of claiming").action((handle, opts) => {
 	const ctx = ctxOf(opts);
@@ -15303,7 +15446,7 @@ withGlobals(unit.command("restart")).description("give a unit a new session and 
 	});
 	if (res.warning) nextStep(`warning: ${res.warning}`);
 });
-withGlobals(unit.command("rebind")).description("bind a stopped unit to the calling pane — for a session started by hand that should be this unit").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+withGlobals(unit.command("rebind")).description("bind a stopped unit to the calling pane — for a session started by hand, or resumed after it registered a duplicate, that should be this unit").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
 	const rec = rebindUnit(ctxOf(opts), ref);
 	emit(formatOf(opts), {
 		toon: toonObject({
