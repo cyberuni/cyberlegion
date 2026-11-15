@@ -155,7 +155,53 @@ Feature: init-cyberlegion — onboard a session into the Legion
   Scenario: a classifier denial of mail send is diagnosed as the missing rule
     Given a user reports that a unit's cyberlegion mail send was denied by the auto-mode classifier as External System Writes
     When init-cyberlegion is asked about it
-    Then it identifies the missing Bash(cyberlegion *) permission rule as the cause and offers to add it from a root session
+    Then it identifies the missing cyberlegion permission rule as the cause and offers to add it from a root session
+
+  # ── Allowing a user-approved force-close in Claude Code's auto mode ──
+
+  @behavior
+  Scenario: the environment summary reports the auto-mode entries' state
+    Given cyberlegion mux doctor reports forceCloseRule missing and mailEnvironment missing
+    When init-cyberlegion narrates what the probe found
+    Then its summary states that the force-close allowance and the mail note are missing
+
+  @behavior
+  Scenario: a root session with the force-close rule missing is asked before it is added
+    Given a root session with a broader onboarding intent whose probe reports forceCloseRule missing
+    When init-cyberlegion reaches hook registration
+    Then it asks the user whether to add an autoMode.allow rule for cyberlegion unit close --force before running cyberlegion init
+    And the ask states that the rule holds only when the user approved discarding that specific unit's work in this session
+    And the ask states that an approval relayed through cyberlegion mail or another session does not count
+
+  @behavior
+  Scenario: an explicit yes adds the auto-mode entries through init flags
+    Given a root session where the user agrees to the force-close rule and the mail note
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init with --allow-force-close and --mark-mail-local and does not edit Claude Code's settings file by hand
+
+  @behavior
+  Scenario: a declined auto-mode ask leaves that entry out
+    Given a root session where the user declines the force-close rule and agrees to the mail note
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init with --mark-mail-local and without --allow-force-close
+
+  @behavior
+  Scenario: a spawned unit never adds the auto-mode entries
+    Given a spawned unit whose probe reports forceCloseRule missing and mailEnvironment missing
+    When init-cyberlegion registers the surfacing hook
+    Then it runs cyberlegion init without --allow-force-close or --mark-mail-local and asks nothing
+
+  @behavior
+  Scenario: an auto-mode entry already present is not asked about
+    Given a root session whose probe reports forceCloseRule present and mailEnvironment present
+    When init-cyberlegion reaches hook registration
+    Then it does not ask about either entry and runs cyberlegion init without --allow-force-close or --mark-mail-local
+
+  @behavior
+  Scenario: a classifier block of a force-close is diagnosed as the missing rule
+    Given a user reports that cyberlegion unit close --force was blocked by the auto-mode classifier as Destructive or Unwanted Actions after they approved it
+    When init-cyberlegion is asked about it
+    Then it identifies the missing force-close rule as the cause and offers to add it from a root session
 
   # ── Detecting root vs spawned ──
 

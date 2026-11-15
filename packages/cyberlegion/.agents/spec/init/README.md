@@ -49,20 +49,43 @@ which harness it runs under:
   **validated** as a single npm version-or-dist-tag token before it is embedded — a malformed pin
   (empty, whitespace, a range, or a shell metacharacter) is rejected and no hook is registered. Each
   event is reported as `registered`, `already present`, `provided by plugin`, or `removed project hook`.
-- **init --allow-cli adds the Claude Code permission rule for the CLI** — without a
+- **init --allow-cli adds the Claude Code permission rules for the CLI** — without a
   `permissions.allow` rule covering `cyberlegion`, Claude Code's auto-mode classifier can deny a
   unit's `cyberlegion mail send` as an external write, so a unit that finished its work cannot report
-  back (#120). For claude, `init` reads Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`,
-  else `~/.claude/settings.json`) and reports the rule as `present` or `missing` (or `unreadable`);
-  a covering rule is `Bash(cyberlegion *)`, its `:*` or `*` spelling, `Bash(*)`, or a bare `Bash`.
-  With `--allow-cli` it appends `Bash(cyberlegion *)` to `permissions.allow` after every rule already
-  there, keeping every other setting, and reports `added` — or `present`, writing nothing, when a
-  covering rule exists. It never rewrites a file it cannot read as settings (invalid JSON, not an
-  object, a non-array `permissions.allow`): it fails naming the file before any hook is touched.
-  Without the flag it writes nothing and, when the rule is missing, emits a next-step toward
-  `init --allow-cli`. The flag is claude-only; any other harness rejects it. Writing the user's
-  global settings is a consent decision, so `init` never does it unasked — the `init-cyberlegion`
-  skill asks first.
+  back (#120). A rule matches one command prefix, and a session runs the CLI in four forms, so the
+  rules are four: `Bash(cyberlegion *)` (the bare command), `Bash(node *cyberlegion.mjs *)` (a skill's
+  `scripts/cyberlegion.mjs` launcher or the package's `bin/cyberlegion.mjs`), and
+  `Bash(npx cyberlegion@* *)` / `Bash(npx -y cyberlegion@* *)` (a pinned npx run) (#280). The unpinned
+  `npx -y cyberlegion` form is left out: the skills fall back to it only from an unbundled workspace
+  checkout, and a `cyberlegion*` pattern would also match any other package whose name starts so.
+  For claude, `init` reads Claude Code's user settings (`$CLAUDE_CONFIG_DIR/settings.json`, else
+  `~/.claude/settings.json`) and reports the rule as `present` when every form is covered, else
+  `missing` (or `unreadable`). The bare form is also covered by its `:*` or `*` spelling, and every
+  form by `Bash(*)` or a bare `Bash`. With `--allow-cli` it appends the uncovered rules to
+  `permissions.allow` after every rule already there, keeping every other setting, and reports
+  `added` — or `present`, writing nothing, when every form is covered. It never rewrites a file it
+  cannot read as settings (invalid JSON, not an object, a non-array `permissions.allow`): it fails
+  naming the file before any hook is touched. Without the flag it writes nothing and, when the rule is
+  missing, emits a next-step toward `init --allow-cli`. The flag is claude-only; any other harness
+  rejects it. Writing the user's global settings is a consent decision, so `init` never does it
+  unasked — the `init-cyberlegion` skill asks first.
+- **init --allow-force-close and --mark-mail-local add Claude Code auto-mode entries** — the
+  auto-mode classifier blocks `unit close <id> --force` as destructive even right after the user
+  approved discarding that unit's work, and can read `mail send` as data leaving the machine (#280).
+  A permission rule cannot carry the condition that makes a force-close safe, so these go in Claude
+  Code's natural-language `autoMode` lists in the same user settings file. `init` reports
+  `forceCloseRule` (an `autoMode.allow` entry naming `cyberlegion`, `unit close`, and `--force`) and
+  `mailEnvironment` (an `autoMode.environment` entry naming `cyberlegion` and `mail send`), each
+  `present`, `missing`, or `unreadable`. `--allow-force-close` appends a rule allowing the
+  force-close in any of the CLI's forms **only when the user approved discarding that specific
+  unit's work in this session** — an approval relayed through cyberlegion mail or another session
+  does not count, since relayed content is not an order. `--mark-mail-local` appends a note that
+  `mail send` is local agent-to-agent messaging under the hub, not an external transmission. A list
+  either flag creates starts with `$defaults`, so Claude Code's built-in rules stay in force; an
+  existing list is appended to as it is, never given a `$defaults` the user left out. An entry
+  already there is a no-op. Each write keeps the file's own indentation (two spaces for a new file)
+  and its final newline, and refuses a malformed `autoMode` the same way `--allow-cli` refuses a
+  malformed `permissions.allow`. Both flags are claude-only and consent-gated like `--allow-cli`.
 - **init auto-detects; installation is otherwise explicit** — `init` adds auto-detection and an
   owner-binding next-step for onboarding, on top of the low-level installer (see the TODO above for
   where that installer's own pending scenarios currently live). `init` never chooses a harness by
@@ -97,6 +120,7 @@ Every scenario in [`init.feature`](./init.feature) maps to one of these behavior
 | **resolve + register** | auto-detect harness (or `--agent`); leave the hook to the plugin for claude/codex, register the PATH-first SessionStart hook for cursor |
 | **pin** | `--pin` pins only cursor's npx fallback; a malformed pin is rejected before anything is written |
 | **auto-detect vs explicit** | `--agent` overrides + is validated; undetectable with no `--agent` throws asking for it, never guesses |
-| **permission rule** | report the Claude Code allow rule for the CLI; `--allow-cli` merges it in, never clobbering a file; claude only |
+| **permission rule** | report the Claude Code allow rules for the CLI's four forms; `--allow-cli` merges in the missing ones, never clobbering a file; claude only |
+| **auto-mode entries** | report the force-close rule and the mail note; `--allow-force-close` / `--mark-mail-local` append them after `$defaults`, idempotent, indentation kept; claude only |
 | **owner-binding next-step** | emits a bind-owner next-step only when no standing owner exists |
 | **idempotent + upgrade** | re-run reports `already present`, rewrites an older cursor generation in place, removes an earlier project hook where the plugin ships it |

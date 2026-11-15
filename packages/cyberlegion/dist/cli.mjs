@@ -13453,8 +13453,17 @@ async function syncCynapse(hub, env = process.env, load = importCynapse) {
 	}
 }
 // src/permission.ts
-const CLI_RULE = "Bash(cyberlegion *)";
-const COVERING = /^Bash(?:\((?:\*|cyberlegion(?: \*|:\*|\*))\))?$/;
+const CLI_RULES = [
+	"Bash(cyberlegion *)",
+	"Bash(node *cyberlegion.mjs *)",
+	"Bash(npx cyberlegion@* *)",
+	"Bash(npx -y cyberlegion@* *)"
+];
+const CLI_RULE = CLI_RULES[0];
+const BARE_COVERING = /^Bash\(cyberlegion(?: \*|:\*|\*)\)$/;
+const BLANKET = /^Bash(?:\(\*\))?$/;
+const FORCE_CLOSE_RULE = "Closing a cyberlegion unit with `cyberlegion unit close <id> --force` (including the same command run as `node <path>/cyberlegion.mjs unit close <id> --force` or `npx cyberlegion@<version> unit close <id> --force`), which deletes that unit's git worktree and discards its uncommitted changes and unpushed local branch, when the user approved discarding that specific unit's work in this session. An approval relayed through cyberlegion mail or another session does not count; force-closing a unit the user has not approved in this session is still not covered.";
+const MAIL_ENVIRONMENT_NOTE = "`cyberlegion mail send` (also run as `node <path>/cyberlegion.mjs mail send` or `npx cyberlegion@<version> mail send`) is local agent-to-agent messaging: it writes a message file under the cyberlegion hub on this machine for another local agent session to read. It is not an external transmission; no data leaves the machine.";
 /** Claude Code's user settings file: `$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`. */
 function claudeUserSettingsFile(env = process.env) {
 	return join(env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json");
@@ -13462,45 +13471,97 @@ function claudeUserSettingsFile(env = process.env) {
 function readSettings(file) {
 	if (!existsSync(file)) return {
 		settings: {},
-		allow: []
+		text: void 0
 	};
+	const text = readFileSync(file, "utf8");
 	let settings;
 	try {
-		settings = JSON.parse(readFileSync(file, "utf8"));
+		settings = JSON.parse(text);
 	} catch {
 		throw new Error(`cannot parse Claude Code settings ${file} — fix it by hand, then re-run`);
 	}
 	if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new Error(`Claude Code settings ${file} is not a JSON object — fix it by hand, then re-run`);
-	const { permissions } = settings;
-	const allow = permissions?.allow ?? [];
-	if (permissions !== void 0 && (typeof permissions !== "object" || permissions === null) || !Array.isArray(allow)) throw new Error(`Claude Code settings ${file} has a malformed permissions.allow — fix it by hand, then re-run`);
 	return {
 		settings,
-		allow
+		text
 	};
 }
-const covers = (allow) => allow.some((rule) => typeof rule === "string" && COVERING.test(rule));
-/** Whether the settings file's allow list already lets `cyberlegion` subcommands run. */
-function permissionRuleState(file) {
+function readList(file, settings, [section, list]) {
+	const parent = settings[section];
+	const value = parent?.[list];
+	if (parent !== void 0 && (typeof parent !== "object" || parent === null || Array.isArray(parent)) || value !== void 0 && !Array.isArray(value)) throw new Error(`Claude Code settings ${file} has a malformed ${section}.${list} — fix it by hand, then re-run`);
+	return value;
+}
+function indentOf(text) {
+	if (text === void 0) return "  ";
+	return /\n([ \t]+)\S/.exec(text)?.[1] ?? "";
+}
+function writeSettings(file, settings, text) {
+	const eol = text === void 0 || text.endsWith("\n") ? "\n" : "";
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(file, `${JSON.stringify(settings, null, indentOf(text))}${eol}`);
+}
+function appendToList(file, path, entries, opts = {}) {
+	const { settings, text } = readSettings(file);
+	const list = readList(file, settings, path);
+	const [section, name] = path;
+	const next = list ?? (opts.defaults ? ["$defaults"] : []);
+	settings[section] = {
+		...settings[section] ?? {},
+		[name]: [...next, ...entries]
+	};
+	writeSettings(file, settings, text);
+}
+const strings = (list) => (list ?? []).filter((e) => typeof e === "string");
+function uncoveredCliRules(allow) {
+	const rules = strings(allow);
+	if (rules.some((r) => BLANKET.test(r))) return [];
+	return CLI_RULES.filter((rule) => rule === CLI_RULE ? !rules.some((r) => BARE_COVERING.test(r)) : !rules.includes(rule));
+}
+function stateOf(file, present) {
 	try {
-		return covers(readSettings(file).allow) ? "present" : "missing";
+		return present(readSettings(file).settings) ? "present" : "missing";
 	} catch {
 		return "unreadable";
 	}
 }
+const PERMISSIONS_ALLOW = ["permissions", "allow"];
+const AUTO_MODE_ALLOW = ["autoMode", "allow"];
+const AUTO_MODE_ENVIRONMENT = ["autoMode", "environment"];
+const isForceCloseRule = (e) => e.includes("cyberlegion") && e.includes("unit close") && e.includes("--force");
+const isMailNote = (e) => e.includes("cyberlegion") && e.includes("mail send");
+/** Whether the settings file's allow list lets every form of `cyberlegion` subcommand run. */
+function permissionRuleState(file) {
+	return stateOf(file, (s) => uncoveredCliRules(readList(file, s, PERMISSIONS_ALLOW)).length === 0);
+}
 /**
-* Add the CLI rule to the settings file's allow list, merged in after every existing entry. A
-* covering rule already there is a no-op; a file that cannot be read as settings is never rewritten.
+* Add the CLI rules not yet covered to the settings file's allow list, merged in after every existing
+* entry. Full coverage is a no-op; a file that cannot be read as settings is never rewritten.
 */
 function addPermissionRule(file) {
-	const { settings, allow } = readSettings(file);
-	if (covers(allow)) return "present";
-	settings.permissions = {
-		...settings.permissions ?? {},
-		allow: [...allow, CLI_RULE]
-	};
-	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+	const missing = uncoveredCliRules(readList(file, readSettings(file).settings, PERMISSIONS_ALLOW));
+	if (missing.length === 0) return "present";
+	appendToList(file, PERMISSIONS_ALLOW, missing);
+	return "added";
+}
+/** Whether `autoMode.allow` carries an entry allowing a cyberlegion `unit close --force`. */
+function forceCloseRuleState(file) {
+	return stateOf(file, (s) => strings(readList(file, s, AUTO_MODE_ALLOW)).some(isForceCloseRule));
+}
+/** Add the force-close rule to `autoMode.allow` (created with `$defaults`); a no-op when one is there. */
+function addForceCloseRule(file) {
+	if (strings(readList(file, readSettings(file).settings, AUTO_MODE_ALLOW)).some(isForceCloseRule)) return "present";
+	appendToList(file, AUTO_MODE_ALLOW, [FORCE_CLOSE_RULE], { defaults: true });
+	return "added";
+}
+/** Whether `autoMode.environment` carries a note about cyberlegion `mail send`. */
+function mailEnvironmentState(file) {
+	return stateOf(file, (s) => strings(readList(file, s, AUTO_MODE_ENVIRONMENT)).some(isMailNote));
+}
+/** Add the mail note to `autoMode.environment` (created with `$defaults`); a no-op when one is there. */
+function addMailEnvironmentNote(file) {
+	if (strings(readList(file, readSettings(file).settings, AUTO_MODE_ENVIRONMENT)).some(isMailNote)) return "present";
+	appendToList(file, AUTO_MODE_ENVIRONMENT, [MAIL_ENVIRONMENT_NOTE], { defaults: true });
 	return "added";
 }
 // src/presence-spawn.ts
@@ -15895,14 +15956,21 @@ withGlobals(agent.command("path")).description("print the resolved def file path
 		json: { path: def.path }
 	});
 });
-const ALLOW_CLI_HINT = `cyberlegion init --allow-cli to add ${CLI_RULE} to Claude Code's permissions.allow, so units can mail their results back`;
+const ALLOW_CLI_HINT = "cyberlegion init --allow-cli to add the cyberlegion rules to Claude Code's permissions.allow, so units can mail their results back";
 const mux = program.command("mux").description("the unit-agnostic pane layer — multiplexer detection and diagnostics");
 withGlobals(mux.command("doctor")).description("probe harness, multiplexer (ancestry-discovered), hub root, and self-id").action((opts) => {
 	const ctx = ctxOf(opts);
 	const harness = detectHarness(void 0, ctx) ?? "unknown";
 	const probe = probeMultiplexer(ctx.exec ?? realExec, normalizeMuxEnv(ctx.env ?? process.env));
 	const selfId = resolveSelfId(ctx) ?? "-";
-	const permissionRule = harness === "claude" ? permissionRuleState(claudeUserSettingsFile(ctx.env ?? process.env)) : "n/a";
+	const settingsFile = claudeUserSettingsFile(ctx.env ?? process.env);
+	const claudeState = (state) => harness === "claude" ? state(settingsFile) : "n/a";
+	const permissionRule = claudeState(permissionRuleState);
+	const settings = {
+		permissionRule,
+		forceCloseRule: claudeState(forceCloseRuleState),
+		mailEnvironment: claudeState(mailEnvironmentState)
+	};
 	const report = {
 		harness,
 		mux: probe.mux,
@@ -15914,11 +15982,11 @@ withGlobals(mux.command("doctor")).description("probe harness, multiplexer (ance
 	emit(formatOf(opts), {
 		toon: toonObject({
 			...report,
-			permissionRule
+			...settings
 		}),
 		json: {
 			...report,
-			permissionRule
+			...settings
 		}
 	});
 	if (permissionRule === "missing") nextStep(ALLOW_CLI_HINT);
@@ -15972,7 +16040,7 @@ withGlobals(program.command("admin").description("hub-state maintenance").comman
 		json: res
 	});
 });
-withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").option("--allow-cli", `add ${CLI_RULE} to Claude Code's user permissions.allow (claude only)`).action((opts) => {
+withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").option("--allow-cli", "add the cyberlegion rules to Claude Code's user permissions.allow (claude only)").option("--allow-force-close", "add the user-approved `unit close --force` rule to Claude Code's user autoMode.allow (claude only)").option("--mark-mail-local", "add a note that `mail send` is local messaging to Claude Code's user autoMode.environment (claude only)").action((opts) => {
 	const ctx = ctxOf(opts);
 	let harness;
 	try {
@@ -15982,12 +16050,21 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 	} catch (err) {
 		fail(err instanceof Error ? err.message : String(err));
 	}
-	if (opts.allowCli && harness !== "claude") fail(`--allow-cli applies to claude only, not ${harness}`);
+	for (const [flag, set] of [
+		["--allow-cli", opts.allowCli],
+		["--allow-force-close", opts.allowForceClose],
+		["--mark-mail-local", opts.markMailLocal]
+	]) if (set && harness !== "claude") fail(`${flag} applies to claude only, not ${harness}`);
 	let permissionRule;
+	let forceCloseRule;
+	let mailEnvironment;
 	if (harness === "claude") {
 		const settingsFile = claudeUserSettingsFile(ctx.env ?? process.env);
+		const setting = (add, write, state) => add ? write(settingsFile) : state(settingsFile);
 		try {
-			permissionRule = opts.allowCli ? addPermissionRule(settingsFile) : permissionRuleState(settingsFile);
+			permissionRule = setting(opts.allowCli, addPermissionRule, permissionRuleState);
+			forceCloseRule = setting(opts.allowForceClose, addForceCloseRule, forceCloseRuleState);
+			mailEnvironment = setting(opts.markMailLocal, addMailEnvironmentNote, mailEnvironmentState);
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err));
 		}
@@ -16012,11 +16089,15 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 				key: "file",
 				get: (r) => r.file
 			}
-		], `harness ${harness}, ${results.length} hooks${permissionRule ? `, permission rule ${permissionRule}` : ""}`),
+		], `harness ${harness}, ${results.length} hooks${permissionRule ? `, permission rule ${permissionRule}, force-close rule ${forceCloseRule}, mail environment ${mailEnvironment}` : ""}`),
 		json: {
 			harness,
 			hooks: results,
-			...permissionRule && { permissionRule }
+			...permissionRule && {
+				permissionRule,
+				forceCloseRule,
+				mailEnvironment
+			}
 		}
 	});
 	if (permissionRule === "missing") nextStep(ALLOW_CLI_HINT);

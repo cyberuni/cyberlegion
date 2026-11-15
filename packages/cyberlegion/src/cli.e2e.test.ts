@@ -1184,10 +1184,30 @@ describe('spec:cyberlegion/mux', () => {
 		const missing = legionOut(['mux', 'doctor'], { CLAUDECODE: '1', CLAUDE_CONFIG_DIR: claudeDir })
 		expect(missing.stdout).toContain('permissionRule: missing')
 		expect(missing.stderr).toMatch(/init --allow-cli/)
-		writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(cyberlegion *)'] } }))
+		writeFileSync(join(claudeDir, 'settings.json'), JSON.stringify({ permissions: { allow: ['Bash(*)'] } }))
 		const present = legionOut(['mux', 'doctor'], { CLAUDECODE: '1', CLAUDE_CONFIG_DIR: claudeDir })
 		expect(present.stdout).toContain('permissionRule: present')
 		expect(present.stderr).not.toMatch(/init --allow-cli/)
+	})
+
+	it('doctor reports the Claude Code auto-mode force-close rule and mail environment note', () => {
+		const claudeDir = mkdtempSync(join(tmpdir(), 'cl-claude-'))
+		const env = { CLAUDECODE: '1', CLAUDE_CONFIG_DIR: claudeDir }
+		const missing = legionOut(['mux', 'doctor'], env)
+		expect(missing.stdout).toContain('forceCloseRule: missing')
+		expect(missing.stdout).toContain('mailEnvironment: missing')
+		writeFileSync(
+			join(claudeDir, 'settings.json'),
+			JSON.stringify({
+				autoMode: {
+					allow: ['$defaults', 'cyberlegion unit close <id> --force when the user approved it here'],
+					environment: ['$defaults', 'cyberlegion mail send is local'],
+				},
+			}),
+		)
+		const present = legionOut(['mux', 'doctor'], env)
+		expect(present.stdout).toContain('forceCloseRule: present')
+		expect(present.stdout).toContain('mailEnvironment: present')
 	})
 
 	it('mode reports the detected session-backend mode', () => {

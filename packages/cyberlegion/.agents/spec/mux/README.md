@@ -86,11 +86,14 @@ session opens through, independent of any unit's identity or lifecycle:
   `mux doctor` runs discovery and prints an `export CYBER_MUX=<m> CYBER_MUX_PANE=<p>`
   hint so a caller can pin the fast-path; `unit spawn` injects the same vars into the spawned
   child's launch command so it inherits the fast-path instead of re-discovering.
-  `mux doctor` also reports `permissionRule` — whether Claude Code's user settings carry a
-  `permissions.allow` rule covering `cyberlegion` (`present` / `missing` / `unreadable`; `n/a` for
-  any other harness) — read-only, and on `missing` emits a next-step toward `init --allow-cli`,
-  which owns the write (`init/`). Without that rule the auto-mode classifier can deny a unit's
-  `mail send`, so a finished unit cannot report back (#120).
+  `mux doctor` also reports `permissionRule` — whether Claude Code's user settings carry
+  `permissions.allow` rules covering every form of the `cyberlegion` CLI (`present` / `missing` /
+  `unreadable`; `n/a` for any other harness) — read-only, and on `missing` emits a next-step toward
+  `init --allow-cli`, which owns the write (`init/`). Without that rule the auto-mode classifier can
+  deny a unit's `mail send`, so a finished unit cannot report back (#120). It reports
+  `forceCloseRule` and `mailEnvironment` the same way — whether the `autoMode.allow` force-close
+  rule and the `autoMode.environment` mail note are there (#280) — with no next-step, since both are
+  optional and `init --allow-force-close` / `--mark-mail-local` own the writes.
   **Transitionally**, the legacy `$CYBERLEGION_MUX` / `$CYBERLEGION_MUX_PANE` pair is still read when
   the current pair is absent, so a pane spawned before the namespace migration keeps its identity
   instead of falling back to an ancestry walk that answers for the wrong pane; the current pair wins
@@ -213,6 +216,7 @@ coverage, not duplication.
 |---|---|---|
 | report the probe + a pin hint | running behind a detected multiplexer | `mux doctor reports the detected mux and prints a pin hint` |
 | report the permission rule | a claude session | `mux doctor reports whether Claude Code allows the cyberlegion CLI` |
+| report the auto-mode entries | a claude session | `mux doctor reports the Claude Code auto-mode force-close rule and mail note` |
 | carry the fast-path into the child | spawning behind a detected multiplexer | `unit spawn propagates the fast-path to the spawned child` |
 | report the selected backend | running inside a detected multiplexer | `mux mode reports the detected session backend` |
 | report the selected backend | no detectable multiplexer | `mux mode reports none when no backend is selectable` |

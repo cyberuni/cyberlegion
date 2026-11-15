@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { CLI_RULES, FORCE_CLOSE_RULE, MAIL_ENVIRONMENT_NOTE } from './permission.ts'
 
 // Exercises `cyberlegion init` end-to-end over the built CLI entrypoint (bin → dist/cli.mjs), the
 // same pattern cli.e2e.test.ts uses — an isolated --space hub root per test.
@@ -188,14 +189,14 @@ describe('init removes a project hook an earlier init wrote where the plugin shi
 describe('init --allow-cli adds the cyberlegion permission rule to Claude Code user settings', () => {
 	const userSettings = () => join(claudeDir, 'settings.json')
 
-	it('merges Bash(cyberlegion *) into the existing allow list and reports it added', () => {
+	it('merges the cyberlegion rules into the existing allow list and reports them added', () => {
 		writeFileSync(userSettings(), JSON.stringify({ permissions: { allow: ['Bash(git *)'] }, model: 'opus' }))
 		const out = JSON.parse(
 			legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli', '--format', 'json']),
 		)
 		expect(out.permissionRule).toBe('added')
 		expect(JSON.parse(readFileSync(userSettings(), 'utf8'))).toEqual({
-			permissions: { allow: ['Bash(git *)', 'Bash(cyberlegion *)'] },
+			permissions: { allow: ['Bash(git *)', ...CLI_RULES] },
 			model: 'opus',
 		})
 	})
@@ -204,7 +205,7 @@ describe('init --allow-cli adds the cyberlegion permission rule to Claude Code u
 		legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli'])
 		const out = legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-cli'])
 		expect(out).toContain('permission rule present')
-		expect(JSON.parse(readFileSync(userSettings(), 'utf8')).permissions.allow).toEqual(['Bash(cyberlegion *)'])
+		expect(JSON.parse(readFileSync(userSettings(), 'utf8')).permissions.allow).toEqual(CLI_RULES)
 	})
 
 	it('without --allow-cli writes nothing and advises the flag when the rule is missing', () => {
@@ -227,6 +228,54 @@ describe('init --allow-cli adds the cyberlegion permission rule to Claude Code u
 		const res = legionOut(['init', '--agent', 'cursor', '--dir', freshProjectDir(), '--allow-cli'])
 		expect(res.status).not.toBe(0)
 		expect(res.stderr).toMatch(/--allow-cli/)
+		expect(existsSync(userSettings())).toBe(false)
+	})
+})
+
+describe('init --allow-force-close and --mark-mail-local write Claude Code auto-mode entries', () => {
+	const userSettings = () => join(claudeDir, 'settings.json')
+	const settings = () => JSON.parse(readFileSync(userSettings(), 'utf8'))
+
+	it('reports both auto-mode entries as missing and writes nothing without the flags', () => {
+		const out = JSON.parse(legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--format', 'json']))
+		expect(out.forceCloseRule).toBe('missing')
+		expect(out.mailEnvironment).toBe('missing')
+		expect(existsSync(userSettings())).toBe(false)
+	})
+
+	it('--allow-force-close adds the rule to autoMode.allow after $defaults, keeping the file indentation', () => {
+		writeFileSync(userSettings(), `${JSON.stringify({ model: 'opus' }, null, '\t')}\n`)
+		const out = JSON.parse(
+			legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--allow-force-close', '--format', 'json']),
+		)
+		expect(out.forceCloseRule).toBe('added')
+		expect(out.mailEnvironment).toBe('missing')
+		expect(readFileSync(userSettings(), 'utf8')).toBe(
+			`${JSON.stringify({ model: 'opus', autoMode: { allow: ['$defaults', FORCE_CLOSE_RULE] } }, null, '\t')}\n`,
+		)
+	})
+
+	it('--mark-mail-local adds the note to autoMode.environment, and a rerun is a no-op', () => {
+		legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--mark-mail-local'])
+		const out = legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--mark-mail-local'])
+		expect(out).toContain('mail environment present')
+		expect(settings().autoMode.environment).toEqual(['$defaults', MAIL_ENVIRONMENT_NOTE])
+	})
+
+	it('refuses a malformed autoMode before touching any hook', () => {
+		const content = JSON.stringify({ autoMode: { allow: 'x' } })
+		writeFileSync(userSettings(), content)
+		const dir = freshProjectDir()
+		const res = legionOut(['init', '--agent', 'claude', '--dir', dir, '--allow-force-close'])
+		expect(res.status).not.toBe(0)
+		expect(res.stderr).toMatch(/autoMode\.allow/)
+		expect(readFileSync(userSettings(), 'utf8')).toBe(content)
+	})
+
+	it.each(['--allow-force-close', '--mark-mail-local'])('%s is rejected for a harness other than claude', (flag) => {
+		const res = legionOut(['init', '--agent', 'cursor', '--dir', freshProjectDir(), flag])
+		expect(res.status).not.toBe(0)
+		expect(res.stderr).toContain(flag)
 		expect(existsSync(userSettings())).toBe(false)
 	})
 })

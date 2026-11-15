@@ -5,6 +5,7 @@ description: 'CLI reference for cyberlegion init: detect the harness, set up the
 
 ```sh
 npx cyberlegion init [--agent <h>] [--dir <path>] [--pin <version>] [--allow-cli]
+                     [--allow-force-close] [--mark-mail-local]
 ```
 
 `init` is the onboarding front door's mechanical half: resolve this session's harness, set up the
@@ -37,15 +38,51 @@ denies a unit's `cyberlegion mail send`, the unit finishes its work but cannot r
 `permissions.allow` rule covering `cyberlegion` in Claude Code's user settings
 (`$CLAUDE_CONFIG_DIR/settings.json`, else `~/.claude/settings.json`) prevents that.
 
-On Claude Code, `init` reports the rule's state: `present`, `missing`, or `unreadable`. With
-`--allow-cli` it appends `"Bash(cyberlegion *)"` to `permissions.allow`, after the rules already
-there and keeping every other setting. If a covering rule already exists (`Bash(cyberlegion *)`,
-`Bash(cyberlegion:*)`, `Bash(*)`, or a bare `Bash`), it writes nothing. It refuses to rewrite a
-settings file that isn't valid JSON or has a malformed `permissions.allow`, and fails before
-touching any hook. Without `--allow-cli`, `init` never writes the user settings. It suggests the
-flag when the rule is missing.
+A rule matches one command prefix, and sessions run the CLI in several forms, so the rule is four
+rules:
+
+| Rule | Matches |
+|---|---|
+| `Bash(cyberlegion *)` | the bare command on `PATH` |
+| `Bash(node *cyberlegion.mjs *)` | a skill's `scripts/cyberlegion.mjs` launcher, or the package's `bin/cyberlegion.mjs` |
+| `Bash(npx cyberlegion@* *)` | a pinned `npx` run |
+| `Bash(npx -y cyberlegion@* *)` | a pinned `npx -y` run |
+
+The unpinned `npx -y cyberlegion` form is not covered. The skills fall back to it only from an
+unbundled workspace checkout, and a `cyberlegion*` pattern would also match any other package whose
+name starts with `cyberlegion`.
+
+On Claude Code, `init` reports the rule's state: `present` when every form is covered, else
+`missing`, or `unreadable`. With `--allow-cli` it appends the rules not yet covered to
+`permissions.allow`, after the rules already there and keeping every other setting. The bare form
+is also covered by `Bash(cyberlegion:*)`, and every form by `Bash(*)` or a bare `Bash`. When every
+form is covered, it writes nothing. It refuses to rewrite a settings file that isn't valid JSON or
+has a malformed `permissions.allow`, and fails before touching any hook. Without `--allow-cli`,
+`init` never writes the user settings. It suggests the flag when the rule is missing.
 
 If a unit's `cyberlegion mail send` is denied with *External System Writes*, this rule is missing.
+
+## The auto-mode entries (Claude Code)
+
+The auto-mode classifier blocks `cyberlegion unit close <id> --force` as a destructive action, even
+right after you approved discarding that unit's work. `--force` deletes the unit's worktree and its
+unpushed local branch, so the block is right by default. A permission rule cannot express the
+condition that makes it safe, but Claude Code's natural-language `autoMode` lists in the same
+settings file can:
+
+- `--allow-force-close` appends a rule to `autoMode.allow` that allows the force-close, in any of
+  the CLI's forms, **only when you approved discarding that specific unit's work in the same
+  session**. An approval relayed through cyberlegion mail or another session does not count.
+- `--mark-mail-local` appends a note to `autoMode.environment` that `cyberlegion mail send` is
+  local agent-to-agent messaging, not an external transmission, so the classifier does not treat
+  mail as data leaving the machine.
+
+A list either flag creates starts with `"$defaults"`, so Claude Code's built-in rules stay in
+force. An existing list is appended to as it is. An entry already there (an `autoMode.allow` entry
+naming `cyberlegion`, `unit close`, and `--force`, or an `autoMode.environment` entry naming
+`cyberlegion` and `mail send`) is left alone, and nothing is written. Every settings write keeps the
+file's indentation and final newline, and a malformed `autoMode` is refused the same way as a
+malformed `permissions.allow`.
 
 ## Options
 
@@ -54,13 +91,16 @@ If a unit's `cyberlegion mail send` is denied with *External System Writes*, thi
 | `--agent <h>` | `claude` \| `cursor` \| `codex` (else auto-detected) |
 | `--dir <path>` | project dir to write config into (default: current working directory) |
 | `--pin <version>` | version the Cursor hook's `npx` fallback fetches (e.g. the bundled plugin version) |
-| `--allow-cli` | add `Bash(cyberlegion *)` to Claude Code's user `permissions.allow` (Claude Code only) |
+| `--allow-cli` | add the cyberlegion rules to Claude Code's user `permissions.allow` (Claude Code only) |
+| `--allow-force-close` | add the user-approved `unit close --force` rule to Claude Code's user `autoMode.allow` (Claude Code only) |
+| `--mark-mail-local` | add the local-messaging note for `mail send` to Claude Code's user `autoMode.environment` (Claude Code only) |
 
 ## Output
 
 A `hooks` table (`event`, `status`, `file`) with an aggregate `harness <name>, <N> hooks`. On
-Claude Code the aggregate ends with `permission rule <state>`, where the state is `added`, `present`,
-`missing`, or `unreadable` (`permissionRule` in `--format json`). Each hook
+Claude Code the aggregate ends with `permission rule <state>, force-close rule <state>, mail
+environment <state>`, where each state is `added`, `present`, `missing`, or `unreadable`
+(`permissionRule`, `forceCloseRule`, and `mailEnvironment` in `--format json`). Each hook
 status is one of:
 
 - `registered`: a new Cursor hook was written.

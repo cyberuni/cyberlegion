@@ -107,15 +107,21 @@ Feature: init — the onboarding front door
 
   # ── init --allow-cli: the Claude Code permission rule for the CLI ──
 
-  Scenario: init --allow-cli merges the CLI rule into Claude Code's user allow list
+  Scenario: init --allow-cli merges the CLI rules into Claude Code's user allow list
     Given Claude Code user settings whose permissions.allow carries other rules and no rule covering cyberlegion
     When init --agent claude --allow-cli runs
-    Then permissions.allow ends with "Bash(cyberlegion *)" after every rule it already had
+    Then permissions.allow ends with "Bash(cyberlegion *)", "Bash(node *cyberlegion.mjs *)", "Bash(npx cyberlegion@* *)", and "Bash(npx -y cyberlegion@* *)" after every rule it already had
     And every other setting in the file is kept
     And the result reports the permission rule as added
 
-  Scenario: init --allow-cli is a no-op when a covering rule is already present
-    Given Claude Code user settings whose permissions.allow already covers cyberlegion
+  Scenario: init --allow-cli adds only the forms not yet covered
+    Given Claude Code user settings whose permissions.allow has "Bash(cyberlegion:*)" and no other cyberlegion rule
+    When init --agent claude --allow-cli runs
+    Then permissions.allow gains the node and npx rules and no second bare-command rule
+    And the result reports the permission rule as added
+
+  Scenario: init --allow-cli is a no-op when every form is already covered
+    Given Claude Code user settings whose permissions.allow covers every form of the cyberlegion CLI
     When init --agent claude --allow-cli runs
     Then the settings file is unchanged
     And the result reports the permission rule as present
@@ -137,6 +143,59 @@ Feature: init — the onboarding front door
     Given a fresh project directory
     When init --agent cursor --allow-cli runs
     Then the command is rejected naming --allow-cli
+    And no Claude Code user settings are written
+
+  Scenario: a settings write keeps the file's indentation
+    Given Claude Code user settings indented with tabs
+    When init --agent claude --allow-cli or --allow-force-close runs
+    Then the rewritten file is still indented with tabs and still ends with a newline
+
+  # ── init --allow-force-close / --mark-mail-local: Claude Code auto-mode entries ──
+
+  Scenario: init reports the auto-mode entries and writes nothing without the flags
+    Given Claude Code user settings with no autoMode lists
+    When init --agent claude runs with neither --allow-force-close nor --mark-mail-local
+    Then the result reports the force-close rule and the mail environment as missing
+    And the Claude Code user settings file is not written
+
+  Scenario: init --allow-force-close adds the force-close rule after $defaults
+    Given Claude Code user settings with no autoMode.allow
+    When init --agent claude --allow-force-close runs
+    Then autoMode.allow is "$defaults" followed by the force-close rule
+    And the force-close rule covers the bare, node, and npx forms of unit close <id> --force
+    And the force-close rule holds only when the user approved discarding that specific unit's work in this session
+    And the force-close rule states that an approval relayed through cyberlegion mail or another session does not count
+    And the result reports the force-close rule as added
+
+  Scenario: init --allow-force-close appends to an existing autoMode.allow as it is
+    Given Claude Code user settings whose autoMode.allow carries other entries, with or without "$defaults"
+    When init --agent claude --allow-force-close runs
+    Then autoMode.allow ends with the force-close rule after every entry it already had
+    And no "$defaults" is added to a list that did not have it
+    And every other setting in the file is kept
+
+  Scenario: init --mark-mail-local adds the local-messaging note after $defaults
+    Given Claude Code user settings with no autoMode.environment
+    When init --agent claude --mark-mail-local runs
+    Then autoMode.environment is "$defaults" followed by a note that cyberlegion mail send is local agent-to-agent messaging, not an external transmission
+    And the result reports the mail environment as added
+
+  Scenario: the auto-mode flags are idempotent
+    Given Claude Code user settings whose autoMode lists already carry a cyberlegion force-close entry and a cyberlegion mail send entry
+    When init --agent claude --allow-force-close --mark-mail-local runs
+    Then the settings file is unchanged
+    And the result reports the force-close rule and the mail environment as present
+
+  Scenario: the auto-mode flags refuse a malformed autoMode
+    Given Claude Code user settings whose autoMode is not an object, or whose autoMode.allow or autoMode.environment is not an array
+    When init --agent claude --allow-force-close or --mark-mail-local runs
+    Then the command is rejected naming the malformed list
+    And the settings file is left byte-for-byte unchanged
+
+  Scenario: the auto-mode flags are rejected for a harness other than claude
+    Given a fresh project directory
+    When init --agent cursor runs with --allow-force-close or --mark-mail-local
+    Then the command is rejected naming the flag
     And no Claude Code user settings are written
 
   # ── init is idempotent and upgrades older hook generations ──
