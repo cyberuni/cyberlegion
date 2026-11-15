@@ -259,6 +259,11 @@ function resolveSelf(ctx: IdContext, opts: { conversation?: string } = {}): Reso
 	return { id: byPane, cur, conversation, byConversation: false }
 }
 
+/** The harness conversation the calling session is in, when the harness or herdr names it. */
+export function callingConversation(ctx: IdContext): string | undefined {
+	return resolveSelf(ctx).conversation
+}
+
 /**
  * The harness conversation the caller is in: the harness's own word for it (`$CLAUDE_CODE_SESSION_ID`)
  * first, else the agent session herdr reports for the calling pane. It survives a device shutdown and

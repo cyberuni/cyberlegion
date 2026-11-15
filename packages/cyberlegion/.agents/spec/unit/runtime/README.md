@@ -177,6 +177,12 @@ restart is a fresh session plus a rebrief. A unit whose worktree or cwd is gone 
   - the caller is in no tmux or herdr pane → refused; there is no pane to bind.
   - the calling pane's pointer names a different unit that is neither stopped nor exited → refused;
     rebind never takes a pane from another unit. A pointer left behind by an exited unit is taken over.
+  - that unit is the caller's own, minted by a plain `unit register` (no brief, and no worktree that
+    spawn leased), with no unread mail → the session leaves it (#284). This is the duplicate a session
+    herdr resumed registers before it can find its unit. The unit it leaves becomes `stopped` with no
+    pane and no conversation, so its handle and mail stay addressable and neither the pane nor the
+    conversation finds it again; the rebound unit takes the caller's conversation. A unit spawn made,
+    or one holding unread mail (or a mailbox that cannot be read), keeps the pane: refused.
   - the unit still has a live pane elsewhere → refused; stop it first, so two sessions never answer
     as one unit. A herdr record that carries its terminal id (`unit/registry`) is live while herdr
     lists that terminal under any pane id, so a unit whose pane moved still reads as live (#272).
@@ -295,7 +301,9 @@ graph TD
   RB3 -- yes --> RB4{"the unit is already bound to this pane?"}
   RB4 -- yes --> RB4Y["success; nothing changes"]
   RB4 -- no --> RB5{"this pane belongs to another unit that is not stopped or exited?"}
-  RB5 -- yes --> RB5X["refuse: never take another unit's pane"]
+  RB5 -- yes --> RBL{"it is the caller's own unit, minted by unit register (no brief, no spawn-leased worktree), with no unread mail?"}
+  RBL -- no --> RB5X["refuse: never take another unit's pane"]
+  RBL -- yes --> RBLY["that unit := stopped, no pane, no conversation; the rebound unit takes the caller's conversation"] --> RBT
   RB5 -- no --> RBT{"the calling pane carries the unit's own herdr terminal id?"}
   RBT -- yes --> RB7
   RBT -- no --> RB6{"the unit has a live pane elsewhere? (by terminal id when the record carries one)"}
@@ -400,7 +408,10 @@ convergence claim.
 | `RB7` old pointer | an exited unit whose old pane pointer remains | `rebind drops the unit's old pane pointer` |
 | `RB3Y` herdr | a stopped unit, a herdr pane whose `$HERDR_PANE_ID` is stale and names another unit's pane | `rebind binds the pane herdr reports when the env pane id went stale` |
 | `RB4Y` | a unit already bound to the calling pane | `rebind to the pane the unit already holds changes nothing` |
-| `RB5X` | a caller pane bound to another active unit | `rebind refuses a pane that belongs to another unit` |
+| `RBLY` | the caller's own register-minted unit, no unread mail, holding the pane (#284) | `rebind moves a session off its own register-minted unit with no unread mail and stops that unit` |
+| `RBL -- no` mail | the caller's own register-minted unit holding unread mail | `rebind refuses to leave the caller's own unit when that unit holds unread mail` |
+| `RBL -- no` spawned | the caller's own unit carrying a brief or a spawn-leased worktree | `rebind refuses to leave the caller's own unit when spawn made that unit` |
+| `RB5X` | a caller pane bound to another active unit that spawn made | `rebind refuses a pane that belongs to another unit` |
 | `RB5 -- no` | a caller pane whose pointer names an exited unit | `rebind takes over a pane whose previous unit has exited` |
 | `RB6X` | a unit whose own pane is still live, a different caller pane | `rebind refuses a unit that still has a live pane` |
 | `RB6X` moved | a unit whose herdr terminal is listed under a new pane id, a different caller pane | `rebind refuses a unit whose herdr pane moved and is still live under a new id` |

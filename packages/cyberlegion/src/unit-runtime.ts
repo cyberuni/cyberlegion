@@ -10,6 +10,7 @@ import {
 import { wakeSpawn } from './console/doorbell.ts'
 import {
 	type AgentRecord,
+	callingConversation,
 	callingStorablePane,
 	type Harness,
 	type IdContext,
@@ -280,11 +281,8 @@ export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 	}
 	const holderId = ctx.store.resolvePaneId(cur.pane)
 	const holder = holderId && holderId !== rec.id ? loadAgent(ctx.store, holderId) : undefined
-	if (holder && holder.status !== 'stopped' && holder.status !== 'exited') {
-		throw new Error(
-			`this pane belongs to unit "${holder.handle}" (${holder.id}) — rebind never takes another unit's pane`,
-		)
-	}
+	const leaving = holder && holder.status !== 'stopped' && holder.status !== 'exited' ? holder : undefined
+	if (leaving) assertMayLeave(ctx, leaving)
 	// Fail closed like service ownership: a runtime the backend cannot rule out is treated as running.
 	const liveness = probeLiveness(ctx, rec)
 	// The calling pane's terminal is the unit's own when the unit's herdr pane moved here (#272).
@@ -301,10 +299,36 @@ export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 		pane: { mux: cur.mux, id: cur.pane, ...(cur.terminal ? { terminal: cur.terminal } : {}) },
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString(),
 	}
+	const conversation = leaving ? callingConversation(ctx) : undefined
+	if (conversation) bound.conversation = conversation
+	if (leaving) {
+		// The unit this session leaves stays addressable, and gives up the pane and the conversation so
+		// neither finds it again.
+		const { conversation: _gone, ...rest } = leaving
+		saveAgent(ctx.store, { ...rest, status: 'stopped', pane: null })
+	}
 	saveAgent(ctx.store, bound)
 	if (oldPane && oldPane !== cur.pane) ctx.store.removePaneIndex(oldPane)
 	ctx.store.putPaneIndex(cur.pane, rec.id)
 	return bound
+}
+
+/**
+ * A session may leave its own live unit for the one it is rebinding to only when that unit is a
+ * duplicate a plain `unit register` minted (#284) — the session herdr resumed registered again before
+ * it could find its unit. A unit `spawn` made (a brief, or a worktree spawn leased) is real work, and
+ * a unit with unread mail would strand that mail, so both keep the pane. A pane held by a unit that is
+ * not the caller's is never taken.
+ */
+function assertMayLeave(ctx: RuntimeContext, holder: AgentRecord): void {
+	function refuse(why: string): never {
+		throw new Error(`this pane belongs to unit "${holder.handle}" (${holder.id}) — ${why}`)
+	}
+	if (resolveSelfId(ctx) !== holder.id) refuse("rebind never takes another unit's pane")
+	if (holder.brief || holder.worktree?.lease) refuse('rebind never leaves a unit that spawn made')
+	const unread = unreadCount(ctx, holder.id)
+	if (unread === undefined) refuse('its mailbox is unreadable, so rebind cannot tell whether it holds unread mail')
+	if (unread > 0) refuse(`it holds ${unread} unread message(s); read or ack them before rebind leaves it`)
 }
 
 type Control = 'focus' | 'nudge' | 'read' | 'clear' | 'stop' | 'restart' | 'rebind' | 'close'
@@ -399,4 +423,14 @@ export function recordConversation(ctx: IdContext, hookInput: string): void {
 	const rec = meId ? loadAgent(ctx.store, meId) : undefined
 	if (!rec || rec.kind === 'standing' || rec.kind === 'service' || rec.conversation === id) return
 	saveAgent(ctx.store, { ...rec, conversation: id })
+}
+
+/** How many unread messages a unit holds: 0 for a unit never mailed, undefined when its mailbox
+ * cannot be read. */
+function unreadCount(ctx: RuntimeContext, id: string): number | undefined {
+	try {
+		return ctx.store.hasMailbox(id) ? ctx.store.listInbox(id).unread.length : 0
+	} catch {
+		return undefined
+	}
 }

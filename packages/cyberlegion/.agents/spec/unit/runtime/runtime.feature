@@ -365,9 +365,33 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     And the pane pointer for the pane herdr reports names the unit
     And the pane pointer for the stale env pane id still names the other unit
 
+  Scenario: rebind moves a session off its own register-minted unit with no unread mail and stops that unit
+    Given a unit "stranded" whose pane herdr no longer lists
+    And the caller runs inside herdr pane w1:p5, whose pointer names its own unit "dup", minted by unit register, with no unread mail, carrying the caller's conversation
+    When the caller runs unit rebind stranded
+    Then w1:p5 resolves to "stranded"
+    And "stranded" carries the caller's conversation
+    And "dup" has status stopped, no pane, and no conversation
+    And the caller's own identity resolves to "stranded"
+
+  Scenario: rebind refuses to leave the caller's own unit when that unit holds unread mail
+    Given a unit "stranded" with status stopped
+    And the caller runs inside herdr pane w1:p5, whose pointer names its own unit "dup", minted by unit register, holding an unread message
+    When the caller runs unit rebind stranded
+    Then the command exits non-zero with an error naming the unread mail
+    And w1:p5 still resolves to "dup"
+    And "dup" keeps status active
+
+  Scenario: rebind refuses to leave the caller's own unit when spawn made that unit
+    Given a unit "stranded" with status stopped
+    And the caller runs inside herdr pane w1:p5, whose pointer names its own unit "dup", which carries a brief or a worktree spawn leased
+    When the caller runs unit rebind stranded
+    Then the command exits non-zero with an error naming "dup"
+    And w1:p5 still resolves to "dup"
+
   Scenario: rebind refuses a pane that belongs to another unit
     Given a registered unit with status stopped
-    And the caller runs inside a herdr pane whose pane pointer names a different active unit
+    And the caller runs inside a herdr pane whose pane pointer names a different active unit that spawn made
     When the caller runs unit rebind <id>
     Then the command exits non-zero with an error naming the other unit
     And the pane pointer for the caller's pane still names the other unit

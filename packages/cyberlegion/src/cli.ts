@@ -540,7 +540,9 @@ withGlobals(unit.command('restart'))
 	})
 
 withGlobals(unit.command('rebind'))
-	.description('bind a stopped unit to the calling pane — for a session started by hand that should be this unit')
+	.description(
+		'bind a stopped unit to the calling pane — for a session started by hand, or resumed after it registered a duplicate, that should be this unit',
+	)
 	.argument('<ref>', 'unit id, handle, or worktree branch/CR ref')
 	.action((ref, opts) => {
 		const ctx = ctxOf(opts)

@@ -10657,6 +10657,10 @@ function resolveSelf(ctx, opts = {}) {
 		byConversation: false
 	};
 }
+/** The harness conversation the calling session is in, when the harness or herdr names it. */
+function callingConversation(ctx) {
+	return resolveSelf(ctx).conversation;
+}
 /**
 * The harness conversation the caller is in: the harness's own word for it (`$CLAUDE_CODE_SESSION_ID`)
 * first, else the agent session herdr reports for the calling pane. It survives a device shutdown and
@@ -14859,7 +14863,8 @@ function rebindUnit(ctx, ref) {
 	if (rec.pane?.mux === cur.mux && rec.pane.id === cur.pane && ctx.store.resolvePaneId(cur.pane) === rec.id) return rec;
 	const holderId = ctx.store.resolvePaneId(cur.pane);
 	const holder = holderId && holderId !== rec.id ? loadAgent(ctx.store, holderId) : void 0;
-	if (holder && holder.status !== "stopped" && holder.status !== "exited") throw new Error(`this pane belongs to unit "${holder.handle}" (${holder.id}) — rebind never takes another unit's pane`);
+	const leaving = holder && holder.status !== "stopped" && holder.status !== "exited" ? holder : void 0;
+	if (leaving) assertMayLeave(ctx, leaving);
 	const liveness = probeLiveness(ctx, rec);
 	const ownTerminal = !!cur.terminal && rec.pane?.mux === "herdr" && rec.pane.terminal === cur.terminal;
 	if (oldPane && oldPane !== cur.pane && !ownTerminal && (liveness === "live" || liveness === "unknown")) throw new Error(`unit "${rec.handle}" may still be running in pane ${oldPane} — stop it first (unit stop ${rec.handle})`);
@@ -14873,10 +14878,37 @@ function rebindUnit(ctx, ref) {
 		},
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString()
 	};
+	const conversation = leaving ? callingConversation(ctx) : void 0;
+	if (conversation) bound.conversation = conversation;
+	if (leaving) {
+		const { conversation: _gone, ...rest } = leaving;
+		saveAgent(ctx.store, {
+			...rest,
+			status: "stopped",
+			pane: null
+		});
+	}
 	saveAgent(ctx.store, bound);
 	if (oldPane && oldPane !== cur.pane) ctx.store.removePaneIndex(oldPane);
 	ctx.store.putPaneIndex(cur.pane, rec.id);
 	return bound;
+}
+/**
+* A session may leave its own live unit for the one it is rebinding to only when that unit is a
+* duplicate a plain `unit register` minted (#284) — the session herdr resumed registered again before
+* it could find its unit. A unit `spawn` made (a brief, or a worktree spawn leased) is real work, and
+* a unit with unread mail would strand that mail, so both keep the pane. A pane held by a unit that is
+* not the caller's is never taken.
+*/
+function assertMayLeave(ctx, holder) {
+	function refuse(why) {
+		throw new Error(`this pane belongs to unit "${holder.handle}" (${holder.id}) — ${why}`);
+	}
+	if (resolveSelfId(ctx) !== holder.id) refuse("rebind never takes another unit's pane");
+	if (holder.brief || holder.worktree?.lease) refuse("rebind never leaves a unit that spawn made");
+	const unread = unreadCount(ctx, holder.id);
+	if (unread === void 0) refuse("its mailbox is unreadable, so rebind cannot tell whether it holds unread mail");
+	if (unread > 0) refuse(`it holds ${unread} unread message(s); read or ack them before rebind leaves it`);
 }
 function hasHonestReset(harness) {
 	if (!harness) return false;
@@ -14951,6 +14983,15 @@ function recordConversation(ctx, hookInput) {
 		...rec,
 		conversation: id
 	});
+}
+/** How many unread messages a unit holds: 0 for a unit never mailed, undefined when its mailbox
+* cannot be read. */
+function unreadCount(ctx, id) {
+	try {
+		return ctx.store.hasMailbox(id) ? ctx.store.listInbox(id).unread.length : 0;
+	} catch {
+		return;
+	}
 }
 // src/wake/await.ts
 /** Internal poll interval — not user-facing (the round-trip cost of one `mail await` cycle). */
@@ -15405,7 +15446,7 @@ withGlobals(unit.command("restart")).description("give a unit a new session and 
 	});
 	if (res.warning) nextStep(`warning: ${res.warning}`);
 });
-withGlobals(unit.command("rebind")).description("bind a stopped unit to the calling pane — for a session started by hand that should be this unit").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
+withGlobals(unit.command("rebind")).description("bind a stopped unit to the calling pane — for a session started by hand, or resumed after it registered a duplicate, that should be this unit").argument("<ref>", "unit id, handle, or worktree branch/CR ref").action((ref, opts) => {
 	const rec = rebindUnit(ctxOf(opts), ref);
 	emit(formatOf(opts), {
 		toon: toonObject({
