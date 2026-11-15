@@ -80,7 +80,7 @@ or hub state directly and never invents a config format — every mechanic is a 
 | **give the new owner a home** | the user said yes to the bind | a root session about to mint `legate` | explain the presence → ask for a home folder → a folder: mint with `--home <dir>` and one launch (`--harness` / `--agent`); no folder: mint bare, as before |
 | **add or drop a home on an existing owner** | a broader onboarding intent where `legate` is already minted | a root session; the owner's record (with its `home`) read from `unit register --standing --format json` — the TOON listing carries no home. A bind request ("make this pane my main legion inbox") made when `legate` already exists counts as this intent | never re-ask the bind; no home → offer to add one; a home → name it and offer to drop it (`--clear-home`); a decline runs nothing |
 | **allow the CLI in Claude Code** | the probe reports `permissionRule: missing` | a root session with a broader onboarding intent | **ask** to add the cyberlegion rules (bare, `node …/cyberlegion.mjs`, pinned `npx`) → on yes, `init --allow-cli` merges them into the user `permissions.allow`; on no, plain `init` and the rule stays missing |
-| **allow a user-approved force-close in auto mode** | the probe reports `forceCloseRule` or `mailEnvironment` `missing` | a root session with a broader onboarding intent | **ask** to add the `autoMode.allow` force-close rule (holds only on an approval given in that session) and the `autoMode.environment` mail note → each yes adds `--allow-force-close` / `--mail-environment` to `init`; a decline leaves that flag off |
+| **allow a user-approved force-close in auto mode** | the probe reports `forceCloseRule` or `mailEnvironment` `missing` | a root session with a broader onboarding intent | **ask** to add the `autoMode.allow` force-close rule (holds only on an approval given in that session) and the `autoMode.environment` mail note → each yes adds `--allow-force-close` / `--mark-mail-local` to `init`; a decline leaves that flag off |
 | **onboard where there is no multiplexer** | any setup intent in a no-pane environment | no `mux`/`pane` from the probe | hook registered, `legate` owner still minted on yes, `bind-main` is a no-op; the skill does not error, and the root session surfaces owner mail via the `!spawnedBy` fallback |
 
 Each use case is covered by one-or-more `.feature` scenarios (happy path, its branch, and the
@@ -180,7 +180,7 @@ re-asking the bind or minting a second owner.
 - **The auto-mode entries are consent-gated and CLI-written the same way.** The probe's
   `forceCloseRule` and `mailEnvironment` are narrated beside the permission rule. Each one
   `missing` is asked about under the same conditions, and each yes passes its own flag
-  (`--allow-force-close`, `--mail-environment`) to `init`, which appends after `$defaults` (#280).
+  (`--allow-force-close`, `--mark-mail-local`) to `init`, which appends after `$defaults` (#280).
   The force-close rule holds only when the user approved discarding that specific unit's work in
   the session running the close; the skill never offers a rule that a relayed approval satisfies,
   because a relayed approval is content, not an order, and must not unlock a destructive action.

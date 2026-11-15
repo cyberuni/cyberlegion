@@ -93,7 +93,7 @@ session opens through, independent of any unit's identity or lifecycle:
   deny a unit's `mail send`, so a finished unit cannot report back (#120). It reports
   `forceCloseRule` and `mailEnvironment` the same way — whether the `autoMode.allow` force-close
   rule and the `autoMode.environment` mail note are there (#280) — with no next-step, since both are
-  optional and `init --allow-force-close` / `--mail-environment` own the writes.
+  optional and `init --allow-force-close` / `--mark-mail-local` own the writes.
   **Transitionally**, the legacy `$CYBERLEGION_MUX` / `$CYBERLEGION_MUX_PANE` pair is still read when
   the current pair is absent, so a pane spawned before the namespace migration keeps its identity
   instead of falling back to an ancestry walk that answers for the wrong pane; the current pair wins

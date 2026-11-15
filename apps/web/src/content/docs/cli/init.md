@@ -5,7 +5,7 @@ description: 'CLI reference for cyberlegion init: detect the harness, set up the
 
 ```sh
 npx cyberlegion init [--agent <h>] [--dir <path>] [--pin <version>] [--allow-cli]
-                     [--allow-force-close] [--mail-environment]
+                     [--allow-force-close] [--mark-mail-local]
 ```
 
 `init` is the onboarding front door's mechanical half: resolve this session's harness, set up the
@@ -73,7 +73,7 @@ settings file can:
 - `--allow-force-close` appends a rule to `autoMode.allow` that allows the force-close, in any of
   the CLI's forms, **only when you approved discarding that specific unit's work in the same
   session**. An approval relayed through cyberlegion mail or another session does not count.
-- `--mail-environment` appends a note to `autoMode.environment` that `cyberlegion mail send` is
+- `--mark-mail-local` appends a note to `autoMode.environment` that `cyberlegion mail send` is
   local agent-to-agent messaging, not an external transmission, so the classifier does not treat
   mail as data leaving the machine.
 
@@ -93,7 +93,7 @@ malformed `permissions.allow`.
 | `--pin <version>` | version the Cursor hook's `npx` fallback fetches (e.g. the bundled plugin version) |
 | `--allow-cli` | add the cyberlegion rules to Claude Code's user `permissions.allow` (Claude Code only) |
 | `--allow-force-close` | add the user-approved `unit close --force` rule to Claude Code's user `autoMode.allow` (Claude Code only) |
-| `--mail-environment` | add the local-messaging note for `mail send` to Claude Code's user `autoMode.environment` (Claude Code only) |
+| `--mark-mail-local` | add the local-messaging note for `mail send` to Claude Code's user `autoMode.environment` (Claude Code only) |
 
 ## Output
 

@@ -232,7 +232,7 @@ describe('init --allow-cli adds the cyberlegion permission rule to Claude Code u
 	})
 })
 
-describe('init --allow-force-close and --mail-environment write Claude Code auto-mode entries', () => {
+describe('init --allow-force-close and --mark-mail-local write Claude Code auto-mode entries', () => {
 	const userSettings = () => join(claudeDir, 'settings.json')
 	const settings = () => JSON.parse(readFileSync(userSettings(), 'utf8'))
 
@@ -255,9 +255,9 @@ describe('init --allow-force-close and --mail-environment write Claude Code auto
 		)
 	})
 
-	it('--mail-environment adds the note to autoMode.environment, and a rerun is a no-op', () => {
-		legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--mail-environment'])
-		const out = legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--mail-environment'])
+	it('--mark-mail-local adds the note to autoMode.environment, and a rerun is a no-op', () => {
+		legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--mark-mail-local'])
+		const out = legion(['init', '--agent', 'claude', '--dir', freshProjectDir(), '--mark-mail-local'])
 		expect(out).toContain('mail environment present')
 		expect(settings().autoMode.environment).toEqual(['$defaults', MAIL_ENVIRONMENT_NOTE])
 	})
@@ -272,7 +272,7 @@ describe('init --allow-force-close and --mail-environment write Claude Code auto
 		expect(readFileSync(userSettings(), 'utf8')).toBe(content)
 	})
 
-	it.each(['--allow-force-close', '--mail-environment'])('%s is rejected for a harness other than claude', (flag) => {
+	it.each(['--allow-force-close', '--mark-mail-local'])('%s is rejected for a harness other than claude', (flag) => {
 		const res = legionOut(['init', '--agent', 'cursor', '--dir', freshProjectDir(), flag])
 		expect(res.status).not.toBe(0)
 		expect(res.stderr).toContain(flag)

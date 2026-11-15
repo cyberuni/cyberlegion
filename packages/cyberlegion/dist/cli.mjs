@@ -16040,7 +16040,7 @@ withGlobals(program.command("admin").description("hub-state maintenance").comman
 		json: res
 	});
 });
-withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").option("--allow-cli", "add the cyberlegion rules to Claude Code's user permissions.allow (claude only)").option("--allow-force-close", "add the user-approved `unit close --force` rule to Claude Code's user autoMode.allow (claude only)").option("--mail-environment", "add a note that `mail send` is local messaging to Claude Code's user autoMode.environment (claude only)").action((opts) => {
+withGlobals(program.command("init")).description("resolve this session harness, set up the Legion surfacing hook, and advise owner binding").option("--agent <h>", "claude | cursor | codex (else auto-detected)").option("--dir <path>", "project dir to write config into", process.cwd()).option("--pin <version>", "version the npx fallback of the cursor hook fetches (e.g. the bundled plugin version)").option("--allow-cli", "add the cyberlegion rules to Claude Code's user permissions.allow (claude only)").option("--allow-force-close", "add the user-approved `unit close --force` rule to Claude Code's user autoMode.allow (claude only)").option("--mark-mail-local", "add a note that `mail send` is local messaging to Claude Code's user autoMode.environment (claude only)").action((opts) => {
 	const ctx = ctxOf(opts);
 	let harness;
 	try {
@@ -16053,7 +16053,7 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 	for (const [flag, set] of [
 		["--allow-cli", opts.allowCli],
 		["--allow-force-close", opts.allowForceClose],
-		["--mail-environment", opts.mailEnvironment]
+		["--mark-mail-local", opts.markMailLocal]
 	]) if (set && harness !== "claude") fail(`${flag} applies to claude only, not ${harness}`);
 	let permissionRule;
 	let forceCloseRule;
@@ -16064,7 +16064,7 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 		try {
 			permissionRule = setting(opts.allowCli, addPermissionRule, permissionRuleState);
 			forceCloseRule = setting(opts.allowForceClose, addForceCloseRule, forceCloseRuleState);
-			mailEnvironment = setting(opts.mailEnvironment, addMailEnvironmentNote, mailEnvironmentState);
+			mailEnvironment = setting(opts.markMailLocal, addMailEnvironmentNote, mailEnvironmentState);
 		} catch (err) {
 			fail(err instanceof Error ? err.message : String(err));
 		}

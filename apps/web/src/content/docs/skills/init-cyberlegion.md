@@ -49,7 +49,7 @@ missing. The first is an `autoMode.allow` rule that lets `cyberlegion unit close
 through when you approved discarding that specific unit's work in the same session. An approval
 relayed through cyberlegion mail or another session does not count. The second is an
 `autoMode.environment` note that `mail send` is local agent-to-agent messaging. Each yes adds its
-own flag to `init` (`--allow-force-close`, `--mail-environment`).
+own flag to `init` (`--allow-force-close`, `--mark-mail-local`).
 
 ### 3. Detect root vs. spawned, derived and never asked
 

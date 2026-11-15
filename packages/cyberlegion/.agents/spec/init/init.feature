@@ -150,11 +150,11 @@ Feature: init — the onboarding front door
     When init --agent claude --allow-cli or --allow-force-close runs
     Then the rewritten file is still indented with tabs and still ends with a newline
 
-  # ── init --allow-force-close / --mail-environment: Claude Code auto-mode entries ──
+  # ── init --allow-force-close / --mark-mail-local: Claude Code auto-mode entries ──
 
   Scenario: init reports the auto-mode entries and writes nothing without the flags
     Given Claude Code user settings with no autoMode lists
-    When init --agent claude runs with neither --allow-force-close nor --mail-environment
+    When init --agent claude runs with neither --allow-force-close nor --mark-mail-local
     Then the result reports the force-close rule and the mail environment as missing
     And the Claude Code user settings file is not written
 
@@ -174,27 +174,27 @@ Feature: init — the onboarding front door
     And no "$defaults" is added to a list that did not have it
     And every other setting in the file is kept
 
-  Scenario: init --mail-environment adds the local-messaging note after $defaults
+  Scenario: init --mark-mail-local adds the local-messaging note after $defaults
     Given Claude Code user settings with no autoMode.environment
-    When init --agent claude --mail-environment runs
+    When init --agent claude --mark-mail-local runs
     Then autoMode.environment is "$defaults" followed by a note that cyberlegion mail send is local agent-to-agent messaging, not an external transmission
     And the result reports the mail environment as added
 
   Scenario: the auto-mode flags are idempotent
     Given Claude Code user settings whose autoMode lists already carry a cyberlegion force-close entry and a cyberlegion mail send entry
-    When init --agent claude --allow-force-close --mail-environment runs
+    When init --agent claude --allow-force-close --mark-mail-local runs
     Then the settings file is unchanged
     And the result reports the force-close rule and the mail environment as present
 
   Scenario: the auto-mode flags refuse a malformed autoMode
     Given Claude Code user settings whose autoMode is not an object, or whose autoMode.allow or autoMode.environment is not an array
-    When init --agent claude --allow-force-close or --mail-environment runs
+    When init --agent claude --allow-force-close or --mark-mail-local runs
     Then the command is rejected naming the malformed list
     And the settings file is left byte-for-byte unchanged
 
   Scenario: the auto-mode flags are rejected for a harness other than claude
     Given a fresh project directory
-    When init --agent cursor runs with --allow-force-close or --mail-environment
+    When init --agent cursor runs with --allow-force-close or --mark-mail-local
     Then the command is rejected naming the flag
     And no Claude Code user settings are written
 

@@ -1393,7 +1393,7 @@ withGlobals(program.command('init'))
 		"add the user-approved `unit close --force` rule to Claude Code's user autoMode.allow (claude only)",
 	)
 	.option(
-		'--mail-environment',
+		'--mark-mail-local',
 		"add a note that `mail send` is local messaging to Claude Code's user autoMode.environment (claude only)",
 	)
 	.action((opts) => {
@@ -1409,7 +1409,7 @@ withGlobals(program.command('init'))
 		for (const [flag, set] of [
 			['--allow-cli', opts.allowCli],
 			['--allow-force-close', opts.allowForceClose],
-			['--mail-environment', opts.mailEnvironment],
+			['--mark-mail-local', opts.markMailLocal],
 		] as const) {
 			if (set && harness !== 'claude') fail(`${flag} applies to claude only, not ${harness}`)
 		}
@@ -1425,7 +1425,7 @@ withGlobals(program.command('init'))
 			try {
 				permissionRule = setting(opts.allowCli, addPermissionRule, permissionRuleState)
 				forceCloseRule = setting(opts.allowForceClose, addForceCloseRule, forceCloseRuleState)
-				mailEnvironment = setting(opts.mailEnvironment, addMailEnvironmentNote, mailEnvironmentState)
+				mailEnvironment = setting(opts.markMailLocal, addMailEnvironmentNote, mailEnvironmentState)
 			} catch (err) {
 				fail(err instanceof Error ? err.message : String(err))
 			}
