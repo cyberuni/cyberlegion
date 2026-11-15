@@ -10,7 +10,7 @@
 		"test": "vitest run src"
 	},
 	"dependencies": {
-		"@astrojs/starlight": "0.42.10",
+		"@astrojs/starlight": "0.42.11",
 		"astro": "7.4.11"
 	},
 	"devDependencies": {
