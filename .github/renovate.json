@@ -1,6 +1,6 @@
 {
 	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
-	"extends": ["github>unional/renovate-preset"],
+	"extends": ["github>repobuddy/renovate-preset"],
 	"packageRules": [
 		{
 			"description": "@types/node tracks the supported Node range, so every bump is a deliberate call, not only majors.",
