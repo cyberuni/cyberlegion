@@ -1,5 +1,22 @@
 # cyberlegion
 
+## 2.1.0
+
+### Minor Changes
+
+- fa37956: `unit who` fills in a unit's harness conversation id from herdr when its SessionStart hook could not record one. For a caller in a herdr pane it reads `herdr pane list` once and gives every live herdr unit with no `conversation` the `agent_session` herdr lists for its terminal, the id herdr resumes the pane with. A unit in an environment that prohibits hooks now has a findable transcript. A unit is matched by its terminal id only, never by its pane id, and a conversation a unit already carries is kept. `conversation` stays optional: absent means unknown.
+- e55884a: Add `init --allow-force-close` and `init --mark-mail-local`. They write Claude Code auto-mode entries in the user settings: a rule that allows `unit close <id> --force` only when the user approved discarding that unit's work in the same session, and a note that `mail send` is local agent-to-agent messaging. `mux doctor` and `init` report both as `forceCloseRule` and `mailEnvironment`. `init --allow-cli` now also covers the `node …/cyberlegion.mjs` and pinned `npx cyberlegion@…` forms, and every settings write keeps the file's indentation.
+- fa37956: A unit's pane record now names the multiplexer server its pane lives on (`pane.server`) and that server's session name (`pane.session`). For herdr the server is the session's socket (`$HERDR_SOCKET_PATH`) and the session is the herdr session's name. For tmux the server is the tmux socket and the session is the tmux session that holds the pane. `unit register`, `unit spawn`, `unit restart`, and `unit rebind` write them, and a unit recorded before they existed gets them on its next command. `unit who --same-server` lists only the units on the caller's own server, the same herdr session or tmux server, and leaves out any unit whose record names another server or none. A pane id is unique only within one server, so a sweep can now act on its own units without touching another session's.
+
+### Patch Changes
+
+- c0a4376: Update runtime dependencies.
+- fbb0921: Update runtime dependencies.
+- 7a81617: Update runtime dependencies.
+- 413a88f: Update runtime dependencies.
+- cb53668: Update runtime dependencies.
+- 1b53eb1: A session herdr resumes after a device shutdown keeps its unit and reaches its own mail. A resume gives every pane a new terminal id and may hand out new pane ids, so the pane lookup no longer found the unit. The caller's harness conversation, `$CLAUDE_CODE_SESSION_ID` or herdr's `agent_session` for the calling pane, now finds it: `register` and every command's `touch` record that conversation on the unit, a session found by it takes the calling pane back and is active again, and `unit register` in such a session rebinds the existing unit instead of minting one. `unit register` now says on stderr when it mints a new unit. A herdr pane resumed under its old pane id also finds its unit when no conversation is known: a pointer whose unit's terminal herdr lists nowhere is read as a resume, not a move, and `touch` records the new terminal id. A session that already minted a duplicate can return to its stranded unit with `unit rebind <id>`: rebind now leaves the caller's own unit when a plain `unit register` minted it (no brief, no spawn-leased worktree) and it holds no unread mail, marking it `stopped` so its handle and mail stay addressable.
+
 ## 2.0.1
 
 ### Patch Changes
