@@ -148,6 +148,30 @@ Feature: unit registry — register, discover, and prune legion units
     When it runs unit who --same-server
     Then it exits non-zero saying it cannot tell which server the pane is on
 
+  Scenario: who fills a unit's missing conversation from the agent session herdr lists for its terminal
+    Given a live herdr unit with no conversation whose pane locator carries terminal term_a
+    And herdr lists terminal term_a with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit's conversation is conv-a
+
+  Scenario: who keeps a conversation a unit already carries
+    Given a live herdr unit with conversation conv-hook whose pane locator carries terminal term_a
+    And herdr lists terminal term_a with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit's conversation is conv-hook
+
+  Scenario: who never fills a conversation by a unit's pane id alone
+    Given a live herdr unit with no conversation whose pane locator carries pane w1:p1 and no terminal id
+    And herdr lists pane w1:p1 with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit has no conversation
+
+  Scenario: who never fills the conversation of a unit on another server
+    Given a live herdr unit with no conversation whose pane locator names another server and carries terminal term_a
+    And herdr lists terminal term_a with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit has no conversation
+
   Scenario: the top-level who command behaves like unit who
     Given a registered agent alice
     When a session runs the top-level who command

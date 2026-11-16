@@ -93,6 +93,12 @@ the other multiplexer, or no server at all, so a sweep never acts on a unit it c
 outside a tmux or herdr pane. A record written before `server` existed gets it on its unit's next
 command.
 
+Where a unit's SessionStart hook cannot run, nothing records its harness conversation id. When the
+caller is in a herdr pane, `who` fills it in for every live herdr unit that has none, from the agent
+session herdr lists for the unit's terminal: the id herdr resumes the pane with. It reads
+`herdr pane list` once, matches a unit by its terminal id only, and keeps any conversation a unit
+already carries. A unit with no `conversation` in `--format json` has none known, not none at all.
+
 ## prune
 
 ```sh

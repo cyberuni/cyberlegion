@@ -10590,8 +10590,8 @@ function onCallerServer(ctx) {
 	if (!server) throw new Error(`--same-server cannot tell which ${cur.mux} server this pane is on`);
 	return (rec) => rec.pane?.mux === cur.mux && rec.pane.server === server;
 }
-/** herdr's live panes keyed by terminal id → current pane id. Empty when herdr gives no list, which
-* says nothing about any pane. */
+/** herdr's live panes keyed by terminal id. Empty when herdr gives no list, which says nothing about
+* any pane. */
 function herdrTerminals(exec) {
 	const map = /* @__PURE__ */ new Map();
 	const out = exec("herdr", ["pane", "list"]);
@@ -10599,7 +10599,14 @@ function herdrTerminals(exec) {
 	try {
 		const panes = JSON.parse(out)?.result?.panes;
 		if (!Array.isArray(panes)) return map;
-		for (const p of panes) if (typeof p?.terminal_id === "string" && typeof p?.pane_id === "string") map.set(p.terminal_id, p.pane_id);
+		for (const p of panes) {
+			if (typeof p?.terminal_id !== "string" || typeof p?.pane_id !== "string") continue;
+			const conversation = p.agent_session?.value;
+			map.set(p.terminal_id, {
+				pane: p.pane_id,
+				...typeof conversation === "string" && conversation ? { conversation } : {}
+			});
+		}
 	} catch {
 		return map;
 	}
@@ -10614,8 +10621,31 @@ function herdrTerminals(exec) {
 function locateTerminal(exec, terminal, cache = {}) {
 	cache.terminals ??= herdrTerminals(exec);
 	if (cache.terminals.size === 0) return void 0;
-	const id = cache.terminals.get(terminal);
-	return id ? { id } : "gone";
+	const live = cache.terminals.get(terminal);
+	return live ? { id: live.pane } : "gone";
+}
+/**
+* Fill in the conversation of every live herdr unit that has none from the agent session herdr
+* reports for its terminal (#242) — the id herdr resumes the pane with, so a unit in an environment
+* where its SessionStart hook cannot run still has a findable transcript. One `herdr pane list` read
+* covers every unit, and none when no unit lacks one. A unit is matched by its terminal id only, never
+* its pane id, which herdr hands out again; one whose record names a server other than the caller's is
+* skipped, since the list is the caller's server's. A conversation a unit already carries is kept.
+* Best-effort: a caller outside a herdr pane, or a herdr that gives no list, changes nothing.
+*/
+function fillConversations(ctx) {
+	const env = ctx.env ?? process.env;
+	if (storablePane(env)?.mux !== "herdr") return;
+	const server = serverOf(env, "herdr");
+	const wanting = listAgents(ctx.store).filter((a) => !a.conversation && !isSessionIndependent(a) && a.status !== "exited" && a.pane?.mux === "herdr" && !!a.pane.terminal && (!a.pane.server || a.pane.server === server));
+	if (wanting.length === 0) return;
+	const terminals = herdrTerminals(ctx.exec ?? realExec);
+	for (const rec of wanting) {
+		const conversation = terminals.get(rec.pane?.terminal)?.conversation;
+		if (!conversation) continue;
+		rec.conversation = conversation;
+		saveAgent(ctx.store, rec);
+	}
 }
 /** Point a record whose herdr pane moved at the pane id it has now, moving its pane pointer with it.
 * The old pointer is dropped only while it still names this record, since herdr hands old ids out
@@ -15324,6 +15354,7 @@ function runWho(opts) {
 	}
 	touch(ctx);
 	if (opts.reconcile) reconcile(ctx, { adopt: true });
+	fillConversations(ctx);
 	const agents = listAgents(ctx.store).filter((a) => (opts.all || a.status !== "exited") && here(a));
 	emit(formatOf(opts), {
 		toon: toonList("units", agents, [

@@ -93,8 +93,9 @@ export interface AgentRecord {
 	/** The harness's own conversation (session) id — what `unit restart` resumes, and what a session
 	 * herdr resumed into a new pane or terminal is found by (#284). Written by its SessionStart hook
 	 * (`mail hook`), by `register`, and by `touch` from `$CLAUDE_CODE_SESSION_ID` or herdr's
-	 * `agent_session` for the calling pane. Absent while none of them has seen it; restart then
-	 * rebriefs a fresh session. */
+	 * `agent_session` for the calling pane. Where hooks cannot run, `unit who` fills it in for any live
+	 * herdr unit from the `agent_session` herdr lists for its terminal (#242). Absent means unknown,
+	 * never "no conversation"; restart then rebriefs a fresh session. */
 	conversation?: string
 	spawnedBy?: string
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,

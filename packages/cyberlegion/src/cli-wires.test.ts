@@ -24,6 +24,11 @@ vi.mock('./session.ts', async () => ({
 	focusUnit: (...a: unknown[]) => focusUnit(...a),
 	readUnit: (...a: unknown[]) => readUnit(...a),
 }))
+const fillConversations = vi.fn()
+vi.mock('./identity.ts', async () => ({
+	...(await vi.importActual<typeof import('./identity.ts')>('./identity.ts')),
+	fillConversations: (...a: unknown[]) => fillConversations(...a),
+}))
 const listCursorModels = vi.fn((): string[] => [])
 vi.mock('./cursor-models.ts', () => ({ listCursorModels: () => listCursorModels() }))
 vi.mock('./decommission.ts', async () => ({
@@ -418,5 +423,13 @@ describe('spec:cyberlegion/service/lease — `service start` spawns at most once
 			/process\.exit/,
 		)
 		expect(new FileStore(space).getServiceLease(prj, 'controller')?.state).toBe('vacant')
+	})
+})
+
+describe('spec:cyberlegion/unit/registry CLI wires', () => {
+	it('who fills unit conversations from the multiplexer before listing (#242)', async () => {
+		captureStdout()
+		await cli(['unit', 'who'])
+		expect(fillConversations).toHaveBeenCalledTimes(1)
 	})
 })

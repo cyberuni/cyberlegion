@@ -186,17 +186,25 @@ export function onCallerServer(ctx: IdContext): (rec: AgentRecord) => boolean {
 	return (rec) => rec.pane?.mux === cur.mux && rec.pane.server === server
 }
 
-/** herdr's live panes keyed by terminal id → current pane id. Empty when herdr gives no list, which
- * says nothing about any pane. */
-function herdrTerminals(exec: Exec): Map<string, string> {
-	const map = new Map<string, string>()
+/** A live herdr terminal: the pane id it has now, and the agent session herdr resumes it with. */
+type HerdrTerminal = { pane: string; conversation?: string }
+
+/** herdr's live panes keyed by terminal id. Empty when herdr gives no list, which says nothing about
+ * any pane. */
+function herdrTerminals(exec: Exec): Map<string, HerdrTerminal> {
+	const map = new Map<string, HerdrTerminal>()
 	const out = exec('herdr', ['pane', 'list'])
 	if (!out) return map
 	try {
 		const panes = JSON.parse(out)?.result?.panes
 		if (!Array.isArray(panes)) return map
 		for (const p of panes) {
-			if (typeof p?.terminal_id === 'string' && typeof p?.pane_id === 'string') map.set(p.terminal_id, p.pane_id)
+			if (typeof p?.terminal_id !== 'string' || typeof p?.pane_id !== 'string') continue
+			const conversation = p.agent_session?.value
+			map.set(p.terminal_id, {
+				pane: p.pane_id,
+				...(typeof conversation === 'string' && conversation ? { conversation } : {}),
+			})
 		}
 	} catch {
 		return map
@@ -213,12 +221,47 @@ function herdrTerminals(exec: Exec): Map<string, string> {
 export function locateTerminal(
 	exec: Exec,
 	terminal: string,
-	cache: { terminals?: Map<string, string> } = {},
+	cache: TerminalCache = {},
 ): { id: string } | 'gone' | undefined {
 	cache.terminals ??= herdrTerminals(exec)
 	if (cache.terminals.size === 0) return undefined
-	const id = cache.terminals.get(terminal)
-	return id ? { id } : 'gone'
+	const live = cache.terminals.get(terminal)
+	return live ? { id: live.pane } : 'gone'
+}
+
+/** One `herdr pane list` read, shared by every record a pass judges. */
+type TerminalCache = { terminals?: Map<string, HerdrTerminal> }
+
+/**
+ * Fill in the conversation of every live herdr unit that has none from the agent session herdr
+ * reports for its terminal (#242) — the id herdr resumes the pane with, so a unit in an environment
+ * where its SessionStart hook cannot run still has a findable transcript. One `herdr pane list` read
+ * covers every unit, and none when no unit lacks one. A unit is matched by its terminal id only, never
+ * its pane id, which herdr hands out again; one whose record names a server other than the caller's is
+ * skipped, since the list is the caller's server's. A conversation a unit already carries is kept.
+ * Best-effort: a caller outside a herdr pane, or a herdr that gives no list, changes nothing.
+ */
+export function fillConversations(ctx: IdContext): void {
+	const env = ctx.env ?? process.env
+	if (storablePane(env)?.mux !== 'herdr') return
+	const server = serverOf(env, 'herdr')
+	const wanting = listAgents(ctx.store).filter(
+		(a) =>
+			!a.conversation &&
+			!isSessionIndependent(a) &&
+			a.status !== 'exited' &&
+			a.pane?.mux === 'herdr' &&
+			!!a.pane.terminal &&
+			(!a.pane.server || a.pane.server === server),
+	)
+	if (wanting.length === 0) return
+	const terminals = herdrTerminals(ctx.exec ?? realExec)
+	for (const rec of wanting) {
+		const conversation = terminals.get(rec.pane?.terminal as string)?.conversation
+		if (!conversation) continue
+		rec.conversation = conversation
+		saveAgent(ctx.store, rec)
+	}
 }
 
 /** Point a record whose herdr pane moved at the pane id it has now, moving its pane pointer with it.
@@ -988,7 +1031,7 @@ export function reconcile(ctx: IdContext, opts?: { adopt?: boolean }): AgentReco
 	if (panes.length === 0) return []
 	const live = new Set(panes.map((p) => p.id))
 	const changed: AgentRecord[] = []
-	const cache: { terminals?: Map<string, string> } = {}
+	const cache: TerminalCache = {}
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
 		if (!rec.pane) continue
@@ -1030,12 +1073,7 @@ function paneGone(exec: Exec, pane: NonNullable<AgentRecord['pane']>, lists: Map
  * follows it instead (#272). A pane id that herdr now gives another terminal does not keep the record
  * alive, since herdr ids recur. No list at all decides nothing.
  */
-function terminalGone(
-	ctx: IdContext,
-	rec: AgentRecord,
-	terminal: string,
-	cache: { terminals?: Map<string, string> },
-): boolean {
+function terminalGone(ctx: IdContext, rec: AgentRecord, terminal: string, cache: TerminalCache): boolean {
 	const at = locateTerminal(ctx.exec ?? realExec, terminal, cache)
 	if (at === 'gone') return true
 	if (at) followMove(ctx, rec, at.id)
@@ -1061,7 +1099,7 @@ export function prune(ctx: IdContext, options: PruneOptions = {}): PrunedRecord[
 	const now = ctx.now?.() ?? Date.now()
 	const marked: AgentRecord[] = reconcile(ctx)
 	const lists = new Map<string, LivePane[]>()
-	const cache: { terminals?: Map<string, string> } = {}
+	const cache: TerminalCache = {}
 	for (const rec of listAgents(ctx.store)) {
 		if (!isPrunable(rec)) continue
 		const dead = !rec.pane

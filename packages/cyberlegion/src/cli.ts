@@ -15,6 +15,7 @@ import {
 	claimPresence,
 	clearPresence,
 	detectHarness,
+	fillConversations,
 	type Harness,
 	type IdContext,
 	listAgents,
@@ -285,6 +286,7 @@ function runWho(opts: GlobalOpts & { all?: boolean; reconcile?: boolean; sameSer
 	}
 	touch(ctx)
 	if (opts.reconcile) reconcile(ctx, { adopt: true })
+	fillConversations(ctx)
 	const agents = listAgents(ctx.store).filter((a) => (opts.all || a.status !== 'exited') && here(a))
 	emit(formatOf(opts), {
 		toon: toonList(

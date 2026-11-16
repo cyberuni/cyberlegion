@@ -8,6 +8,7 @@ import {
 	clearPresence,
 	detectHarness,
 	type Exec,
+	fillConversations,
 	type IdContext,
 	listAgents,
 	loadAgent,
@@ -1619,5 +1620,114 @@ describe('spec:cyberlegion/identity — a pane record names its multiplexer serv
 		it('throws for a caller whose multiplexer server is unknown', () => {
 			expect(() => onCallerServer(ctx(inHerdr('w1:p1', null), herdrScoped))).toThrow(/server/)
 		})
+	})
+})
+
+// #242: where hooks cannot run, nothing records a unit's `conversation`. herdr already reports it for
+// every Claude pane (`agent_session`), and it is the id herdr resumes the pane with, so one `herdr pane
+// list` read fills it in for every live herdr unit that has none. A pane is matched by its terminal id,
+// never its pane id, since pane ids recur.
+describe('spec:cyberlegion/identity — a unit conversation is filled from herdr', () => {
+	const SOCK = '/s/herdr.sock'
+	const session = (value: string) => ({ agent: 'claude', kind: 'id', source: 'herdr:claude', value })
+	type HerdrPane = { pane_id: string; terminal_id: string; agent_session?: unknown }
+	const listed: HerdrPane[] = [
+		{ pane_id: 'w1:p1', terminal_id: 'term_a', agent_session: session('conv-a') },
+		{ pane_id: 'w1:p2', terminal_id: 'term_b', agent_session: session('conv-b') },
+		{ pane_id: 'w1:p3', terminal_id: 'term_c' },
+	]
+	function herdrListing(panes: HerdrPane[] | null) {
+		const calls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			calls.push([cmd, ...args])
+			if (cmd === 'herdr' && args[0] === 'pane' && args[1] === 'list') {
+				return panes ? JSON.stringify({ result: { panes } }) : null
+			}
+			return null
+		}
+		return { exec, lists: () => calls.filter((c) => c[1] === 'pane' && c[2] === 'list').length }
+	}
+	const caller = { HERDR_ENV: '1', HERDR_PANE_ID: 'w9:p9', HERDR_SOCKET_PATH: SOCK }
+	function seed(id: string, extra: Partial<AgentRecord> = {}): void {
+		saveAgent(store, {
+			id,
+			handle: id,
+			harness: 'claude',
+			cwd: '/x',
+			pane: { mux: 'herdr', id: 'w1:p1', terminal: 'term_a' },
+			status: 'active',
+			createdAt: 't',
+			lastSeen: 't',
+			...extra,
+		})
+	}
+
+	it('fills the conversation herdr reports for the terminal of a unit that has none', () => {
+		seed('a')
+		seed('b', { pane: { mux: 'herdr', id: 'w1:p2', terminal: 'term_b', server: SOCK } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBe('conv-a')
+		expect(loadAgent(store, 'b')?.conversation).toBe('conv-b')
+	})
+
+	it('reads the herdr pane list once for every unit', () => {
+		seed('a')
+		seed('b', { pane: { mux: 'herdr', id: 'w1:p2', terminal: 'term_b' } })
+		const h = herdrListing(listed)
+		fillConversations(ctx(caller, h.exec))
+		expect(h.lists()).toBe(1)
+	})
+
+	it('keeps a conversation the unit already carries', () => {
+		seed('a', { conversation: 'conv-hook' })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBe('conv-hook')
+	})
+
+	it('leaves a unit with no conversation when herdr reports none for its terminal', () => {
+		seed('c', { pane: { mux: 'herdr', id: 'w1:p3', terminal: 'term_c' } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'c')?.conversation).toBeUndefined()
+	})
+
+	it('never matches a unit by its pane id alone', () => {
+		seed('a', { pane: { mux: 'herdr', id: 'w1:p1' } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
+	})
+
+	it('never fills a unit whose record names another server', () => {
+		seed('a', { pane: { mux: 'herdr', id: 'w1:p1', terminal: 'term_a', server: '/other.sock' } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
+	})
+
+	it('never fills an exited unit or a standing record', () => {
+		seed('gone', { status: 'exited' })
+		seed('owner', { kind: 'standing' })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'gone')?.conversation).toBeUndefined()
+		expect(loadAgent(store, 'owner')?.conversation).toBeUndefined()
+	})
+
+	it('reads nothing from herdr when no unit lacks a conversation', () => {
+		seed('a', { conversation: 'conv-hook' })
+		const h = herdrListing(listed)
+		fillConversations(ctx(caller, h.exec))
+		expect(h.lists()).toBe(0)
+	})
+
+	it('reads nothing from herdr for a caller outside a herdr pane', () => {
+		seed('a')
+		const h = herdrListing(listed)
+		fillConversations(ctx({ TMUX: '/tmp/t,1,0', TMUX_PANE: '%1' }, h.exec))
+		expect(h.lists()).toBe(0)
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
+	})
+
+	it('changes nothing when herdr gives no pane list', () => {
+		seed('a')
+		fillConversations(ctx(caller, herdrListing(null).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
 	})
 })

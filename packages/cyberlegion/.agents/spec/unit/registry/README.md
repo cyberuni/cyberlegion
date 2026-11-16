@@ -305,6 +305,14 @@ Extensions:
 - **Empty registry** — `0 units`, never an error.
 - **Exited units** — filtered out by default; `--all` includes them.
 - **`--reconcile`** — runs reconcile, with adopt, before listing (see `unit who --reconcile`).
+- **A unit's conversation is filled from herdr (#242).** Where a unit's SessionStart hook cannot
+  run, nothing records its `conversation`. For a caller in a herdr pane, `who` reads `herdr pane
+  list` once and gives every live herdr unit that has no conversation the `agent_session` herdr lists
+  for its terminal, the id herdr resumes the pane with. A unit is matched by its terminal id only,
+  never by its pane id, which herdr hands out again. A unit whose record names another server, a
+  unit that already carries a conversation, an exited unit, and a standing or service record are left
+  as they are. When no unit lacks a conversation, herdr is not asked. `conversation` stays optional:
+  absent means unknown.
 - **`--same-server`** — lists only units whose pane is on the caller's server: same multiplexer, same
   `server` (#241). A unit whose record names another server, the other multiplexer, no server, or no
   pane is left out, so a sweep never acts on a unit it cannot place. Outside a tmux or herdr pane, or
@@ -663,8 +671,9 @@ graph TD
   WHS -- no --> WH1["touch"]
   WH1 --> WH2{"--reconcile?"}
   WH2 -- yes --> WH2R["reconcile with adopt"]
-  WH2 -- no --> WH3
-  WH2R --> WH3{"--all?"}
+  WH2 -- no --> WHC
+  WH2R --> WHC["fill missing conversations from herdr's pane list (herdr caller only)"]
+  WHC --> WH3{"--all?"}
   WH3 -- yes --> WH4["every record, any kind and status"]
   WH3 -- no --> WH5["every record except exited, any kind"]
   WH4 --> WHK{"--same-server?"}
@@ -957,6 +966,10 @@ adapters.
 | `WHL` unknown | a herdr unit whose record names no server | `who --same-server leaves out a unit whose record names no server` |
 | `WHF` no pane | a caller in no multiplexer pane | `who --same-server fails outside a multiplexer pane` |
 | `WHF` no server | a caller in a herdr pane whose env names no socket | `who --same-server fails when the caller's server is unknown` |
+| `WHC` fill | a herdr caller, a live herdr unit with no conversation whose terminal herdr lists with an agent session | `who fills a unit's missing conversation from the agent session herdr lists for its terminal` |
+| `WHC` keep | a unit that already carries a conversation | `who keeps a conversation a unit already carries` |
+| `WHC` terminal only | a herdr unit whose record carries no terminal id, its pane id listed with an agent session | `who never fills a conversation by a unit's pane id alone` |
+| `WHC` other server | a herdr unit whose record names another server | `who never fills the conversation of a unit on another server` |
 
 ### cyberlegion (bare)
 
