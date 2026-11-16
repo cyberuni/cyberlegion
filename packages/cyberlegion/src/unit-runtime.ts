@@ -16,6 +16,7 @@ import {
 	type IdContext,
 	loadAgent,
 	locateTerminal,
+	muxScope,
 	openedPaneLocator,
 	realExec,
 	resolveAgent,
@@ -217,7 +218,7 @@ export async function restartUnit(
 	const bound: AgentRecord = {
 		...stopped,
 		status: 'active',
-		pane: openedPaneLocator(exec, mux, target.id),
+		pane: openedPaneLocator(exec, mux, target.id, ctx.env ?? process.env),
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString(),
 	}
 	saveAgent(ctx.store, bound)
@@ -296,7 +297,12 @@ export function rebindUnit(ctx: RuntimeContext, ref: string): AgentRecord {
 	const bound: AgentRecord = {
 		...rec,
 		status: 'active',
-		pane: { mux: cur.mux, id: cur.pane, ...(cur.terminal ? { terminal: cur.terminal } : {}) },
+		pane: {
+			mux: cur.mux,
+			id: cur.pane,
+			...(cur.terminal ? { terminal: cur.terminal } : {}),
+			...muxScope(ctx.exec ?? realExec, ctx.env ?? process.env, cur.mux, cur.pane),
+		},
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString(),
 	}
 	const conversation = leaving ? callingConversation(ctx) : undefined

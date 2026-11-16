@@ -204,7 +204,7 @@ describe('spawn opens a pane + pre-registers the peer', () => {
 		// `active` outright — there is no intermediate `spawning` status and nothing later flips it
 		// (the SessionStart hook injects no brief and mutates no status).
 		expect(rec).toMatchObject({ harness: 'claude', status: 'active', spawnedBy: 'spawner' })
-		expect(rec?.pane).toEqual({ mux: 'tmux', id: '%9' })
+		expect(rec?.pane).toEqual({ mux: 'tmux', id: '%9', server: 't' })
 		expect(store.resolvePaneId('%9')).toBe(res.agent.id)
 		expect(store.readBrief(res.agent.id)).toBe('reply to alice')
 	})

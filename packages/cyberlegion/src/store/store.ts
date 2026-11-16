@@ -51,11 +51,24 @@ export interface AgentRecord {
 		owner?: string
 	}
 	/** Where this session lives, tagged with its multiplexer so `prune` runs the right liveness check.
-	 * `null` for a session in no pane and for a standing record. `window`/`session` are tmux-only.
+	 * `null` for a session in no pane and for a standing record. `window` is tmux-only.
 	 * `terminal` is herdr-only: the pane's herdr terminal id, which survives a `herdr pane move` that
 	 * gives the pane a new id (#272), so prune and touch follow a moved pane by it. Absent on records
-	 * written before it existed, which are judged by `id` alone. */
-	pane?: { mux: 'tmux' | 'herdr'; id: string; terminal?: string; window?: string; session?: string } | null
+	 * written before it existed, which are judged by `id` alone.
+	 *
+	 * `server` is the multiplexer server the pane lives on, the scope its pane id is unique in: the herdr
+	 * socket (`$HERDR_SOCKET_PATH`; one per herdr session) or the tmux socket (from `$TMUX`). `session` is
+	 * that server's session name: the herdr session the socket belongs to, or the tmux session holding
+	 * the pane (#241). Both are absent when unknown, and on records written before they existed; a tmux
+	 * record written then may carry its socket path under `session`. */
+	pane?: {
+		mux: 'tmux' | 'herdr'
+		id: string
+		terminal?: string
+		window?: string
+		server?: string
+		session?: string
+	} | null
 	pid?: number
 	/** A record migrated from an older hub (`admin migrate`) may carry a status this version no
 	 * longer writes — the retired `spawning` is the known case. **Reads preserve it verbatim**: no
@@ -80,8 +93,9 @@ export interface AgentRecord {
 	/** The harness's own conversation (session) id — what `unit restart` resumes, and what a session
 	 * herdr resumed into a new pane or terminal is found by (#284). Written by its SessionStart hook
 	 * (`mail hook`), by `register`, and by `touch` from `$CLAUDE_CODE_SESSION_ID` or herdr's
-	 * `agent_session` for the calling pane. Absent while none of them has seen it; restart then
-	 * rebriefs a fresh session. */
+	 * `agent_session` for the calling pane. Where hooks cannot run, `unit who` fills it in for any live
+	 * herdr unit from the `agent_session` herdr lists for its terminal (#242). Absent means unknown,
+	 * never "no conversation"; restart then rebriefs a fresh session. */
 	conversation?: string
 	spawnedBy?: string
 	/** Absent ⇒ session (backward compat, no migration). 'standing' = a session-independent,

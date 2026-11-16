@@ -69,7 +69,7 @@ no identity yet.
 ## who
 
 ```sh
-npx cyberlegion unit who [--all] [--reconcile]
+npx cyberlegion unit who [--all] [--reconcile] [--same-server]
 ```
 
 List the addressable units. Also available as the top-level alias `cyberlegion who`.
@@ -78,10 +78,26 @@ List the addressable units. Also available as the top-level alias `cyberlegion w
 |---|---|
 | `--all` | include exited units |
 | `--reconcile` | live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing |
+| `--same-server` | only units whose pane is on the caller's multiplexer server: the same herdr session, or the same tmux server |
 
 Output: a `units` table (`id`, `handle`, `harness`, `status`, `pane`, `shared`). `shared` is the
 root of the unit's [shared worktree](#shared-worktree), or `-` when it has none. `--format json`
 lists the full records. Suggests `unit register` as a next step when the list is empty.
+
+A unit's pane record names the multiplexer server its pane lives on (`server`) and that server's
+session name (`session`). For herdr the server is the session's socket (`$HERDR_SOCKET_PATH`) and the
+session is the herdr session's name. For tmux the server is the tmux socket (from `$TMUX`) and the
+session is the tmux session that holds the pane. A pane id is unique only within one server: every
+herdr session has a `w1:p1`. `--same-server` leaves out a unit whose record names another server,
+the other multiplexer, or no server at all, so a sweep never acts on a unit it cannot place. It fails
+outside a tmux or herdr pane. A record written before `server` existed gets it on its unit's next
+command.
+
+Where a unit's SessionStart hook cannot run, nothing records its harness conversation id. When the
+caller is in a herdr pane, `who` fills it in for every live herdr unit that has none, from the agent
+session herdr lists for the unit's terminal: the id herdr resumes the pane with. It reads
+`herdr pane list` once, matches a unit by its terminal id only, and keeps any conversation a unit
+already carries. A unit with no `conversation` in `--format json` has none known, not none at all.
 
 ## prune
 

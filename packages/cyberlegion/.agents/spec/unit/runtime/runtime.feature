@@ -341,6 +341,12 @@ Feature: unit runtime — stop, restart, and rebind a unit's session without los
     And the pane pointer for the caller's pane names the unit
     And the unit's lastSeen is the time of the rebind
 
+  Scenario: rebind records the server the calling pane is on
+    Given a stopped unit
+    And a session in a herdr pane whose $HERDR_SOCKET_PATH is /s/herdr.sock
+    When it runs unit rebind for that unit
+    Then the unit's pane locator names /s/herdr.sock as its server
+
   Scenario: rebind drops the unit's old pane pointer
     Given a registered unit with status exited
     And a pane pointer for its old pane names the unit

@@ -128,6 +128,50 @@ Feature: unit registry — register, discover, and prune legion units
     When it runs unit who --all
     Then both agents are listed
 
+  Scenario: who --same-server lists only the units on the caller's multiplexer server
+    Given unit alice registered in a tmux pane on server /tmp/srv-a, unit bob on server /tmp/srv-b, and unit carol in no pane
+    When a session in a tmux pane on server /tmp/srv-a runs unit who --same-server
+    Then only alice is listed
+
+  Scenario: who --same-server leaves out a unit whose record names no server
+    Given a herdr unit whose pane record names no server
+    When a session in a herdr pane runs unit who --same-server
+    Then that unit is not listed
+
+  Scenario: who --same-server fails outside a multiplexer pane
+    Given a session in no tmux or herdr pane
+    When it runs unit who --same-server
+    Then it exits non-zero naming the tmux or herdr pane it needs
+
+  Scenario: who --same-server fails when the caller's server is unknown
+    Given a session in a herdr pane whose env names no herdr socket
+    When it runs unit who --same-server
+    Then it exits non-zero saying it cannot tell which server the pane is on
+
+  Scenario: who fills a unit's missing conversation from the agent session herdr lists for its terminal
+    Given a live herdr unit with no conversation whose pane locator carries terminal term_a
+    And herdr lists terminal term_a with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit's conversation is conv-a
+
+  Scenario: who keeps a conversation a unit already carries
+    Given a live herdr unit with conversation conv-hook whose pane locator carries terminal term_a
+    And herdr lists terminal term_a with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit's conversation is conv-hook
+
+  Scenario: who never fills a conversation by a unit's pane id alone
+    Given a live herdr unit with no conversation whose pane locator carries pane w1:p1 and no terminal id
+    And herdr lists pane w1:p1 with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit has no conversation
+
+  Scenario: who never fills the conversation of a unit on another server
+    Given a live herdr unit with no conversation whose pane locator names another server and carries terminal term_a
+    And herdr lists terminal term_a with agent session conv-a
+    When a session in a herdr pane runs unit who
+    Then the unit has no conversation
+
   Scenario: the top-level who command behaves like unit who
     Given a registered agent alice
     When a session runs the top-level who command
@@ -489,6 +533,32 @@ Feature: unit registry — register, discover, and prune legion units
     Then it answers live
 
   # ── A resumed session keeps its unit (#284) ──
+
+  Scenario: register in a herdr pane records the herdr socket as the server and its session name
+    Given a session in herdr pane w1:p1 whose $HERDR_SOCKET_PATH is the socket of herdr session default
+    When it runs unit register
+    Then the record's pane locator names that socket as its server and default as its session
+
+  Scenario: register in a herdr pane records no server when the env names no socket
+    Given a session in a herdr pane with no $HERDR_SOCKET_PATH
+    When it runs unit register
+    Then the record's pane locator names no server and no session
+
+  Scenario: register in a tmux pane records the tmux socket as the server and the tmux session name
+    Given a session in tmux pane %3 whose $TMUX names socket /tmp/tmux-1000/default, in tmux session main
+    When it runs unit register
+    Then the record's pane locator names /tmp/tmux-1000/default as its server and main as its session
+
+  Scenario: a pane a spawn opens names the server of the spawner's env
+    Given a spawner in a herdr pane whose $HERDR_SOCKET_PATH is the socket of herdr session default
+    When it spawns a unit
+    Then the unit's pane locator names that socket as its server and default as its session
+
+  Scenario: touch records the server on a caller record that names none
+    Given a unit registered in a herdr pane whose record names no server
+    And the caller's $HERDR_SOCKET_PATH names the socket of herdr session default
+    When the caller runs a command that resolves its own identity
+    Then the record's pane locator names that socket as its server and default as its session
 
   Scenario: register records the conversation herdr reports for the calling pane
     Given an unregistered session inside a herdr pane whose agent session herdr reports as conv-a

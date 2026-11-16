@@ -26,6 +26,7 @@ const MUX_ENV_KEYS = [
 	'TMUX_PANE',
 	'HERDR_ENV',
 	'HERDR_PANE_ID',
+	'HERDR_SOCKET_PATH',
 	'CYBER_MUX',
 	'CYBER_MUX_PANE',
 	'CYBERLEGION_MUX',
@@ -105,6 +106,27 @@ describe('spec:cyberlegion/unit', () => {
 			expect(out).toContain('alice')
 			expect(out).toContain('bob')
 			expect(out).toContain('2 units')
+		})
+
+		it('who --same-server lists only the units on the caller multiplexer server (#241)', () => {
+			const onA = (pane: string) => ({ TMUX: '/tmp/cl-srv-a,1,0', TMUX_PANE: pane })
+			legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice'], onA('%1'))
+			legion(['unit', 'register', '--harness', 'claude', '--handle', 'bob'], {
+				TMUX: '/tmp/cl-srv-b,1,0',
+				TMUX_PANE: '%2',
+			})
+			legion(['unit', 'register', '--harness', 'claude', '--handle', 'carol'])
+			const out = legion(['unit', 'who', '--same-server'], onA('%3'))
+			expect(out).toContain('alice')
+			expect(out).not.toContain('bob')
+			expect(out).not.toContain('carol')
+			expect(out).toContain('1 units')
+		})
+
+		it('who --same-server fails outside a multiplexer pane', () => {
+			const { status, stderr } = legionOut(['unit', 'who', '--same-server'])
+			expect(status).not.toBe(0)
+			expect(stderr).toMatch(/tmux or herdr pane/)
 		})
 
 		it('prune reports each pruned unit as exited or deleted with a deleted count', () => {

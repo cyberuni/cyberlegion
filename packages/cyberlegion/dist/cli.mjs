@@ -10517,23 +10517,81 @@ function herdrTerminalOf(exec, paneId) {
 	]))?.terminal;
 }
 /** The pane locator for a pane a spawn or restart just opened: tagged with its multiplexer so the
-* unit's own `prune` runs the right liveness check, and for herdr carrying the terminal id a move
-* keeps. `null` for a backend a record cannot carry. */
-function openedPaneLocator(exec, mux, id) {
+* unit's own `prune` runs the right liveness check, for herdr carrying the terminal id a move
+* keeps, and naming the server it opened on — the opener's own, since the multiplexer CLI addresses
+* the server the opener's env names (#241). `null` for a backend a record cannot carry. */
+function openedPaneLocator(exec, mux, id, env) {
 	if (mux === "tmux") return {
 		mux,
-		id
+		id,
+		...muxScope(exec, env, mux, id)
 	};
 	if (mux !== "herdr") return null;
 	const terminal = herdrTerminalOf(exec, id);
 	return {
 		mux,
 		id,
-		...terminal ? { terminal } : {}
+		...terminal ? { terminal } : {},
+		...muxScope(exec, env, mux, id)
 	};
 }
-/** herdr's live panes keyed by terminal id → current pane id. Empty when herdr gives no list, which
-* says nothing about any pane. */
+/** The multiplexer server a caller with this env reaches: the herdr socket, or the tmux socket (the
+* first field of `$TMUX`). Undefined when the env names none. */
+function serverOf(env, mux) {
+	if (mux === "herdr") return env.HERDR_SOCKET_PATH || void 0;
+	return env.TMUX?.split(",")[0] || void 0;
+}
+/**
+* The server a pane reached from this env lives on, and its session name there (#241): for herdr the
+* session whose socket is that server (`herdr session list --json`), for tmux the session holding the
+* pane. Each is left out when it cannot be read.
+*/
+function muxScope(exec, env, mux, paneId) {
+	const server = serverOf(env, mux);
+	const session = mux === "tmux" ? exec("tmux", [
+		"display-message",
+		"-p",
+		"-t",
+		paneId,
+		"#{session_name}"
+	]) || void 0 : server ? herdrSessionAt(exec, server) : void 0;
+	return {
+		...server ? { server } : {},
+		...session ? { session } : {}
+	};
+}
+/** The name of the herdr session whose socket is `server`, when herdr lists one. */
+function herdrSessionAt(exec, server) {
+	const out = exec("herdr", [
+		"session",
+		"list",
+		"--json"
+	]);
+	if (!out) return void 0;
+	try {
+		const sessions = JSON.parse(out)?.sessions;
+		if (!Array.isArray(sessions)) return void 0;
+		const name = sessions.find((s) => s?.socket_path === server)?.name;
+		return typeof name === "string" && name ? name : void 0;
+	} catch {
+		return;
+	}
+}
+/**
+* A filter for the units whose pane is on the caller's multiplexer server (`unit who --same-server`,
+* #241). A unit on another server, on the other multiplexer, with no pane, or whose record names no
+* server is left out: a sweep must never act on a unit it cannot place in its own server. Throws for
+* a caller in no tmux or herdr pane, or whose env names no server.
+*/
+function onCallerServer(ctx) {
+	const cur = storablePane(ctx.env ?? process.env);
+	if (!cur) throw new Error("--same-server needs to run inside a tmux or herdr pane");
+	const server = serverOf(ctx.env ?? process.env, cur.mux);
+	if (!server) throw new Error(`--same-server cannot tell which ${cur.mux} server this pane is on`);
+	return (rec) => rec.pane?.mux === cur.mux && rec.pane.server === server;
+}
+/** herdr's live panes keyed by terminal id. Empty when herdr gives no list, which says nothing about
+* any pane. */
 function herdrTerminals(exec) {
 	const map = /* @__PURE__ */ new Map();
 	const out = exec("herdr", ["pane", "list"]);
@@ -10541,7 +10599,14 @@ function herdrTerminals(exec) {
 	try {
 		const panes = JSON.parse(out)?.result?.panes;
 		if (!Array.isArray(panes)) return map;
-		for (const p of panes) if (typeof p?.terminal_id === "string" && typeof p?.pane_id === "string") map.set(p.terminal_id, p.pane_id);
+		for (const p of panes) {
+			if (typeof p?.terminal_id !== "string" || typeof p?.pane_id !== "string") continue;
+			const conversation = p.agent_session?.value;
+			map.set(p.terminal_id, {
+				pane: p.pane_id,
+				...typeof conversation === "string" && conversation ? { conversation } : {}
+			});
+		}
 	} catch {
 		return map;
 	}
@@ -10556,8 +10621,31 @@ function herdrTerminals(exec) {
 function locateTerminal(exec, terminal, cache = {}) {
 	cache.terminals ??= herdrTerminals(exec);
 	if (cache.terminals.size === 0) return void 0;
-	const id = cache.terminals.get(terminal);
-	return id ? { id } : "gone";
+	const live = cache.terminals.get(terminal);
+	return live ? { id: live.pane } : "gone";
+}
+/**
+* Fill in the conversation of every live herdr unit that has none from the agent session herdr
+* reports for its terminal (#242) — the id herdr resumes the pane with, so a unit in an environment
+* where its SessionStart hook cannot run still has a findable transcript. One `herdr pane list` read
+* covers every unit, and none when no unit lacks one. A unit is matched by its terminal id only, never
+* its pane id, which herdr hands out again; one whose record names a server other than the caller's is
+* skipped, since the list is the caller's server's. A conversation a unit already carries is kept.
+* Best-effort: a caller outside a herdr pane, or a herdr that gives no list, changes nothing.
+*/
+function fillConversations(ctx) {
+	const env = ctx.env ?? process.env;
+	if (storablePane(env)?.mux !== "herdr") return;
+	const server = serverOf(env, "herdr");
+	const wanting = listAgents(ctx.store).filter((a) => !a.conversation && !isSessionIndependent(a) && a.status !== "exited" && a.pane?.mux === "herdr" && !!a.pane.terminal && (!a.pane.server || a.pane.server === server));
+	if (wanting.length === 0) return;
+	const terminals = herdrTerminals(ctx.exec ?? realExec);
+	for (const rec of wanting) {
+		const conversation = terminals.get(rec.pane?.terminal)?.conversation;
+		if (!conversation) continue;
+		rec.conversation = conversation;
+		saveAgent(ctx.store, rec);
+	}
 }
 /** Point a record whose herdr pane moved at the pane id it has now, moving its pane pointer with it.
 * The old pointer is dropped only while it still names this record, since herdr hands old ids out
@@ -10746,25 +10834,29 @@ function registerSelf(ctx, input) {
 		minted: !existingId
 	};
 }
-/** Build the record's pane locator. `window`/`session` are tmux-only (herdr's pane id is
-* self-contained and its CLI needs nothing more to address a pane). */
+/** Build the record's pane locator. `window` is tmux-only; `server` and `session` name where the
+* pane lives for either multiplexer (#241). */
 function paneLocator(cur, exec, env) {
-	if (cur.mux === "tmux") return {
-		mux: "tmux",
-		id: cur.pane,
-		window: exec("tmux", [
+	if (cur.mux === "tmux") {
+		const window = exec("tmux", [
 			"display-message",
 			"-p",
 			"-t",
 			cur.pane,
 			"#{window_id}"
-		]) ?? void 0,
-		session: env.TMUX?.split(",")[0]
-	};
+		]) || void 0;
+		return {
+			mux: "tmux",
+			id: cur.pane,
+			...window ? { window } : {},
+			...muxScope(exec, env, cur.mux, cur.pane)
+		};
+	}
 	return {
 		mux: cur.mux,
 		id: cur.pane,
-		...cur.terminal ? { terminal: cur.terminal } : {}
+		...cur.terminal ? { terminal: cur.terminal } : {},
+		...muxScope(exec, env, cur.mux, cur.pane)
 	};
 }
 /** Derive a standing record's stable id from its handle — same slug rule as `sanitizePane`, prefixed
@@ -11095,6 +11187,7 @@ function touch(ctx, opts = {}) {
 		rebindToCaller(ctx, rec);
 		return;
 	}
+	recordServer(ctx, rec, cur);
 	if (cur?.mux !== "herdr" || !cur.terminal) return;
 	if (rec?.pane?.mux !== "herdr") return;
 	if (rec.pane.terminal !== cur.terminal) {
@@ -11105,6 +11198,19 @@ function touch(ctx, opts = {}) {
 		saveAgent(ctx.store, rec);
 	}
 	followMove(ctx, rec, cur.pane);
+}
+/** Name the server on the caller's own pane record when it names none (a record written before
+* `server` existed), so a unit that takes a turn becomes placeable by `--same-server` (#241). */
+function recordServer(ctx, rec, cur) {
+	const pane = rec.pane;
+	if (!pane || pane.server || !cur || pane.mux !== cur.mux || pane.id !== cur.pane) return;
+	const scope = muxScope(ctx.exec ?? realExec, ctx.env ?? process.env, pane.mux, pane.id);
+	if (!scope.server) return;
+	rec.pane = {
+		...pane,
+		...scope
+	};
+	saveAgent(ctx.store, rec);
 }
 /** Point a unit found by its conversation at the calling pane, the way `register` would. */
 function rebindToCaller(ctx, rec) {
@@ -12339,7 +12445,7 @@ async function spawn(ctx, input) {
 		cwd,
 		worktree,
 		...sharedWorktree ? { sharedWorktree } : {},
-		pane: openedPaneLocator(exec, muxName, target.id),
+		pane: openedPaneLocator(exec, muxName, target.id, ctx.env ?? process.env),
 		status: "active",
 		createdAt: ts,
 		lastSeen: ts,
@@ -14811,7 +14917,7 @@ async function restartUnit(ctx, ref, options = {}) {
 	const bound = {
 		...stopped,
 		status: "active",
-		pane: openedPaneLocator(exec, mux, target.id),
+		pane: openedPaneLocator(exec, mux, target.id, ctx.env ?? process.env),
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString()
 	};
 	saveAgent(ctx.store, bound);
@@ -14874,7 +14980,8 @@ function rebindUnit(ctx, ref) {
 		pane: {
 			mux: cur.mux,
 			id: cur.pane,
-			...cur.terminal ? { terminal: cur.terminal } : {}
+			...cur.terminal ? { terminal: cur.terminal } : {},
+			...muxScope(ctx.exec ?? realExec, ctx.env ?? process.env, cur.mux, cur.pane)
 		},
 		lastSeen: new Date(ctx.now?.() ?? Date.now()).toISOString()
 	};
@@ -15239,9 +15346,16 @@ withGlobals(unit.command("whoami")).description("print this session own identity
 });
 function runWho(opts) {
 	const ctx = ctxOf(opts);
+	let here = () => true;
+	if (opts.sameServer) try {
+		here = onCallerServer(ctx);
+	} catch (err) {
+		fail(err instanceof Error ? err.message : String(err));
+	}
 	touch(ctx);
 	if (opts.reconcile) reconcile(ctx, { adopt: true });
-	const agents = listAgents(ctx.store).filter((a) => opts.all || a.status !== "exited");
+	fillConversations(ctx);
+	const agents = listAgents(ctx.store).filter((a) => (opts.all || a.status !== "exited") && here(a));
 	emit(formatOf(opts), {
 		toon: toonList("units", agents, [
 			{
@@ -15273,7 +15387,7 @@ function runWho(opts) {
 	});
 	if (agents.length === 0) nextStep("cyberlegion unit register to join");
 }
-syncsUnits(withGlobals(unit.command("who"))).description("list the addressable units").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
+syncsUnits(withGlobals(unit.command("who"))).description("list the addressable units").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").option("--same-server", "only units whose pane is on the caller's multiplexer server (its herdr session or tmux server)").action(runWho);
 syncsUnits(withGlobals(unit.command("prune"))).description("mark dead units exited and delete exited units that leave no work on disk").action(async (opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);
@@ -16252,7 +16366,7 @@ withGlobals(program.command("init")).description("resolve this session harness, 
 defineSpawn(program.command("spawn"));
 defineSend(program.command("send"));
 withGlobals(program.command("inbox")).description("list your mail (alias of `mail inbox`)").option("--unread", "only un-acked mail").option("--from <id>", "filter by sender").option("--thread <id>", "filter to messages carrying this thread id").action(runInbox);
-syncsUnits(withGlobals(program.command("who"))).description("list the addressable units (alias of `unit who`)").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").action(runWho);
+syncsUnits(withGlobals(program.command("who"))).description("list the addressable units (alias of `unit who`)").option("--all", "include exited units").option("--reconcile", "live-probe the current mux: cull dead-pane records and adopt unbound harness-bearing panes before listing").option("--same-server", "only units whose pane is on the caller's multiplexer server (its herdr session or tmux server)").action(runWho);
 withGlobals(program).action((opts) => {
 	const ctx = ctxOf(opts);
 	touch(ctx);

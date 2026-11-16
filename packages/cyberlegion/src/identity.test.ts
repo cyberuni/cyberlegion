@@ -8,9 +8,12 @@ import {
 	clearPresence,
 	detectHarness,
 	type Exec,
+	fillConversations,
 	type IdContext,
 	listAgents,
 	loadAgent,
+	onCallerServer,
+	openedPaneLocator,
 	prune,
 	reconcile,
 	register,
@@ -1501,5 +1504,230 @@ describe('spec:cyberlegion/identity — a resumed session keeps its unit', () =>
 		touch(ctxAt(noConversation(resumed), 'w1:p1', {}, FRESH + 60_000))
 		expect(loadAgent(store, rec.id)?.pane).toEqual({ mux: 'herdr', id: 'w1:p1', terminal: 'term_new' })
 		expect(store.resolvePaneId('w1:p1')).toBe(rec.id)
+	})
+})
+
+// #241: herdr pane ids are scoped to one herdr server, so `w1:p1` exists in every herdr session; tmux
+// pane ids are scoped to one tmux server. A pane record names the server its pane lives on (`server`:
+// herdr's `$HERDR_SOCKET_PATH`, tmux's socket from `$TMUX`) and that server's session name (`session`),
+// so a sweep can act on the units in its own multiplexer server only.
+describe('spec:cyberlegion/identity — a pane record names its multiplexer server', () => {
+	const SOCK = '/home/u/.config/herdr/herdr.sock'
+	const herdrScoped: Exec = (cmd, args) => {
+		if (cmd !== 'herdr') return null
+		if (args[0] === 'session' && args[1] === 'list') {
+			return JSON.stringify({
+				sessions: [
+					{ name: 'work', socket_path: '/home/u/.config/herdr/sessions/work/herdr.sock' },
+					{ name: 'default', socket_path: SOCK },
+				],
+			})
+		}
+		return null
+	}
+	const inHerdr = (pane: string, socket: string | null = SOCK): NodeJS.ProcessEnv => ({
+		HERDR_ENV: '1',
+		HERDR_PANE_ID: pane,
+		...(socket ? { HERDR_SOCKET_PATH: socket } : {}),
+	})
+	const tmuxScoped: Exec = (cmd, args) =>
+		cmd === 'tmux' && args.includes('#{session_name}')
+			? 'main'
+			: cmd === 'tmux' && args.includes('#{window_id}')
+				? '@2'
+				: null
+	const inTmux = (pane: string, socket = '/tmp/tmux-1000/default'): NodeJS.ProcessEnv => ({
+		TMUX: `${socket},123,0`,
+		TMUX_PANE: pane,
+	})
+
+	it('register in a herdr pane records the herdr socket as the server and its session name', () => {
+		const rec = register(ctx(inHerdr('w1:p1'), herdrScoped), { handle: 'a', harness: 'claude' })
+		expect(rec.pane).toEqual({ mux: 'herdr', id: 'w1:p1', server: SOCK, session: 'default' })
+	})
+
+	it('register in a herdr pane whose session herdr does not list records the server alone', () => {
+		const rec = register(ctx(inHerdr('w1:p1', '/elsewhere.sock'), herdrScoped), { handle: 'a', harness: 'claude' })
+		expect(rec.pane).toEqual({ mux: 'herdr', id: 'w1:p1', server: '/elsewhere.sock' })
+	})
+
+	it('register in a herdr pane with no socket in the env records no server', () => {
+		const rec = register(ctx(inHerdr('w1:p1', null), herdrScoped), { handle: 'a', harness: 'claude' })
+		expect(rec.pane).toEqual({ mux: 'herdr', id: 'w1:p1' })
+	})
+
+	it('register in a tmux pane records the tmux socket as the server and the tmux session name', () => {
+		const rec = register(ctx(inTmux('%3'), tmuxScoped), { handle: 'a', harness: 'claude' })
+		expect(rec.pane).toEqual({ mux: 'tmux', id: '%3', window: '@2', server: '/tmp/tmux-1000/default', session: 'main' })
+	})
+
+	it('a pane a spawn opened in herdr records the spawner server and its session name', () => {
+		expect(openedPaneLocator(herdrScoped, 'herdr', 'w2:p3', inHerdr('w1:p1'))).toEqual({
+			mux: 'herdr',
+			id: 'w2:p3',
+			server: SOCK,
+			session: 'default',
+		})
+	})
+
+	it('a pane a spawn opened in tmux records the spawner server and the new pane session name', () => {
+		expect(openedPaneLocator(tmuxScoped, 'tmux', '%7', inTmux('%3'))).toEqual({
+			mux: 'tmux',
+			id: '%7',
+			server: '/tmp/tmux-1000/default',
+			session: 'main',
+		})
+	})
+
+	it('touch records the server on the caller unit whose pane record has none', () => {
+		const rec = register(ctx(inHerdr('w1:p1', null), herdrScoped), { handle: 'a', harness: 'claude' })
+		touch(ctx(inHerdr('w1:p1'), herdrScoped))
+		expect(loadAgent(store, rec.id)?.pane).toEqual({ mux: 'herdr', id: 'w1:p1', server: SOCK, session: 'default' })
+	})
+
+	describe('onCallerServer — the units on the caller multiplexer server', () => {
+		function seed(id: string, pane: AgentRecord['pane']): void {
+			saveAgent(store, {
+				id,
+				handle: id,
+				harness: 'claude',
+				cwd: '/x',
+				pane,
+				status: 'active',
+				createdAt: 't',
+				lastSeen: 't',
+			})
+		}
+
+		it('keeps a unit on the caller server and drops units on another server, another mux, unknown, or no pane', () => {
+			seed('here', { mux: 'herdr', id: 'w1:p1', server: SOCK })
+			seed('other-session', { mux: 'herdr', id: 'w1:p1', server: '/other.sock' })
+			seed('tmux', { mux: 'tmux', id: '%1', server: SOCK })
+			seed('unknown', { mux: 'herdr', id: 'w1:p2' })
+			seed('paneless', null)
+			const keep = onCallerServer(ctx(inHerdr('w9:p9'), herdrScoped))
+			expect(
+				listAgents(store)
+					.filter(keep)
+					.map((a) => a.id),
+			).toEqual(['here'])
+		})
+
+		it('throws for a caller in no multiplexer pane', () => {
+			expect(() => onCallerServer(ctx({}, nullExec))).toThrow(/tmux or herdr pane/)
+		})
+
+		it('throws for a caller whose multiplexer server is unknown', () => {
+			expect(() => onCallerServer(ctx(inHerdr('w1:p1', null), herdrScoped))).toThrow(/server/)
+		})
+	})
+})
+
+// #242: where hooks cannot run, nothing records a unit's `conversation`. herdr already reports it for
+// every Claude pane (`agent_session`), and it is the id herdr resumes the pane with, so one `herdr pane
+// list` read fills it in for every live herdr unit that has none. A pane is matched by its terminal id,
+// never its pane id, since pane ids recur.
+describe('spec:cyberlegion/identity — a unit conversation is filled from herdr', () => {
+	const SOCK = '/s/herdr.sock'
+	const session = (value: string) => ({ agent: 'claude', kind: 'id', source: 'herdr:claude', value })
+	type HerdrPane = { pane_id: string; terminal_id: string; agent_session?: unknown }
+	const listed: HerdrPane[] = [
+		{ pane_id: 'w1:p1', terminal_id: 'term_a', agent_session: session('conv-a') },
+		{ pane_id: 'w1:p2', terminal_id: 'term_b', agent_session: session('conv-b') },
+		{ pane_id: 'w1:p3', terminal_id: 'term_c' },
+	]
+	function herdrListing(panes: HerdrPane[] | null) {
+		const calls: string[][] = []
+		const exec: Exec = (cmd, args) => {
+			calls.push([cmd, ...args])
+			if (cmd === 'herdr' && args[0] === 'pane' && args[1] === 'list') {
+				return panes ? JSON.stringify({ result: { panes } }) : null
+			}
+			return null
+		}
+		return { exec, lists: () => calls.filter((c) => c[1] === 'pane' && c[2] === 'list').length }
+	}
+	const caller = { HERDR_ENV: '1', HERDR_PANE_ID: 'w9:p9', HERDR_SOCKET_PATH: SOCK }
+	function seed(id: string, extra: Partial<AgentRecord> = {}): void {
+		saveAgent(store, {
+			id,
+			handle: id,
+			harness: 'claude',
+			cwd: '/x',
+			pane: { mux: 'herdr', id: 'w1:p1', terminal: 'term_a' },
+			status: 'active',
+			createdAt: 't',
+			lastSeen: 't',
+			...extra,
+		})
+	}
+
+	it('fills the conversation herdr reports for the terminal of a unit that has none', () => {
+		seed('a')
+		seed('b', { pane: { mux: 'herdr', id: 'w1:p2', terminal: 'term_b', server: SOCK } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBe('conv-a')
+		expect(loadAgent(store, 'b')?.conversation).toBe('conv-b')
+	})
+
+	it('reads the herdr pane list once for every unit', () => {
+		seed('a')
+		seed('b', { pane: { mux: 'herdr', id: 'w1:p2', terminal: 'term_b' } })
+		const h = herdrListing(listed)
+		fillConversations(ctx(caller, h.exec))
+		expect(h.lists()).toBe(1)
+	})
+
+	it('keeps a conversation the unit already carries', () => {
+		seed('a', { conversation: 'conv-hook' })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBe('conv-hook')
+	})
+
+	it('leaves a unit with no conversation when herdr reports none for its terminal', () => {
+		seed('c', { pane: { mux: 'herdr', id: 'w1:p3', terminal: 'term_c' } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'c')?.conversation).toBeUndefined()
+	})
+
+	it('never matches a unit by its pane id alone', () => {
+		seed('a', { pane: { mux: 'herdr', id: 'w1:p1' } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
+	})
+
+	it('never fills a unit whose record names another server', () => {
+		seed('a', { pane: { mux: 'herdr', id: 'w1:p1', terminal: 'term_a', server: '/other.sock' } })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
+	})
+
+	it('never fills an exited unit or a standing record', () => {
+		seed('gone', { status: 'exited' })
+		seed('owner', { kind: 'standing' })
+		fillConversations(ctx(caller, herdrListing(listed).exec))
+		expect(loadAgent(store, 'gone')?.conversation).toBeUndefined()
+		expect(loadAgent(store, 'owner')?.conversation).toBeUndefined()
+	})
+
+	it('reads nothing from herdr when no unit lacks a conversation', () => {
+		seed('a', { conversation: 'conv-hook' })
+		const h = herdrListing(listed)
+		fillConversations(ctx(caller, h.exec))
+		expect(h.lists()).toBe(0)
+	})
+
+	it('reads nothing from herdr for a caller outside a herdr pane', () => {
+		seed('a')
+		const h = herdrListing(listed)
+		fillConversations(ctx({ TMUX: '/tmp/t,1,0', TMUX_PANE: '%1' }, h.exec))
+		expect(h.lists()).toBe(0)
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
+	})
+
+	it('changes nothing when herdr gives no pane list', () => {
+		seed('a')
+		fillConversations(ctx(caller, herdrListing(null).exec))
+		expect(loadAgent(store, 'a')?.conversation).toBeUndefined()
 	})
 })
