@@ -8,14 +8,14 @@ name: code
 on:
   workflow_call:
     secrets:
-      AUTOFIX_APP_ID:
+      REPOBUDDY_APP_ID:
         required: false
-      AUTOFIX_APP_PRIVATE_KEY:
+      REPOBUDDY_APP_PRIVATE_KEY:
         required: false
 
 jobs:
   verify:
-    uses: cyberuni/.github/.github/workflows/pnpm-verify.yml@main
+    uses: repobuddy/.github/.github/workflows/pnpm-verify.yml@v2
     permissions:
       contents: read
     with:
@@ -26,13 +26,13 @@ jobs:
   # Renovate PRs: writes a patch changeset when the leak checks pass, or fails until a
   # person commits one. Passes on every other PR and on merge_group.
   dep-changeset:
-    uses: cyberuni/.github/.github/workflows/dep-changeset.yml@main
+    uses: repobuddy/.github/.github/workflows/dep-changeset.yml@v2
     permissions:
       contents: read
       pull-requests: write
     secrets:
-      AUTOFIX_APP_ID: ${{ secrets.AUTOFIX_APP_ID }}
-      AUTOFIX_APP_PRIVATE_KEY: ${{ secrets.AUTOFIX_APP_PRIVATE_KEY }}
+      REPOBUDDY_APP_ID: ${{ secrets.REPOBUDDY_APP_ID }}
+      REPOBUDDY_APP_PRIVATE_KEY: ${{ secrets.REPOBUDDY_APP_PRIVATE_KEY }}
     with:
       # dist/cli.mjs inlines the runtime dependencies, so a lock-file-only move ships too.
       bundled: true
@@ -47,7 +47,7 @@ jobs:
   # The Version Packages PR: fails on a major bump no person-written changeset asked for.
   # Skipped on every other branch.
   release-guard:
-    uses: cyberuni/.github/.github/workflows/dep-changeset-release-guard.yml@main
+    uses: repobuddy/.github/.github/workflows/dep-changeset-release-guard.yml@v2
     permissions:
       contents: read
       pull-requests: read

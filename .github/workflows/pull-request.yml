@@ -18,12 +18,12 @@ jobs:
       contents: read
       pull-requests: write
     secrets:
-      AUTOFIX_APP_ID: ${{ secrets.AUTOFIX_APP_ID }}
-      AUTOFIX_APP_PRIVATE_KEY: ${{ secrets.AUTOFIX_APP_PRIVATE_KEY }}
+      REPOBUDDY_APP_ID: ${{ secrets.REPOBUDDY_APP_ID }}
+      REPOBUDDY_APP_PRIVATE_KEY: ${{ secrets.REPOBUDDY_APP_PRIVATE_KEY }}
 
   publish-gate:
     if: startsWith(github.head_ref, 'changeset-release/')
-    uses: cyberuni/.github/.github/workflows/pnpm-publish-gate.yml@main
+    uses: repobuddy/.github/.github/workflows/pnpm-publish-gate.yml@v2
     permissions:
       contents: read
     with:
