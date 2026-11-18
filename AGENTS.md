@@ -132,7 +132,7 @@ vendor manifests.
 pnpm test                        # all package tests
 pnpm cl test src/message.test.ts  # run one test file
 pnpm check:suite                 # SDD spec-gate .feature form check over both spec trees
-pnpm verify                      # lint + suite check + build + typecheck + test + knip
+pnpm verify                      # lint + suite check + build + typecheck + test + plugin check + knip
 pnpm build                       # compile to dist/
 pnpm cl dev --help                # run the CLI from source (tsx)
 pnpm web dev                     # run the docs site locally
