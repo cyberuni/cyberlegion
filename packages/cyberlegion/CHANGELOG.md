@@ -1,5 +1,19 @@
 # cyberlegion
 
+## 2.2.0
+
+### Minor Changes
+
+- a57154b: Skills run the CLI through universal-plugin forwarders instead of a compiled copy of the whole CLI in each skill (about 210 KB each). A forwarder runs the `cyberlegion` package it sits in, or `npx -y cyberlegion@<version>` from a skill folder copied on its own. Skill text no longer names an npx fallback line.
+
+### Patch Changes
+
+- 290e07a: Declare the plugin's `packagePath` in `.agents/universal-plugin.json`, where universal-plugin reads it, so the skill scripts name the `cyberlegion` package and bin they belong to.
+- 72d0f32: Update runtime dependencies.
+- 4288867: Update runtime dependencies.
+- 46d651b: Update runtime dependencies.
+- 664598e: Update runtime dependencies.
+
 ## 2.1.0
 
 ### Minor Changes
