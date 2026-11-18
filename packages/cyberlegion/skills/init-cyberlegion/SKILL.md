@@ -22,11 +22,10 @@ like? — the CLI holds all the *mechanism*.
 > release version flow keeps equal to the shipped package version. Look up the `cyberlegion` key:
 >
 > - **A version is found** → pass it to the hook registration in step 2 as `init --pin <version>`
->   so a project hook's npx fallback fetches the same shipped version. If you cannot resolve
->   `scripts/cyberlegion.mjs`, run `npx -y cyberlegion@<version>` in its place, with the same arguments.
+>   so a project hook's npx fallback fetches the same shipped version.
 > - **No `pins.json`, no `cyberlegion` key, or a malformed map** (an unbundled workspace checkout) →
->   pass **no** `--pin`; if you cannot resolve `scripts/cyberlegion.mjs`, fall back to the unpinned
->   `npx -y cyberlegion` form. **Never invent a version number.**
+>   run the same `node scripts/cyberlegion.mjs` commands unpinned: pass **no** `--pin`. **Never invent
+>   a version number.**
 >
 > Do not scrape the version from prose.
 

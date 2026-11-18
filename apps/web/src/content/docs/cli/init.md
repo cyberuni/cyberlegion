@@ -44,7 +44,7 @@ rules:
 | Rule | Matches |
 |---|---|
 | `Bash(cyberlegion *)` | the bare command on `PATH` |
-| `Bash(node *cyberlegion.mjs *)` | a skill's `scripts/cyberlegion.mjs` launcher, or the package's `bin/cyberlegion.mjs` |
+| `Bash(node *cyberlegion.mjs *)` | a skill's `scripts/cyberlegion.mjs` forwarder, or the package's `bin/cyberlegion.mjs` |
 | `Bash(npx cyberlegion@* *)` | a pinned `npx` run |
 | `Bash(npx -y cyberlegion@* *)` | a pinned `npx -y` run |
 

@@ -164,12 +164,13 @@ npx skills add cyberuni/cyberplace --plugin cyberlegion --global
 
 This package doubles as the plugin root: `plugin.json`, the generated `.claude-plugin/` and
 `.codex-plugin/` manifests, `skills/`, and `agents/` all ship in the npm tarball. The bundle
-Each skill that runs the CLI carries a launcher, `scripts/cyberlegion.mjs`, that runs the CLI
-shipped in this same package (`bin/cyberlegion.mjs` over the committed `dist/cli.mjs`), so a skill
-never fetches a copy through npx and always runs the version its own text describes. Where the
-launcher cannot be resolved, a skill names one fallback pinned to the version that shipped it,
-`npx -y cyberlegion@<version>`. `pnpm version` rewrites those pins and `.plugin/pins.json` at every
-release, and the test suite fails on a stale one.
+Each skill that runs the CLI carries a forwarder, `scripts/cyberlegion.mjs`, that
+`universal-plugin plugin build` writes. It runs the CLI shipped in the same package
+(`bin/cyberlegion.mjs` over the committed `dist/cli.mjs`), so a skill never fetches a copy through
+npx and always runs the version its own text describes. A skill folder copied on its own has no
+package around it, so its forwarder runs `npx -y cyberlegion@<version>`, pinned to the version that
+shipped it. `pnpm version` restamps every forwarder and `.plugin/pins.json` at every release, and
+the test suite fails on a stale one.
 
 Claude Code puts the plugin's `bin/` on the Bash tool's PATH, and `bin/cyberlegion` forwards to
 `bin/cyberlegion.mjs`, so a bare `cyberlegion …` runs the shipped CLI in any Claude Code session with

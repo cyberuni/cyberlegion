@@ -109,7 +109,7 @@ and commit what it writes as-is — `biome.json` excludes the generated files, s
 claude.ai and Cowork refuse to install a plugin with a top-level `bin/`, including one distributed
 through claude.ai organization settings, so this plugin reaches Claude Code and the other harnesses
 but not those channels. The skills never rely on `bin/` being on PATH; they run the CLI through their
-`scripts/cyberlegion.mjs` launchers.
+`scripts/cyberlegion.mjs` forwarders.
 
 `dist/cli.mjs` is the one build output in git. A marketplace install copies the package directory
 from the repo, and no harness runs a build after the copy, so the bundled CLI has to be in the
