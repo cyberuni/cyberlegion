@@ -12,7 +12,6 @@
 	"extensions": {
 		"org.cyberuni.universal-plugin": {
 			"vendors": ["claude-code", "codex"],
-			"packagePath": ".",
 			"skills": "./skills",
 			"agents": ["./agents/headless-legate.md"],
 			"hooks": "./hooks/hooks.json",
