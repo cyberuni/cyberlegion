@@ -19,6 +19,8 @@ onlyBuiltDependencies:
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true
 minimumReleaseAgeExclude:
+  # min-release-age: lift universal-plugin@0.22.0 until 2026-11-19 (remove after that date)
+  - universal-plugin@0.22.0
   # Renovate security update: astro@7.2.8
   - astro@7.2.8
   # min-release-age: lift universal-plugin@0.14.0 until 2026-10-13T02:00:00Z

@@ -6,10 +6,13 @@
 		"build": "turbo run build",
 		"check": "biome check",
 		"check:fix": "biome check --write",
+		"check-version": "universal-plugin publish check-version --root packages/cyberlegion",
 		"check:bundle": "node scripts/check-cli-bundle.mjs",
 		"check:suite": "node scripts/check-suite.mjs",
 		"cl": "pnpm run --filter=./packages/cyberlegion",
 		"knip": "knip",
+		"plugin:build": "universal-plugin plugin build --root packages/cyberlegion",
+		"plugin:check": "universal-plugin plugin build --check --root packages/cyberlegion",
 		"prepare": "husky",
 		"release": "changeset publish",
 		"test": "turbo run test",
@@ -29,7 +32,7 @@
 		"knip": "^6.31.0",
 		"tsx": "^4.23.12",
 		"turbo": "^2.10.8",
-		"universal-plugin": "^0.20.0"
+		"universal-plugin": "^0.22.0"
 	},
 	"packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0",
 	"engines": {
