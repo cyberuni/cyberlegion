@@ -39,7 +39,7 @@ published CLI's contract.
 | [`dispatch/`](./dispatch/README.md) | behavioral | the routing brain (`dispatch-governance` in-session, `headless-legate` headless) — resolves warm/interactive tags + multiplexer availability into exactly one of channel / run-inline / subagent; the `subagent-backend-governance` procedure for the subagent path; and the `relay-governance` report/ask contract — how a result or an unanswerable question gets home (keyed on the reporting agent's own lifecycle, not on the strategy that dispatched it) and how a receiver triages a relayed steer or a relayed decision by authority |
 | [`init/`](./init/README.md) | behavioral | the `init-cyberlegion` onboarding skill — a thin CLI wrapper that probes the environment, registers the surfacing hook, and (root-only, on an explicit yes) allows the CLI in Claude Code's permissions and binds this pane as the durable `legate` owner inbox |
 | [`inbox/`](./inbox/README.md) | behavioral | the `manage-inbox` skill — the human's on-demand surface for the standing owner mailbox (list/read/ack/reply) |
-| [`cli-launcher/`](./cli-launcher/README.md) | behavioral | how every skill reaches the CLI — a per-skill `scripts/cyberlegion.mjs` launcher running the CLI the plugin ships, one pinned `npx` fallback, and the release version flow that keeps every pin equal to the package version |
+| [`cli-launcher/`](./cli-launcher/README.md) | behavioral | how every skill reaches the CLI — a per-skill `scripts/cyberlegion.mjs` forwarder running the CLI the plugin ships, and the release version flow that keeps every forwarder and the pins map equal to the package version |
 | [`mail-hook/`](./mail-hook/README.md) | behavioral | the plugin's own `hooks/hooks.json` — the SessionStart mail-surfacing hook, running a spawned unit's `$CYBERLEGION_CLI` or else the installed copy's CLI through `${CLAUDE_PLUGIN_ROOT}`, never npx |
 | [`session-adapter/`](./session-adapter/README.md) | behavioral | the `session-adapter-governance` skill — the ratified verify-observable-effect-or-fail-loud rule for SessionAdapter mutating ops, its unconditional/attach-relative effect-class split, and the per-op conformance ledger |
 
@@ -63,8 +63,8 @@ Where a new concept lives — slot here, do not invent placement:
 - **a new conformance rule for a SessionAdapter mutating op** (what an op must verify, a new effect
   class, a per-op conformance verdict) → `session-adapter/` — the governance holds the rule and the
   conformance ledger; the operations themselves stay in the CLI project.
-- **how a skill invokes the CLI, or how a published CLI pin is kept current** (the launcher, the
-  fallback pin, what the version flow rewrites) → `cli-launcher/` — cross-cutting over every skill;
+- **how a skill invokes the CLI, or how a published CLI pin is kept current** (the forwarder, the
+  pins it embeds, what the version flow rewrites) → `cli-launcher/` — cross-cutting over every skill;
   which command a skill runs stays in that skill's own node.
 - **a harness hook the plugin registers itself** (which events, which command, how a vendor manifest
   names the hooks file) → `mail-hook/` — what the hook's command emits stays in the CLI project's
@@ -82,7 +82,7 @@ This spec skeleton was authored alongside the plugin build (CR `legion-gateway-l
 `dispatch/dispatch.feature` (CR `legion-gateway-legate`, re-frozen by `github-28-relay-request-scope`),
 `session-adapter/session-adapter-governance.feature` (CR `162-session-adapter-governance`),
 `inbox/inbox.feature` (CR `github-53-inbox-multi-owner`),
-`cli-launcher/cli-launcher.feature` (CR `github-68-skill-cli-launchers`), and
+`cli-launcher/cli-launcher.feature` (CR `github-68-skill-cli-launchers`, re-frozen by `upx23-skill-cli-forwarders`), and
 `mail-hook/mail-hook.feature` (CR `github-69-plugin-mail-hook`).
 `gateway/gateway.feature` is still owed before that node can pass a spec gate. Root `status: draft` reflects the project rollup — it advances
 to `approved` only once every node is gated; per-`.feature` freeze is independent (six suites carry
