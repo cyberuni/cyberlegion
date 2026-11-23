@@ -1,5 +1,23 @@
 # cyberlegion
 
+## 2.2.0
+
+### Minor Changes
+
+- ff3f0a6: The session-start mail hook now ends its payload with one line naming the reply command, `cyberlegion mail send --to <handle> --thread <id> --subject … --body …`, and telling the reader never to use its harness's own messaging tool, which cannot reach cyberlegion handles. A spawned unit gets the line even with nothing unread. Each surfaced message line also names its thread when it has one.
+- a53f9e7: Each mail message now records where its sender was running at send time: `origin.pane`, `origin.repo`, `origin.worktree`, and `origin.branch`, copied from the sender's unit record so they outlive it being pruned. `mail send --blocked` marks a sender that is waiting on the reader's answer. `mail inbox` gains `blocked` and `origin` columns, and the session-start mail hook marks blocked senders and names each message's origin. All new fields are optional, so older messages read as before.
+- a57154b: Skills run the CLI through universal-plugin forwarders instead of a compiled copy of the whole CLI in each skill (about 210 KB each). A forwarder runs the `cyberlegion` package it sits in, or `npx -y cyberlegion@<version>` from a skill folder copied on its own. Skill text no longer names an npx fallback line.
+
+### Patch Changes
+
+- 290e07a: Declare the plugin's `packagePath` in `.agents/universal-plugin.json`, where universal-plugin reads it, so the skill scripts name the `cyberlegion` package and bin they belong to.
+- 72d0f32: Update runtime dependencies.
+- 4288867: Update runtime dependencies.
+- 46d651b: Update runtime dependencies.
+- 664598e: Update runtime dependencies.
+- 7a465de: Update runtime dependencies.
+- e95aa6a: The `relay-governance` skill now tells a unit to pass `mail send --blocked` when its work waits on the recipient's answer, and only then; `legate` and `headless-legate` point to the rule.
+
 ## 2.1.0
 
 ### Minor Changes
