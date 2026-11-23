@@ -52,6 +52,15 @@ into its own next turn via the harness's own hook mechanism:
   one sent before origins were, has no tail. Neither addition sits between sender and body, so a
   line with no subject still reads its body straight after its sender. Owner-mail lines take the
   same form.
+- **Each line names its message's thread, and the payload ends naming the reply command** — a
+  message sent with a thread id carries ` · thread <id>` after its id (before the origin tail), so the
+  reader can answer on that thread. Every emitted payload ends with one plain line (not a `## `
+  section) telling the reader to reach a cyberlegion handle with `cyberlegion mail send --to <handle>
+  --thread <id> --subject … --body …`, never its harness's own messaging tool: that tool (Claude
+  Code's SendMessage) cannot see cyberlegion handles, so a report sent through it is lost. A
+  **spawned unit** gets this line even with nothing unread, since its brief names the handle it
+  reports to and this hook is what reaches it at session start; a root session with nothing to
+  surface still injects nothing.
 - **Owner mail surfaces into the bound main pane, never into a spawned unit** — beyond the caller's
   own unread mail, `mail hook` also surfaces **every standing owner** inbox's unread mail
   (bodies included) under its own owner-mail heading, so a human sees a frameless agent's report
@@ -72,7 +81,7 @@ into its own next turn via the harness's own hook mechanism:
   line injected into every root session. When something
   did, stdout is one line of raw JSON in the harness's `hookSpecificOutput` shape (not TOON — this
   command is consumed by the harness, not a human), whose `additionalContext` carries the sections
-  that fired, blank-line separated, in the order **own mail → owner mail**.
+  that fired, blank-line separated, in the order **own mail → owner mail**, then the reply line.
 - **No brief is injected, whatever the peer's record carries** — no branch of this hook reads or
   injects a spawned peer's brief file. The brief stays on disk and the payload carries no brief
   section. A record migrated from an older hub may still carry the retired `spawning` status; it gets
@@ -130,8 +139,11 @@ graph TD
   I0 -- "none, or no standing record" --> L
   I0 -- yes --> I1["append '## Owner mail — handle (N)' per owner; never acked"]
   I1 --> L{"anything accumulated?"}
-  L -- no --> Z0
-  L -- yes --> Z1["emit hookSpecificOutput as raw JSON; hookEventName echoes e"]
+  L -- no --> S{"record carries a spawnedBy?"}
+  S -- no --> Z0
+  S -- yes --> R
+  L -- yes --> R["append the reply line naming cyberlegion mail send"]
+  R --> Z1["emit hookSpecificOutput as raw JSON; hookEventName echoes e"]
 ```
 
 ## Scenario map
@@ -205,6 +217,14 @@ implementation that drops the record gate appends the owner-mail section, so its
 | `G1` read-only, never acks | one unread message, the hook called twice | `surfacing the caller's own mail never acks it` |
 | `H -- no` no record | an agent id whose record was removed while its inbox was kept, in a pane with none bound, an owner with unread mail | `a caller whose id resolves without an agent record still gets its own mail` |
 
+### Each line names its thread, and the payload ends naming the reply command
+
+| Edge | Path (Given) | Scenario |
+|---|---|---|
+| `G1` thread segment | a threaded message beside one with no thread | `a threaded message's line names its thread` |
+| `R` reply line | a registered caller with one unread message | `a payload ends with one line naming the cyberlegion reply command` |
+| `S -- yes` spawned unit, nothing unread | the record carries a `spawnedBy`, no unread mail | `a spawned unit with nothing unread still gets the reply line` |
+
 ### Owner mail surfaces into the bound main pane, never into a spawned unit
 
 | Edge | Path (Given) | Scenario |
@@ -226,9 +246,9 @@ implementation that drops the record gate appends the owner-mail section, so its
 
 | Edge | Path (Given) | Scenario |
 |---|---|---|
-| `L -- no` nothing accumulated | a root session in the bound main pane, its mail and the owner's all acked | `a caller with an empty inbox injects nothing` |
-| `L -- no` no setup section | a root session in a pane, none bound, no standing owner, nothing unread | `an unbound root pane with nothing unread injects nothing` |
-| `L -- no` no setup section | a root session in no mux pane, no standing owner, nothing unread | `a non-multiplexer root session with no standing owner and nothing unread injects nothing` |
+| `S -- no` nothing accumulated | a root session in the bound main pane, its mail and the owner's all acked | `a caller with an empty inbox injects nothing` |
+| `S -- no` no setup section | a root session in a pane, none bound, no standing owner, nothing unread | `an unbound root pane with nothing unread injects nothing` |
+| `S -- no` no setup section | a root session in no mux pane, no standing owner, nothing unread | `a non-multiplexer root session with no standing owner and nothing unread injects nothing` |
 | `Z1` raw JSON envelope | a registered caller with unread mail | `the payload uses the harness hookSpecificOutput shape as raw JSON` |
 | `L -- yes` both sections joined | own unread mail, an owner with unread mail, a root pane with none bound | `own mail and owner mail appear in one payload in that order` |
 | `G -- no` + `I1` | the caller's own mail all acked, an owner with unread mail, a root pane with none bound | `an unbound root pane surfaces owner mail without an unread-mail section` |

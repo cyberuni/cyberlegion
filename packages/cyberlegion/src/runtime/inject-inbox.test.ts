@@ -591,3 +591,39 @@ describe('the payload joins every accumulated section', () => {
 		expect(ctxStr).not.toContain('Owner mail')
 	})
 })
+
+describe('the payload names the cyberlegion reply command', () => {
+	/** The footer line: the one line naming the `mail send` command. */
+	const replyLine = (text: string) => text.split('\n').filter((l) => l.includes('cyberlegion mail send'))
+
+	it("ends a payload with one line naming mail send and barring the harness's own messaging tool", () => {
+		const text = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
+		const lines = replyLine(text)
+		expect(lines).toHaveLength(1)
+		expect(lines[0]).toContain('cyberlegion mail send --to <handle> --thread <id> --subject … --body …')
+		expect(lines[0]).toContain("never your harness's own messaging tool")
+		// it is the last line, after the mail, and not a `## ` section of its own
+		expect(text.trimEnd().split('\n').at(-1)).toBe(lines[0])
+		expect(lines[0].startsWith('## ')).toBe(false)
+	})
+
+	it('a spawned unit with nothing unread still gets the reply line', () => {
+		const peer = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%9' }, exec: () => null },
+			{ handle: 'quiet', harness: 'claude' },
+		)
+		saveAgent(store, { ...peer, spawnedBy: bob.id })
+		const text = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: peer.id } }, 'SessionStart')?.hookSpecificOutput
+			.additionalContext
+		expect(text).toBeDefined()
+		expect(replyLine(text ?? '')).toHaveLength(1)
+		expect(text).not.toContain('Unread mail')
+	})
+
+	it("names a message's thread on that message's line", () => {
+		const threaded = send({ store, now: () => 2 }, { fromId: ping.from, to: 'bob', body: 'q', thread: 'cl-175' })
+		const text = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
+		expect(lineOf(text, threaded.id)).toContain('thread cl-175')
+		expect(lineOf(text, ping.id)).not.toContain('thread')
+	})
+})
