@@ -34,7 +34,7 @@ ambiguous role resolution, a dispatched unit's `needsInput`, a `run-inline` verd
 serve — returned as `needsInput` naming the role + brief), and whatever spawned it owns the relay and
 re-invokes once answers land. If the Legate itself was started **frameless** (a bare scheduler run
 with no spawner awaiting its return), `relay-governance`'s frameless branch applies: push the report
-to the standing owner and exit. Read `relay-governance` for the full fork; do not re-derive it here.
+to the standing owner and exit, with `--blocked` when the batch waits on the owner's answers. Read `relay-governance` for the full fork; do not re-derive it here.
 
 ## Fan out — the muster loop
 

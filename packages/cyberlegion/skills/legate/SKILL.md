@@ -28,7 +28,7 @@ decision, whose words `unit nudge --message` delivers as the turn itself; that r
 
 | User intent | Handling |
 |---|---|
-| Send a message to a named peer, "the pane on the right", a claude/cursor peer | `node scripts/cyberlegion.mjs mail send --to <handle>` (or `unit nudge <ref>` first if the peer needs waking, then `mail send`) |
+| Send a message to a named peer, "the pane on the right", a claude/cursor peer | `node scripts/cyberlegion.mjs mail send --to <handle>` (or `unit nudge <ref>` first if the peer needs waking, then `mail send`); add `--blocked` only when your work waits on the recipient's answer, as `relay-governance` states |
 | Check inbox / read unread mail | `node scripts/cyberlegion.mjs mail inbox` — `mail read <msg-id>` to peek, `mail ack <msg-id>` once handled |
 | Spawn a new peer session | `node scripts/cyberlegion.mjs unit spawn --agent <name> ...` — cyberlegion owns worktree creation; pass `--cwd <dir>` only when the caller already has a directory to spawn into (e.g. reusing an existing worktree) |
 | Close / tear down a peer session | `node scripts/cyberlegion.mjs unit close <id>` |

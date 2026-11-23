@@ -53,8 +53,10 @@ exiting. Resolve the owner recipient in this order:
 Then:
 
 ```bash
-node scripts/cyberlegion.mjs mail send --to <owner> --subject "<what>" --body-file <report> [--thread <t>]
+node scripts/cyberlegion.mjs mail send --to <owner> --subject "<what>" --body-file <report> [--thread <t>] [--blocked]
 ```
+
+(`--blocked` only when the report holds your work on the owner's answer — see below.)
 
 and **exit**. Do not park waiting for a live answer — a cron session has no one to answer live. The
 report lands in the owner's durable inbox and **surfaces into the human's next root session** (the
@@ -67,6 +69,25 @@ from it.
 `$CYBERLEGION_OWNER`, no standing record on the hub), do **not** silently succeed or invent a
 recipient. Surface the failure (nonzero exit, a clear message naming the missing owner and the fix:
 `cyberlegion unit register --standing --handle <h>`). A report with nowhere to go is a stop, not a no-op.
+
+## Mark mail that holds your work: `--blocked`
+
+Whenever a report or question goes home as **mail** (a frameless push to the owner, a reply on the
+thread a spawner awaits, a decision request escalated up the relay), ask one more question: **does my
+work wait on this recipient's answer?**
+
+- **Yes — pass `--blocked`.** You are holding your work until the recipient answers: a question you
+  cannot answer yourself, a decision request, a pull request you will not move until the user replies.
+  The flag stores `blocked: true` on the message, so the recipient's doorbell and inbox mark you as
+  waiting on them and they come to you first.
+- **No — leave it off.** A done report with nothing waiting, a status update, a note, an answer to
+  someone else's question. A message that carries `--blocked` when nothing waits sends the user to
+  the wrong pane first.
+
+Nothing clears the mark. Your next message on the work that is **not** blocked is the signal that
+you moved on, so when the answer lands and you resume, report without the flag; never send a
+separate "unblocked" message. A framed return (`needsInput` in a `DispatchResult`) is not mail and
+takes no flag: the frame that collects it is already waiting on you.
 
 ## Read is a deliberate act — surfacing is not a receipt
 

@@ -207,6 +207,26 @@ Feature: dispatch — the Legate's routing brain
     Then it re-surfaces on each turn until the human runs "mail ack --owner"
     And the relaying agent does not treat "I sent the mail" as "the human handled it"
 
+  Scenario Outline: mail that holds the sender's work carries --blocked, and only that mail
+    Given a unit sending "<mail>" home by mail
+    When it runs "mail send"
+    Then the send carries "--blocked" is "<blocked>"
+
+    Examples:
+      | mail                                                         | blocked |
+      | a question it holds its work on until the user answers       | true    |
+      | a report holding its pull request until the user answers     | true    |
+      | a decision request escalated up the relay                    | true    |
+      | a done report with nothing waiting                           | false   |
+      | a status update that waits on no answer                      | false   |
+
+  Scenario: a unit that resumes signals it with an unblocked message, not a clearing message
+    Given a unit that sent a report with "--blocked"
+    And the answer it waited on has landed
+    When it reports again on the work
+    Then that report carries no "--blocked"
+    And it sends no separate message announcing it is unblocked
+
   # ── Receive: decompose a relayed steer ──
 
   Scenario: a receiver decomposes a relayed steer by authority level before acting

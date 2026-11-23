@@ -63,6 +63,13 @@ and relay" behavior lives now — `dispatch-governance` and `headless-legate` lo
 restating it. `relay-governance` states transport only; the standing owner identity, owner mail, and
 surfacing are the sibling `cyberlegion` CLI's mechanism.
 
+Mail that goes home this way is marked by whether the sender's work waits on it. A unit that holds
+its work until the recipient answers (a question it cannot answer, a decision request, a pull
+request it will not move without a reply) sends with `mail send --blocked`; a done report, a status
+update, or a note carries no flag. Nothing clears the mark: the sender's next unblocked message is
+the signal it moved on, so no separate "unblocked" message is sent. A framed `needsInput` return is
+not mail and carries no flag.
+
 The subagent path's **mid-turn messaging rule is scoped by role, not by backend**. A **cold
 one-shot dispatch** (a judge, a grader) takes no mid-run message — nothing reaches it between its
 brief and its Task-result, which is what makes its verdict its own. An **owned unit realized as a
@@ -276,6 +283,11 @@ graph TD
   OWNER -->|report-to, CYBERLEGION_OWNER, or the hub's standing record| SEND[mail send to the owner, then exit]
   OWNER -->|none resolves| LOUD[exit nonzero naming the missing owner and the fix]
   SEND --> SURFACE[surfaces each turn in the human's next root session until mail ack --owner]
+  THREAD --> MARK{does the sender's work wait on the answer?}
+  SEND --> MARK
+  MARK -->|yes| BLOCKED[mail send --blocked]
+  MARK -->|no| PLAIN[mail send with no flag]
+  BLOCKED -->|the answer lands, the sender resumes| PLAIN
 ```
 
 ### 6 — Receive side: triaging a relayed steer or decision
@@ -431,6 +443,8 @@ outcome does not depend on how the edge was reached.
 | `OWNER → SEND` | a bare cron session whose standing owner resolves | `a bare cron session pushes mail to the standing owner and exits` |
 | `OWNER → LOUD` | a bare cron session with no resolvable owner | `a frameless report with no resolvable owner fails loud` |
 | `SEND → SURFACE` | a report already in the standing owner's durable inbox | `surfacing owner mail is not a receipt` |
+| `MARK → {BLOCKED, PLAIN}` | each kind of mail a unit sends home, in turn | `mail that holds the sender's work carries --blocked, and only that mail` |
+| `BLOCKED → PLAIN` | a unit that sent a blocked report and whose answer landed | `a unit that resumes signals it with an unblocked message, not a clearing message` |
 
 ### decompose a received steer
 
