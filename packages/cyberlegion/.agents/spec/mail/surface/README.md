@@ -44,6 +44,14 @@ into its own next turn via the harness's own hook mechanism:
   `## Unread mail (<N>)` with sender, subject when the message carries one, body, and id. An already
   acked message is excluded, and surfacing a message does not ack it: it re-surfaces on the next call
   until the caller acks it deliberately.
+- **Each line says where its sender was and whether it is waiting on the reader** — a line reads
+  `- [blocked on you] **<sender>** — <subject>: <body> (<id>) · from <origin>`. The `[blocked on you]`
+  mark leads only a message sent with `--blocked`. The `· from <origin>` tail names the origin the
+  message recorded at send time (`mail/core`) as `<repo>@<branch>, <mux> pane <id>`, so the reader
+  can go to the sender even after its record was pruned; a message with no recorded origin, such as
+  one sent before origins were, has no tail. Neither addition sits between sender and body, so a
+  line with no subject still reads its body straight after its sender. Owner-mail lines take the
+  same form.
 - **Owner mail surfaces into the bound main pane, never into a spawned unit** — beyond the caller's
   own unread mail, `mail hook` also surfaces **every standing owner** inbox's unread mail
   (bodies included) under its own owner-mail heading, so a human sees a frameless agent's report
@@ -191,6 +199,8 @@ implementation that drops the record gate appends the owner-mail section, so its
 |---|---|---|
 | `G -- yes` append unread section | a registered caller with two unread messages, one with a subject | `unread mail is included on every hook call` |
 | `G1` subject segment omitted | the one unread message carries no subject | `a message with no subject renders without a subject segment` |
+| `G1` origin and blocked mark | a located sender's `--blocked` message beside a plain one | `each message line names its sender's origin and marks a blocked sender` |
+| `G1` no origin | a message stored with no origin | `a message with no recorded origin renders without an origin tail` |
 | `G -- yes` unread-only filter | two messages addressed to the caller, one already acked | `an acked message of the caller's own no longer surfaces` |
 | `G1` read-only, never acks | one unread message, the hook called twice | `surfacing the caller's own mail never acks it` |
 | `H -- no` no record | an agent id whose record was removed while its inbox was kept, in a pane with none bound, an owner with unread mail | `a caller whose id resolves without an agent record still gets its own mail` |
@@ -206,6 +216,7 @@ implementation that drops the record gate appends the owner-mail section, so its
 | `H -- no` spawned unit skips | the record carries a `spawnedBy`, and it has own unread mail | `a spawned unit does not surface the owner's mail` |
 | `I0 -- yes` once per standing owner | two standing owners, both with unread mail | `every standing owner with unread mail gets its own heading` |
 | `I1` read-only, never acks | an owner with one unread message, the hook called twice | `surfacing the owner's mail never acks it` |
+| `I1` origin and blocked mark | an owner with one `--blocked` message from a sender in a pane | `an owner-mail line names its sender's origin and marks a blocked sender` |
 | `I0 -- none` the owner's mail is acked | the owner's only message already acked; the caller has own unread mail | `an acked owner message no longer surfaces` |
 | `I0 -- none` no standing record | no standing owner in the registry; the caller has own unread mail | `no standing owner means no owner-mail section` |
 | `HT -- yes` owner block swallows | the main-pane read raises; the caller has own unread mail, an owner has unread mail | `a failing main-pane lookup drops the owner-mail section but keeps the caller's own mail` |

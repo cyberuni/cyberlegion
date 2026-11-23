@@ -13077,10 +13077,36 @@ function listCursorModels() {
 	}
 }
 // src/message.ts
+/** Snapshot where a sender is running from its record: its pane and its checkout (owned, else
+* shared). `undefined` when there is no record or it locates the sender nowhere. */
+function originOf(rec) {
+	if (!rec) return void 0;
+	const checkout = rec.worktree ?? rec.sharedWorktree;
+	const origin = {
+		...rec.pane ? { pane: rec.pane } : {},
+		...checkout ? {
+			repo: checkout.primaryRoot ?? checkout.root,
+			worktree: checkout.root,
+			...checkout.branch ? { branch: checkout.branch } : {}
+		} : {}
+	};
+	return Object.keys(origin).length > 0 ? origin : void 0;
+}
+/** A one-line, human-scannable origin: `<repo>@<branch>, <mux> pane <id>`, dropping what is absent;
+* empty for no origin. */
+function originLabel(origin) {
+	if (!origin) return "";
+	const parts = [];
+	const where = origin.repo ?? origin.worktree;
+	if (where) parts.push(`${basename(where)}${origin.branch ? `@${origin.branch}` : ""}`);
+	if (origin.pane) parts.push(`${origin.pane.mux} pane ${origin.pane.id}`);
+	return parts.join(", ");
+}
 /** Write one message into the recipient's inbox. Collision-free by <epochMs>-<hex>. */
 function send(ctx, input) {
 	const toId = resolveRecipient(ctx.store, input.to);
 	const from = loadAgent(ctx.store, input.fromId);
+	const origin = originOf(from);
 	const ts = ctx.now?.() ?? Date.now();
 	const msg = {
 		id: `${ts}-${randomBytes(3).toString("hex")}`,
@@ -13091,6 +13117,8 @@ function send(ctx, input) {
 		body: input.body,
 		...input.thread ? { thread: input.thread } : {},
 		...input.replyTo ? { replyTo: input.replyTo } : {},
+		...origin ? { origin } : {},
+		...input.blocked ? { blocked: true } : {},
 		ts,
 		sentAt: new Date(ts).toISOString()
 	};
@@ -13991,6 +14019,16 @@ function byPath(ctx, dir) {
 }
 // src/runtime/inject-inbox.ts
 const EVENTS = ["SessionStart"];
+/** One surfaced message: a blocked mark when its sender is waiting on the reader, sender, subject,
+* body, id, then where the sender was. Neither addition sits between sender and body, so a line with
+* no subject still reads body straight after sender; a message with no recorded origin (one sent
+* before origins were) just omits the tail. */
+function mailLine(m) {
+	const origin = originLabel(m.origin);
+	const blocked = m.blocked ? "[blocked on you] " : "";
+	const subject = m.subject ? ` — ${m.subject}` : "";
+	return `- ${blocked}**${m.fromHandle}**${subject}: ${m.body} \`(${m.id})\`${origin ? ` · from ${origin}` : ""}`;
+}
 /**
 * Resolve the calling agent, gather its unread mail (and a standing owner's, when this session is
 * the hub's main pane), and return the SessionStart-style injection payload — or null when there is
@@ -14019,7 +14057,7 @@ function injectInbox(ctx, event) {
 		unread: true
 	});
 	if (unread.length > 0) {
-		const lines = unread.map((m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ""}: ${m.body} \`(${m.id})\``);
+		const lines = unread.map(mailLine);
 		parts.push(`## Unread mail (${unread.length})\n\n${lines.join("\n")}`);
 	}
 	const cur = currentPane(normalizeMuxEnv(ctx.env ?? process.env));
@@ -14033,7 +14071,7 @@ function injectInbox(ctx, event) {
 					unread: true
 				});
 				if (ownerUnread.length === 0) continue;
-				const lines = ownerUnread.map((m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ""}: ${m.body} \`(${m.id})\``);
+				const lines = ownerUnread.map(mailLine);
 				parts.push(`## Owner mail — ${owner.handle} (${ownerUnread.length})\n\n${lines.join("\n")}`);
 			}
 		}
@@ -15879,7 +15917,7 @@ syncsUnits(withSpawnOptions(service.command("start"))).description("resolve the 
 });
 const mail = program.command("mail").description("durable inter-agent messaging");
 function defineSend(cmd) {
-	return withGlobals(cmd).description("send a message to a peer (by handle or id)").requiredOption("--to <peer>", "recipient handle or id").option("--from <id>", "sender id (else this session own identity)").option("--subject <s>", "subject").option("--body <text>", "message body").option("--body-file <path>", "read body from a file, or - for stdin").option("--thread <id>", "thread id").option("--reply-to <msg>", "message id this replies to").option("--no-nudge", "suppress the delivery doorbell (do not wake the recipient's pane)").action(async (opts) => {
+	return withGlobals(cmd).description("send a message to a peer (by handle or id)").requiredOption("--to <peer>", "recipient handle or id").option("--from <id>", "sender id (else this session own identity)").option("--subject <s>", "subject").option("--body <text>", "message body").option("--body-file <path>", "read body from a file, or - for stdin").option("--thread <id>", "thread id").option("--reply-to <msg>", "message id this replies to").option("--blocked", "mark that you are blocked waiting on the recipient's answer").option("--no-nudge", "suppress the delivery doorbell (do not wake the recipient's pane)").action(async (opts) => {
 		const ctx = ctxOf(opts);
 		const fromId = opts.from ?? requireSelf(ctx);
 		const body = resolveBody(opts.body, opts.bodyFile);
@@ -15889,7 +15927,8 @@ function defineSend(cmd) {
 			subject: opts.subject,
 			body,
 			thread: opts.thread,
-			replyTo: opts.replyTo
+			replyTo: opts.replyTo,
+			blocked: opts.blocked
 		});
 		const wake = await wakeRecipient(ctx.store, () => selectSessionAdapter(ctx.env ?? process.env), realExec, {
 			toId: msg.to,
@@ -15915,6 +15954,34 @@ function defineSend(cmd) {
 	});
 }
 defineSend(mail.command("send"));
+/** The `mail inbox` listing's columns: `blocked` says the sender is waiting on the reader, `origin`
+* names where it sent from (empty for mail sent before origins were recorded). */
+const INBOX_COLUMNS = [
+	{
+		key: "id",
+		get: (m) => m.id
+	},
+	{
+		key: "from",
+		get: (m) => m.fromHandle
+	},
+	{
+		key: "subject",
+		get: (m) => m.subject ?? ""
+	},
+	{
+		key: "read",
+		get: (m) => m.read
+	},
+	{
+		key: "blocked",
+		get: (m) => m.blocked === true
+	},
+	{
+		key: "origin",
+		get: (m) => originLabel(m.origin)
+	}
+];
 /** List a resolved inbox (the caller's own or an --owner mailbox) as TOON with an aggregate;
 * `readCmd` is the follow-up read command prefix surfaced as the next step. */
 function emitInbox(ctx, opts, meId, readCmd) {
@@ -15926,24 +15993,7 @@ function emitInbox(ctx, opts, meId, readCmd) {
 	});
 	const unreadCount = items.filter((i) => !i.read).length;
 	emit(formatOf(opts), {
-		toon: toonList("messages", items, [
-			{
-				key: "id",
-				get: (m) => m.id
-			},
-			{
-				key: "from",
-				get: (m) => m.fromHandle
-			},
-			{
-				key: "subject",
-				get: (m) => m.subject ?? ""
-			},
-			{
-				key: "read",
-				get: (m) => m.read
-			}
-		], `${items.length} messages (${unreadCount} unread)`),
+		toon: toonList("messages", items, INBOX_COLUMNS, `${items.length} messages (${unreadCount} unread)`),
 		json: items
 	});
 	const firstUnread = items.find((m) => !m.read);
@@ -15971,24 +16021,7 @@ function emitUnitInbox(ctx, opts, ref) {
 			unit: unit.id,
 			handle: unit.handle,
 			mailbox: result.mailbox
-		}), toonList("messages", result.messages, [
-			{
-				key: "id",
-				get: (m) => m.id
-			},
-			{
-				key: "from",
-				get: (m) => m.fromHandle
-			},
-			{
-				key: "subject",
-				get: (m) => m.subject ?? ""
-			},
-			{
-				key: "read",
-				get: (m) => m.read
-			}
-		], summary)].join("\n"),
+		}), toonList("messages", result.messages, INBOX_COLUMNS, summary)].join("\n"),
 		json: {
 			unit: unit.id,
 			handle: unit.handle,

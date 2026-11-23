@@ -32,6 +32,30 @@ Feature: mail core — durable inter-agent messaging
     Then the command errors naming "ghost"
     And no inbox anywhere receives a message
 
+  # ── send records where the sender was, and whether it is blocked ──
+
+  Scenario: send records the sender's pane, repo, worktree, and branch on the message
+    Given a sender whose record holds a herdr pane and a worktree on branch "feat/x" of a repository
+    When the sender runs mail send --to <recipient> --body "hi"
+    Then the stored message's origin carries that pane, the repository's primary checkout, the worktree root, and "feat/x"
+
+  Scenario: the recorded origin survives the sender's record being removed
+    Given a message sent by a sender whose record held a pane and a worktree
+    And the sender's record was removed after the send
+    When the recipient runs mail inbox
+    Then the message still carries the sender's handle, pane, and branch
+
+  Scenario: a sender with nothing to locate it by sends a message with no origin
+    Given a sender id with no record, and a sender whose record holds no pane and no checkout
+    When each sends a message
+    Then neither stored message carries an origin
+
+  Scenario: --blocked marks the message and a plain send carries no mark
+    Given a registered sender and recipient
+    When the sender sends one message with --blocked and one without
+    Then the first stored message carries blocked true
+    And the second stored message carries no blocked field
+
   # ── The body is resolved from one of three sources ──
 
   Scenario Outline: the body comes from --body, --body-file <path>, or --body-file - (stdin)
@@ -72,6 +96,19 @@ Feature: mail core — durable inter-agent messaging
     Given a caller with messages from two different senders
     When it runs mail inbox --from <sender>
     Then only that sender's messages are listed
+
+  Scenario: inbox lists whether each sender is blocked and where it sent from
+    Given a sender in herdr pane "p3" on branch "feat/x" of repository "cyberlegion"
+    And it sent one message with --blocked and one without
+    When the recipient runs mail inbox
+    Then the header reads "messages[2]{id,from,subject,read,blocked,origin}:"
+    And the blocked message's row carries blocked true and origin "cyberlegion@feat/x, herdr pane p3"
+    And the other message's row carries blocked false and the same origin
+
+  Scenario: a message with no recorded origin lists an empty origin
+    Given a message stored with no origin field
+    When the recipient runs mail inbox
+    Then its row carries an empty origin and blocked false
 
   # ── read peeks — it does not consume ──
 

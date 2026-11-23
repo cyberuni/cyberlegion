@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { basename } from 'node:path'
 import { loadAgent, resolveRecipient } from './identity.ts'
-import type { MailboxStore, Message, Store } from './store/store.ts'
+import type { AgentRecord, MailboxStore, Message, MessageOrigin, Store } from './store/store.ts'
 
-export type { Message } from './store/store.ts'
+export type { Message, MessageOrigin } from './store/store.ts'
 
 export interface MsgContext {
 	store: Store
@@ -17,12 +18,44 @@ export interface SendInput {
 	body: string
 	thread?: string
 	replyTo?: string
+	/** The sender is blocked waiting on the recipient's answer. */
+	blocked?: boolean
+}
+
+/** Snapshot where a sender is running from its record: its pane and its checkout (owned, else
+ * shared). `undefined` when there is no record or it locates the sender nowhere. */
+function originOf(rec: AgentRecord | undefined): MessageOrigin | undefined {
+	if (!rec) return undefined
+	const checkout = rec.worktree ?? rec.sharedWorktree
+	const origin: MessageOrigin = {
+		...(rec.pane ? { pane: rec.pane } : {}),
+		...(checkout
+			? {
+					repo: checkout.primaryRoot ?? checkout.root,
+					worktree: checkout.root,
+					...(checkout.branch ? { branch: checkout.branch } : {}),
+				}
+			: {}),
+	}
+	return Object.keys(origin).length > 0 ? origin : undefined
+}
+
+/** A one-line, human-scannable origin: `<repo>@<branch>, <mux> pane <id>`, dropping what is absent;
+ * empty for no origin. */
+export function originLabel(origin: MessageOrigin | undefined): string {
+	if (!origin) return ''
+	const parts: string[] = []
+	const where = origin.repo ?? origin.worktree
+	if (where) parts.push(`${basename(where)}${origin.branch ? `@${origin.branch}` : ''}`)
+	if (origin.pane) parts.push(`${origin.pane.mux} pane ${origin.pane.id}`)
+	return parts.join(', ')
 }
 
 /** Write one message into the recipient's inbox. Collision-free by <epochMs>-<hex>. */
 export function send(ctx: MsgContext, input: SendInput): Message {
 	const toId = resolveRecipient(ctx.store, input.to) // throws if unknown — no partial write
 	const from = loadAgent(ctx.store, input.fromId)
+	const origin = originOf(from)
 	const ts = ctx.now?.() ?? Date.now()
 	const id = `${ts}-${randomBytes(3).toString('hex')}`
 	const msg: Message = {
@@ -34,6 +67,8 @@ export function send(ctx: MsgContext, input: SendInput): Message {
 		body: input.body,
 		...(input.thread ? { thread: input.thread } : {}),
 		...(input.replyTo ? { replyTo: input.replyTo } : {}),
+		...(origin ? { origin } : {}),
+		...(input.blocked ? { blocked: true as const } : {}),
 		ts,
 		sentAt: new Date(ts).toISOString(),
 	}

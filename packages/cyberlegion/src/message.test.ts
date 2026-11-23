@@ -2,8 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { type AgentRecord, register } from './identity.ts'
-import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send, unitInbox } from './message.ts'
+import { type AgentRecord, register, saveAgent } from './identity.ts'
+import { ack, deleteMessage, inbox, originLabel, peek, readAck, resolveBody, send, unitInbox } from './message.ts'
 import { FileStore } from './store/file-store.ts'
 
 let store: FileStore
@@ -99,6 +99,77 @@ describe('send persists thread/replyTo', () => {
 		expect(reply.replyTo).toBe(first.id)
 		const stored = inbox({ store }, { meId: bob.id }).find((m) => m.id === reply.id)
 		expect(stored).toMatchObject({ thread: 'cr-1', replyTo: first.id })
+	})
+})
+
+describe('send snapshots the sender origin', () => {
+	const paned = (rec: AgentRecord): AgentRecord => ({
+		...rec,
+		pane: { mux: 'herdr', id: 'p3', terminal: 't9', server: '/run/herdr.sock', session: 'main' },
+		worktree: { root: '/code/cyberlegion.worktrees/cl-1', branch: 'feat/x', primaryRoot: '/code/cyberlegion' },
+	})
+
+	it("records the sender's pane, repo, worktree, and branch on the message", () => {
+		saveAgent(store, paned(alice))
+		const msg = send(at(1), { fromId: alice.id, to: 'bob', body: 'hi' })
+		expect(msg.origin).toEqual({
+			pane: { mux: 'herdr', id: 'p3', terminal: 't9', server: '/run/herdr.sock', session: 'main' },
+			repo: '/code/cyberlegion',
+			worktree: '/code/cyberlegion.worktrees/cl-1',
+			branch: 'feat/x',
+		})
+		expect(inbox({ store }, { meId: bob.id })[0].origin).toEqual(msg.origin)
+	})
+
+	it("keeps the origin after the sender's record is removed", () => {
+		saveAgent(store, paned(alice))
+		send(at(1), { fromId: alice.id, to: 'bob', body: 'hi' })
+		store.removeAgent(alice.id)
+		const [m] = inbox({ store }, { meId: bob.id })
+		expect(m.fromHandle).toBe('alice')
+		expect(m.origin?.branch).toBe('feat/x')
+		expect(m.origin?.pane?.id).toBe('p3')
+	})
+
+	it('falls back to a shared checkout, and to the worktree root when no primary root is known', () => {
+		saveAgent(store, { ...alice, pane: null, worktree: null, sharedWorktree: { root: '/code/repo', branch: 'main' } })
+		const msg = send(at(1), { fromId: alice.id, to: 'bob', body: 'hi' })
+		expect(msg.origin).toEqual({ repo: '/code/repo', worktree: '/code/repo', branch: 'main' })
+	})
+
+	it('records no origin for a sender with no record or nothing to locate it by', () => {
+		expect(send(at(1), { fromId: 'nobody', to: 'bob', body: 'hi' }).origin).toBeUndefined()
+		saveAgent(store, { ...alice, pane: null, worktree: null })
+		expect(send(at(2), { fromId: alice.id, to: 'bob', body: 'hi' }).origin).toBeUndefined()
+	})
+})
+
+describe('send marks a blocked sender', () => {
+	it('stores blocked: true only when the sender says it is blocked', () => {
+		const waiting = send(at(1), { fromId: alice.id, to: 'bob', body: 'which one?', blocked: true })
+		const plain = send(at(2), { fromId: alice.id, to: 'bob', body: 'fyi' })
+		expect(waiting.blocked).toBe(true)
+		expect('blocked' in plain).toBe(false)
+		expect(inbox({ store }, { meId: bob.id }).map((m) => m.blocked)).toEqual([true, undefined])
+	})
+})
+
+describe('originLabel', () => {
+	it('names the repo, branch, and pane', () => {
+		expect(
+			originLabel({
+				pane: { mux: 'herdr', id: 'p3' },
+				repo: '/code/cyberlegion',
+				worktree: '/code/cyberlegion.worktrees/cl-1',
+				branch: 'feat/x',
+			}),
+		).toBe('cyberlegion@feat/x, herdr pane p3')
+	})
+
+	it('drops the parts it lacks, and is empty for no origin', () => {
+		expect(originLabel({ repo: '/code/repo' })).toBe('repo')
+		expect(originLabel({ pane: { mux: 'tmux', id: '%4' } })).toBe('tmux pane %4')
+		expect(originLabel(undefined)).toBe('')
 	})
 })
 

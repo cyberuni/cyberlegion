@@ -80,6 +80,18 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Then that message's line places the body directly after the sender, with no segment between them
     And the payload carries the heading "Unread mail (1)"
 
+  Scenario: each message line names its sender's origin and marks a blocked sender
+    Given a registered caller with an unread --blocked message from a sender in herdr pane "p3" on branch "feat/x" of repository "cyberlegion"
+    And an unread plain message from a sender in tmux pane "%1"
+    When it runs mail hook --event SessionStart
+    Then the blocked message's line carries "[blocked on you]" and "cyberlegion@feat/x, herdr pane p3"
+    And the plain message's line carries "tmux pane %1" and no "[blocked on you]"
+
+  Scenario: a message with no recorded origin renders without an origin tail
+    Given a registered caller with one unread message stored with no origin field
+    When it runs mail hook --event SessionStart
+    Then that message's line ends at its message id
+
   Scenario: an acked message of the caller's own no longer surfaces
     Given a registered caller with two messages addressed to it
     And one of those two messages has been acked
@@ -162,6 +174,12 @@ Feature: mail surface — inject unread mail into a session across harnesses
     When the main pane runs mail hook --event SessionStart twice
     Then homa's message is surfaced in both payloads
     And it is still unread in homa's inbox after both calls
+
+  Scenario: an owner-mail line names its sender's origin and marks a blocked sender
+    Given a standing owner with one unread --blocked message from a sender in tmux pane "%2"
+    And the caller is a root session with no main pane bound
+    When it runs mail hook --event SessionStart
+    Then the owner message's line carries "[blocked on you]" and "tmux pane %2"
 
   Scenario: an acked owner message no longer surfaces
     Given a standing owner homa whose only message has been acked

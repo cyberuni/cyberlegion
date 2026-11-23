@@ -14,7 +14,7 @@ Model](/cyberlegion/concepts/mail-model/) for the full model and its contrast wi
 ## send
 
 ```sh
-npx cyberlegion mail send --to <peer> [--from <id>] [--subject <s>] [--body <text> | --body-file <path>] [--thread <id>] [--reply-to <msg>] [--no-nudge]
+npx cyberlegion mail send --to <peer> [--from <id>] [--subject <s>] [--body <text> | --body-file <path>] [--thread <id>] [--reply-to <msg>] [--blocked] [--no-nudge]
 ```
 
 Send a message to a peer, by handle or id. Also available as the top-level alias `cyberlegion
@@ -29,11 +29,20 @@ send`.
 | `--body-file <path>` | read body from a file, or `-` for stdin |
 | `--thread <id>` | thread id |
 | `--reply-to <msg>` | message id this replies to |
+| `--blocked` | mark that you are blocked waiting on the recipient's answer |
 | `--no-nudge` | suppress the delivery doorbell (do not wake the recipient's pane) |
 
 Delivery is durable first; waking the recipient's pane is a best-effort act on top and never fails
 the send. A failed wake prints a warning instead. Output: `sent` (message id), `to`, `subject`,
 `rung` (whether the doorbell fired), and `spawned` (the unit's id) when the send spawned a presence.
+
+Each message records where its sender was running at send time, copied from the sender's unit
+record: `origin.pane` (the multiplexer pane locator), `origin.repo` (the repository's primary
+checkout), `origin.worktree` (the checkout it worked in), and `origin.branch`. The snapshot
+outlives the sender's record, so a message from a pruned unit still names its repo and branch. A
+sender with no record, or one in no pane and no git checkout, sends a message with no `origin`;
+every `origin` field is optional. `--blocked` stores `blocked: true` on the message, so a reader can
+see which senders are waiting on them.
 
 A standing owner is woken in this order: its live presence (`unit claim`); else, when it has a
 home (`unit register --standing --home`), a presence spawned in that home; else the hub's bound
@@ -59,8 +68,10 @@ List your mail. Also available as the top-level alias `cyberlegion inbox` (witho
 | `--owner <ref>` | target a standing owner's mailbox (by handle) or a service endpoint's (by id or unique handle) instead of this session's own |
 | `--unit <ref>` | list another unit's mailbox read-only, by id or handle; exited units resolve too |
 
-Output: a `messages` table (`id`, `from`, `subject`, `read`) with an aggregate `<N> messages (<U>
-unread)`. Suggests `mail read <id>` on the first unread message as a next step.
+Output: a `messages` table (`id`, `from`, `subject`, `read`, `blocked`, `origin`) with an aggregate
+`<N> messages (<U> unread)`. `blocked` is `true` when the sender marked itself blocked on you;
+`origin` reads `<repo>@<branch>, <mux> pane <id>`, dropping what the message lacks, and is empty for
+mail sent before origins were recorded. `--format json` carries the raw `origin` object. Suggests `mail read <id>` on the first unread message as a next step.
 
 With `--unit`, the command acks nothing and needs no identity, so a cleanup sweep can ask whether a
 unit left unread mail. Before the table it prints `unit`, `handle`, and a `mailbox` state:
@@ -158,6 +169,10 @@ Emit the harness hook injection payload (raw JSON on stdout, not TOON). `--event
 reaches a busy session through the `mail send` doorbell instead. This is the command the surfacing hook calls on every matching harness
 event (the plugin's own hook on Claude Code and Codex, the project hook `init` registers on Cursor).
 It's rarely invoked by hand.
+
+Each surfaced message line reads `- [blocked on you] **<sender>** — <subject>: <body> (<id>) · from
+<origin>`. The blocked mark appears only on a `--blocked` message, the subject only when there is one,
+and the origin only when the message recorded one.
 
 ## Related
 

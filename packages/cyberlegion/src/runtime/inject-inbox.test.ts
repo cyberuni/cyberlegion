@@ -210,6 +210,50 @@ describe('mail hook emits the SessionStart payload', () => {
 	})
 })
 
+describe('each surfaced message names where its sender was and whether it is blocked', () => {
+	it("puts the sender's origin and a blocked mark on that message's own line", () => {
+		const carol = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%7' }, exec: () => null },
+			{ handle: 'carol', harness: 'claude' },
+		)
+		saveAgent(store, {
+			...carol,
+			pane: { mux: 'herdr', id: 'p3' },
+			worktree: { root: '/code/cyberlegion.worktrees/cl-1', branch: 'feat/x', primaryRoot: '/code/cyberlegion' },
+		})
+		const ask = send({ store, now: () => 2 }, { fromId: carol.id, to: 'bob', body: 'which one?', blocked: true })
+		const text = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
+		const askLine = lineOf(text, ask.id)
+		expect(askLine).toContain('cyberlegion@feat/x, herdr pane p3')
+		expect(askLine).toContain('blocked on you')
+		const pingLine = lineOf(text, ping.id)
+		expect(pingLine).toContain('tmux pane %1')
+		expect(pingLine).not.toContain('blocked on you')
+	})
+
+	it('surfaces a message stored before origins were recorded, with no origin', () => {
+		const old = { ...ping, id: '2-abcdef', body: 'legacy' }
+		delete old.origin
+		store.putMessage(bob.id, old)
+		const text = injectInbox(bobCtx(), 'SessionStart')?.hookSpecificOutput.additionalContext ?? ''
+		expect(lineOf(text, old.id)).toBe(`- **alice**: legacy \`(${old.id})\``)
+	})
+
+	it('names the origin on owner mail too', () => {
+		const homa = registerStanding({ store }, { handle: 'homa' })
+		const report = send({ store, now: () => 10 }, { fromId: bob.id, to: homa.id, body: 'status', blocked: true })
+		const root = register(
+			{ store, env: { TMUX: 't', TMUX_PANE: '%3' }, exec: () => null },
+			{ handle: 'root', harness: 'claude' },
+		)
+		const text = injectInbox({ store, env: { CYBERLEGION_AGENT_ID: root.id } }, 'SessionStart')?.hookSpecificOutput
+			.additionalContext
+		const line = lineOf(text ?? '', report.id)
+		expect(line).toContain('tmux pane %2')
+		expect(line).toContain('blocked on you')
+	})
+})
+
 describe('empty / error cases', () => {
 	it('injects nothing for an empty inbox', () => {
 		// The scenario's own preconditions: the caller sits in the bound main pane and the standing

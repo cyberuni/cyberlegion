@@ -35,7 +35,18 @@ import {
 } from './identity.ts'
 import { install } from './install.ts'
 import { landedWorktrees } from './landed.ts'
-import { ack, deleteMessage, inbox, peek, readAck, resolveBody, send, unitInbox } from './message.ts'
+import {
+	ack,
+	deleteMessage,
+	type InboxItem,
+	inbox,
+	originLabel,
+	peek,
+	readAck,
+	resolveBody,
+	send,
+	unitInbox,
+} from './message.ts'
 import { normalizeMuxEnv } from './mux-env.ts'
 import { selectSessionAdapter } from './mux-select.ts'
 import { emit, type Format, fail, nextStep, toonList, toonObject } from './output.ts'
@@ -952,6 +963,7 @@ function defineSend(cmd: Command): Command {
 		.option('--body-file <path>', 'read body from a file, or - for stdin')
 		.option('--thread <id>', 'thread id')
 		.option('--reply-to <msg>', 'message id this replies to')
+		.option('--blocked', "mark that you are blocked waiting on the recipient's answer")
 		.option('--no-nudge', "suppress the delivery doorbell (do not wake the recipient's pane)")
 		.action(async (opts) => {
 			const ctx = ctxOf(opts)
@@ -959,7 +971,15 @@ function defineSend(cmd: Command): Command {
 			const body = resolveBody(opts.body, opts.bodyFile)
 			const msg = send(
 				{ store: ctx.store },
-				{ fromId, to: opts.to, subject: opts.subject, body, thread: opts.thread, replyTo: opts.replyTo },
+				{
+					fromId,
+					to: opts.to,
+					subject: opts.subject,
+					body,
+					thread: opts.thread,
+					replyTo: opts.replyTo,
+					blocked: opts.blocked,
+				},
 			)
 			// Durable delivery is done; wake the recipient best-effort on top — never fails the send.
 			// The adapter is resolved lazily inside wakeRecipient (only when a pane is actually rung), so
@@ -989,23 +1009,24 @@ defineSend(mail.command('send'))
 
 type InboxOpts = GlobalOpts & { unread?: boolean; from?: string; thread?: string; owner?: string; unit?: string }
 
+/** The `mail inbox` listing's columns: `blocked` says the sender is waiting on the reader, `origin`
+ * names where it sent from (empty for mail sent before origins were recorded). */
+const INBOX_COLUMNS: { key: string; get: (m: InboxItem) => unknown }[] = [
+	{ key: 'id', get: (m) => m.id },
+	{ key: 'from', get: (m) => m.fromHandle },
+	{ key: 'subject', get: (m) => m.subject ?? '' },
+	{ key: 'read', get: (m) => m.read },
+	{ key: 'blocked', get: (m) => m.blocked === true },
+	{ key: 'origin', get: (m) => originLabel(m.origin) },
+]
+
 /** List a resolved inbox (the caller's own or an --owner mailbox) as TOON with an aggregate;
  * `readCmd` is the follow-up read command prefix surfaced as the next step. */
 function emitInbox(ctx: IdContext, opts: InboxOpts, meId: string, readCmd: string): void {
 	const items = inbox({ store: ctx.store }, { meId, unread: opts.unread, from: opts.from, thread: opts.thread })
 	const unreadCount = items.filter((i) => !i.read).length
 	emit(formatOf(opts), {
-		toon: toonList(
-			'messages',
-			items,
-			[
-				{ key: 'id', get: (m) => m.id },
-				{ key: 'from', get: (m) => m.fromHandle },
-				{ key: 'subject', get: (m) => m.subject ?? '' },
-				{ key: 'read', get: (m) => m.read },
-			],
-			`${items.length} messages (${unreadCount} unread)`,
-		),
+		toon: toonList('messages', items, INBOX_COLUMNS, `${items.length} messages (${unreadCount} unread)`),
 		json: items,
 	})
 	const firstUnread = items.find((m) => !m.read)
@@ -1035,17 +1056,7 @@ function emitUnitInbox(ctx: IdContext, opts: InboxOpts, ref: string): void {
 	emit(formatOf(opts), {
 		toon: [
 			toonObject({ unit: unit.id, handle: unit.handle, mailbox: result.mailbox }),
-			toonList(
-				'messages',
-				result.messages,
-				[
-					{ key: 'id', get: (m) => m.id },
-					{ key: 'from', get: (m) => m.fromHandle },
-					{ key: 'subject', get: (m) => m.subject ?? '' },
-					{ key: 'read', get: (m) => m.read },
-				],
-				summary,
-			),
+			toonList('messages', result.messages, INBOX_COLUMNS, summary),
 		].join('\n'),
 		json: { unit: unit.id, handle: unit.handle, ...result },
 	})
