@@ -116,6 +116,29 @@ Feature: mail surface — inject unread mail into a session across harnesses
     Then the payload lists the caller's own unread message
     And the payload contains no owner-mail section
 
+  # ── Each line names its thread, and the payload ends naming the reply command ──
+
+  Scenario: a threaded message's line names its thread
+    Given a registered caller with an unread message sent on thread "cl-175"
+    And an unread message sent with no thread
+    When it runs mail hook --event SessionStart
+    Then the threaded message's line carries "thread cl-175"
+    And the other message's line carries no thread segment
+
+  Scenario: a payload ends with one line naming the cyberlegion reply command
+    Given a registered caller with one unread message
+    When it runs mail hook --event SessionStart
+    Then exactly one payload line names "cyberlegion mail send --to <handle> --thread <id> --subject … --body …"
+    And that line says never to use the harness's own messaging tool
+    And that line is the payload's last line and is not a "## " heading
+
+  Scenario: a spawned unit with nothing unread still gets the reply line
+    Given a registered session whose record carries a spawnedBy
+    And no unread message addressed to that session
+    When it runs mail hook --event SessionStart
+    Then the payload carries the line naming the cyberlegion reply command
+    And the payload carries no "Unread mail" heading
+
   # ── Owner mail surfaces into the bound main pane, never into a spawned unit ──
 
   Scenario: the bound main pane surfaces the owner's unread mail with bodies

@@ -11,15 +11,26 @@ export interface InjectPayload {
 }
 
 /** One surfaced message: a blocked mark when its sender is waiting on the reader, sender, subject,
- * body, id, then where the sender was. Neither addition sits between sender and body, so a line with
- * no subject still reads body straight after sender; a message with no recorded origin (one sent
- * before origins were) just omits the tail. */
+ * body, id, then its thread and where the sender was. None of the additions sits between sender and
+ * body, so a line with no subject still reads body straight after sender; a message with no thread or
+ * no recorded origin (one sent before origins were) just omits that tail. */
 function mailLine(m: Message): string {
 	const origin = originLabel(m.origin)
 	const blocked = m.blocked ? '[blocked on you] ' : ''
 	const subject = m.subject ? ` — ${m.subject}` : ''
-	return `- ${blocked}**${m.fromHandle}**${subject}: ${m.body} \`(${m.id})\`${origin ? ` · from ${origin}` : ''}`
+	const thread = m.thread ? ` · thread ${m.thread}` : ''
+	return `- ${blocked}**${m.fromHandle}**${subject}: ${m.body} \`(${m.id})\`${thread}${origin ? ` · from ${origin}` : ''}`
 }
+
+/**
+ * The one line that tells the reader how to reach a cyberlegion handle. A unit told to report to a
+ * handle otherwise reaches for its harness's own messaging tool (Claude Code's SendMessage), which
+ * cannot see cyberlegion handles, and the report is lost. It is a trailing line, not a `## ` section.
+ */
+const REPLY_LINE =
+	'Reach a cyberlegion handle — a sender above, or one your brief names — with ' +
+	'`cyberlegion mail send --to <handle> --thread <id> --subject … --body …` (pass the thread its message or brief names, if any); ' +
+	"never your harness's own messaging tool, which cannot reach these handles."
 
 /**
  * Resolve the calling agent, gather its unread mail (and a standing owner's, when this session is
@@ -87,6 +98,10 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 		}
 	}
 
-	if (parts.length === 0) return null
+	// A spawned unit always gets the reply line, mail or not: its brief names the handle it reports to,
+	// and this hook is the one place that reaches it at session start. A root session with nothing
+	// unread still injects nothing.
+	if (parts.length === 0 && !rec?.spawnedBy) return null
+	parts.push(REPLY_LINE)
 	return { hookSpecificOutput: { hookEventName: event as HookEvent, additionalContext: parts.join('\n\n') } }
 }

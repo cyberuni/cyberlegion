@@ -170,9 +170,14 @@ reaches a busy session through the `mail send` doorbell instead. This is the com
 event (the plugin's own hook on Claude Code and Codex, the project hook `init` registers on Cursor).
 It's rarely invoked by hand.
 
-Each surfaced message line reads `- [blocked on you] **<sender>** — <subject>: <body> (<id>) · from
-<origin>`. The blocked mark appears only on a `--blocked` message, the subject only when there is one,
-and the origin only when the message recorded one.
+Each surfaced message line reads `- [blocked on you] **<sender>** — <subject>: <body> (<id>) · thread
+<thread> · from <origin>`. The blocked mark appears only on a `--blocked` message, the subject and
+thread only when there is one, and the origin only when the message recorded one.
+
+The payload ends with one line naming the reply command, `cyberlegion mail send --to <handle> --thread
+<id> --subject … --body …`, and telling the reader never to use its harness's own messaging tool
+(Claude Code's SendMessage cannot reach cyberlegion handles). A spawned unit gets that line even with
+nothing unread, so a unit whose brief names a return handle knows how to reach it.
 
 ## Related
 
