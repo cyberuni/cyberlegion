@@ -12,8 +12,27 @@ export interface Message {
 	body: string
 	thread?: string
 	replyTo?: string
+	/** Where the sender was running when it sent, copied from its record at send time so it outlives
+	 * that record being pruned. Absent on messages from before it was recorded, and when the sender has
+	 * no record or nothing to locate it by. */
+	origin?: MessageOrigin
+	/** The sender is blocked waiting on the reader's answer (`mail send --blocked`). Absent means not
+	 * marked, never "known not blocked". */
+	blocked?: true
 	ts: number
 	sentAt: string
+}
+
+/** A snapshot of where a message's sender was running. Every field is optional: a sender in no pane
+ * has no `pane`, one in no git checkout has no `repo`, `worktree`, or `branch`. */
+export interface MessageOrigin {
+	/** The sender's multiplexer pane, as its record held it. */
+	pane?: NonNullable<AgentRecord['pane']>
+	/** The primary checkout of the sender's repository — its worktree root when that is unknown. */
+	repo?: string
+	/** The checkout the sender worked in. */
+	worktree?: string
+	branch?: string
 }
 
 export type Harness = 'claude' | 'cursor' | 'codex'

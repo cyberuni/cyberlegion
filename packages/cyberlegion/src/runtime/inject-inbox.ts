@@ -1,6 +1,6 @@
 import { currentPane } from 'cyber-mux'
 import { type IdContext, listAgents, loadAgent, register, resolveSelfId } from '../identity.ts'
-import { inbox } from '../message.ts'
+import { inbox, type Message, originLabel } from '../message.ts'
 import { normalizeMuxEnv } from '../mux-env.ts'
 
 export type HookEvent = 'SessionStart'
@@ -8,6 +8,17 @@ const EVENTS: HookEvent[] = ['SessionStart']
 
 export interface InjectPayload {
 	hookSpecificOutput: { hookEventName: HookEvent; additionalContext: string }
+}
+
+/** One surfaced message: a blocked mark when its sender is waiting on the reader, sender, subject,
+ * body, id, then where the sender was. Neither addition sits between sender and body, so a line with
+ * no subject still reads body straight after sender; a message with no recorded origin (one sent
+ * before origins were) just omits the tail. */
+function mailLine(m: Message): string {
+	const origin = originLabel(m.origin)
+	const blocked = m.blocked ? '[blocked on you] ' : ''
+	const subject = m.subject ? ` — ${m.subject}` : ''
+	return `- ${blocked}**${m.fromHandle}**${subject}: ${m.body} \`(${m.id})\`${origin ? ` · from ${origin}` : ''}`
 }
 
 /**
@@ -48,9 +59,7 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 
 	const unread = inbox({ store: ctx.store }, { meId, unread: true })
 	if (unread.length > 0) {
-		const lines = unread.map(
-			(m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ''}: ${m.body} \`(${m.id})\``,
-		)
+		const lines = unread.map(mailLine)
 		parts.push(`## Unread mail (${unread.length})\n\n${lines.join('\n')}`)
 	}
 
@@ -69,9 +78,7 @@ export function injectInbox(ctx: IdContext, event: string): InjectPayload | null
 				for (const owner of standing) {
 					const ownerUnread = inbox({ store: ctx.store }, { meId: owner.id, unread: true })
 					if (ownerUnread.length === 0) continue
-					const lines = ownerUnread.map(
-						(m) => `- **${m.fromHandle}**${m.subject ? ` — ${m.subject}` : ''}: ${m.body} \`(${m.id})\``,
-					)
+					const lines = ownerUnread.map(mailLine)
 					parts.push(`## Owner mail — ${owner.handle} (${ownerUnread.length})\n\n${lines.join('\n')}`)
 				}
 			}

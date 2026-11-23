@@ -78,6 +78,16 @@ consume, or permanently remove it, without losing or duplicating anything.
 - **The recipient is resolved by handle or id.** A standing owner's handle resolves to the standing
   record (standing-precedence, see `unit/registry`), so a report addressed to the owner lands in the
   owner inbox.
+- **The message records where its sender was.** `origin` is a snapshot of the sender's unit record
+  at send time: `pane` (its multiplexer pane locator), `repo` (the primary checkout of its
+  repository, else its worktree root), `worktree` (the checkout it worked in, owned or shared), and
+  `branch`. It is copied, not referenced, so it outlives the sender's record being pruned. Every
+  field is optional, and a sender with no record, or one in no pane and no checkout, sends a message
+  with no `origin` at all. The sender's handle is already snapshotted as `fromHandle`.
+- **`--blocked` marks a sender waiting on the reader.** It stores `blocked: true`; a send without it
+  stores no `blocked` field. The mark lives on the message, not on the unit, because the question it
+  flags is the message's own: nothing has to clear it when the sender moves on, and a reader acks it
+  like any other message.
 - **The body comes from one source.** `resolveBody` takes the first source given, in the priority
   `--body`, then `--body-file <path>`, then `--body-file -` (stdin).
 
@@ -92,8 +102,12 @@ Extensions:
 
 | Trigger | Inputs | Outcome |
 |---|---|---|
-| `mail inbox` | optional `--unread`, `--from <handle-or-id>`, `--owner <handle>` | a TOON list (`messages[N]{id,from,subject,read}:`), oldest-first, plus a `<N> messages (<U> unread)` aggregate |
+| `mail inbox` | optional `--unread`, `--from <handle-or-id>`, `--owner <handle>` | a TOON list (`messages[N]{id,from,subject,read,blocked,origin}:`), oldest-first, plus a `<N> messages (<U> unread)` aggregate |
 
+- `blocked` is `true` on a `--blocked` message and `false` otherwise. `origin` reads
+  `<repo>@<branch>, <mux> pane <id>` (the repo and branch from the basename of `origin.repo` and
+  `origin.branch`), dropping the parts the message lacks; it is empty for a message with no
+  `origin`, such as one sent before origins were recorded. `--format json` carries the raw fields.
 - `--unread` restricts the list to un-acked mail; `--from` restricts it to one sender. Both compose
   with the default oldest-first order.
 
@@ -106,7 +120,7 @@ Extensions:
 
 | Trigger | Inputs | Outcome |
 |---|---|---|
-| `mail inbox --unit <handle-or-id>` | a unit by id or handle; optional `--unread`, `--from`, `--thread` | `unit`, `handle`, and `mailbox` fields, then the same `messages[N]{id,from,subject,read}:` list; nothing is acked and the caller needs no identity |
+| `mail inbox --unit <handle-or-id>` | a unit by id or handle; optional `--unread`, `--from`, `--thread` | `unit`, `handle`, and `mailbox` fields, then the same `messages[N]{id,from,subject,read,blocked,origin}:` list; nothing is acked and the caller needs no identity |
 
 A caller deciding about another unit (a cleanup sweep asking whether an exited unit left unread mail)
 reads that unit's mailbox without becoming it. The `mailbox` field is one of three states, so a caller
@@ -202,7 +216,7 @@ Mail is keyed by the recipient's id, so stopping or restarting a unit's session 
 needs no mail-side act. The only whole-mailbox delete is the one `unit close` asks for when a unit is
 decommissioned (`unit/lifecycle`); it removes read and unread mail together, through the mail store.
 
-**Surface trace.** `--to` and `--body`/`--body-file` serve *send*; `--unread` and `--from` serve
+**Surface trace.** `--to` and `--body`/`--body-file` serve *send*, as does `--blocked`; `--unread` and `--from` serve
 *inbox*; `--unit` serves *inbox --unit*; `--ack` serves *read --ack*; `--owner` serves the owner mailbox on `inbox`, `read`, and
 `ack` (and composes with `--ack`). `delete` takes no `--owner`: it acts on the caller's own inbox
 only. `--body` and `--body-file` are not combined — the first given wins.
@@ -237,7 +251,13 @@ graph TD
   SD1 -- none --> SD1X["throw asking for --body or --body-file"]
   SD1 -- "--body, else --body-file path, else --body-file -" --> SD3{"recipient resolves by id or handle?"}
   SD3 -- no --> SD3X["throw naming the recipient; nothing written"]
-  SD3 -- "yes (a standing handle wins a shared handle)" --> SD4["mint epochMs-hex id; write one message into the recipient's unread set"]
+  SD3 -- "yes (a standing handle wins a shared handle)" --> SD5{"the sender's record locates it (a pane or a checkout)?"}
+  SD5 -- yes --> SD5Y["snapshot origin from the record"]
+  SD5 -- "no (no record, or neither)" --> SD6
+  SD5Y --> SD6{"--blocked?"}
+  SD6 -- yes --> SD6Y["mark blocked: true"]
+  SD6 -- no --> SD4
+  SD6Y --> SD4["mint epochMs-hex id; write one message into the recipient's unread set"]
 ```
 
 ### inbox
@@ -316,6 +336,10 @@ claim.
 | `SD3X` | no agent addressable as the recipient | `an unknown recipient errors with no partial write` |
 | `SD1 -- source` | a body from each of the three sources | `the body comes from --body, --body-file <path>, or --body-file - (stdin)` |
 | `SD1X` | no `--body` and no `--body-file` | `neither --body nor --body-file given errors rather than sending an empty message` |
+| `SD5Y` | a sender whose record holds a pane and a worktree | `send records the sender's pane, repo, worktree, and branch on the message` |
+| `SD5Y` after prune | that sender's record removed after the send | `the recorded origin survives the sender's record being removed` |
+| `SD5 -- no` | a sender with no record, and one with no pane and no checkout | `a sender with nothing to locate it by sends a message with no origin` |
+| `SD6Y`, `SD6 -- no` | one send with `--blocked`, one without | `--blocked marks the message and a plain send carries no mark` |
 
 ### mail inbox
 
@@ -325,6 +349,8 @@ claim.
 | `IN4` empty | a caller with no mail at all | `inbox reports a definitive empty state` |
 | `IN2U` | a caller with one acked and one unread message | `--unread restricts the listing to un-acked mail` |
 | `IN3F` | a caller with messages from two senders | `--from restricts the listing to one sender` |
+| `IN4` columns | a blocked message and a plain one from a located sender | `inbox lists whether each sender is blocked and where it sent from` |
+| `IN4` no origin | a message stored with no origin | `a message with no recorded origin lists an empty origin` |
 
 ### mail inbox --unit
 

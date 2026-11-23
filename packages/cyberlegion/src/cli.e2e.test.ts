@@ -713,6 +713,59 @@ describe('mail group', () => {
 		expect(afterAck).toContain('0 messages (0 unread)')
 	})
 
+	it('mail send --blocked marks the message, and mail inbox lists blocked and the sender origin', () => {
+		const alice = JSON.parse(
+			legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice', '--format', 'json']),
+		)
+		const bob = JSON.parse(legion(['unit', 'register', '--harness', 'cursor', '--handle', 'bob', '--format', 'json']))
+		// Plant a located sender, so the origin column has something to show whatever checkout this runs in.
+		new FileStore(space).putAgent({
+			...alice,
+			pane: { mux: 'herdr', id: 'p3' },
+			worktree: { root: '/code/cyberlegion.worktrees/cl-1', branch: 'feat/x', primaryRoot: '/code/cyberlegion' },
+		})
+		const send = (extra: string[]) =>
+			JSON.parse(
+				legion(['mail', 'send', '--from', alice.id, '--to', 'bob', '--no-nudge', '--format', 'json', ...extra]),
+			)
+		const asked = send(['--body', 'which one?', '--blocked'])
+		const told = send(['--body', 'fyi'])
+		expect(asked.blocked).toBe(true)
+		expect(told.blocked).toBeUndefined()
+
+		const bobEnv = { CYBERLEGION_AGENT_ID: bob.id }
+		const toon = legion(['mail', 'inbox'], bobEnv)
+		expect(toon).toContain('messages[2]{id,from,subject,read,blocked,origin}:')
+		const row = (id: string) => toon.split('\n').find((l) => l.includes(id)) ?? ''
+		expect(row(asked.id)).toContain('true,"cyberlegion@feat/x, herdr pane p3"')
+		expect(row(told.id)).toContain('false,"cyberlegion@feat/x, herdr pane p3"')
+
+		const json = JSON.parse(legion(['mail', 'inbox', '--format', 'json'], bobEnv))
+		expect(json[0].origin).toEqual({
+			pane: { mux: 'herdr', id: 'p3' },
+			repo: '/code/cyberlegion',
+			worktree: '/code/cyberlegion.worktrees/cl-1',
+			branch: 'feat/x',
+		})
+	})
+
+	it('mail inbox lists a message stored with no origin with an empty origin and blocked false', () => {
+		const bob = JSON.parse(legion(['unit', 'register', '--harness', 'cursor', '--handle', 'bob', '--format', 'json']))
+		new FileStore(space).putMessage(bob.id, {
+			id: '1-abcdef',
+			from: 'gone',
+			fromHandle: 'gone',
+			to: bob.id,
+			body: 'legacy',
+			ts: 1,
+			sentAt: new Date(1).toISOString(),
+		})
+		const row = legion(['mail', 'inbox'], { CYBERLEGION_AGENT_ID: bob.id })
+			.split('\n')
+			.find((l) => l.includes('1-abcdef'))
+		expect(row?.trim()).toMatch(/^1-abcdef,gone,[^,]*,false,false,(""|)$/)
+	})
+
 	it('mail read --ack prints the body and consumes the message in one step, idempotently', () => {
 		const alice = JSON.parse(
 			legion(['unit', 'register', '--harness', 'claude', '--handle', 'alice', '--format', 'json']),
