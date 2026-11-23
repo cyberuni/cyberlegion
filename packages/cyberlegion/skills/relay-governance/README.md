@@ -9,6 +9,9 @@ plus the **receive side**: how an agent triages a relayed steer by authority lev
 - **Bare top-level / cron** (no frame) → push `mail send` to the standing owner and exit; a later
   tick or the owner's reply resumes, state carried on the thread.
 
+Mail that holds the sender's work until the recipient answers carries `mail send --blocked`; a
+done report or a note does not, and a later unblocked message is the signal the sender moved on.
+
 Loaded by `dispatch-governance` (to relay a callee's `needsInput`) and by any headless agent
 (`headless-legate`, `sdd-automaton`, cold judges). Not user-invocable — see `SKILL.md`.
 
