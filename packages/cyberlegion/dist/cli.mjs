@@ -9165,7 +9165,7 @@ function migrateStore(from, to) {
 		briefs
 	};
 }
-// ../../node_modules/.pnpm/cyber-agentkit@2.2.0/node_modules/cyber-agentkit/dist/worktrees.js
+// ../../node_modules/.pnpm/cyber-agentkit@2.14.0/node_modules/cyber-agentkit/dist/worktrees.js
 /**
 * Whether a checkout has uncommitted changes, tracked or untracked, or `undefined` when git could not
 * say. `undefined` is not `false`: a caller deciding whether a worktree is safe to reuse must not read
