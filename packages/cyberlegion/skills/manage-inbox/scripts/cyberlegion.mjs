@@ -1,5 +1,5 @@
 // Written by `universal-plugin plugin build` to forward to the cyberlegion CLI of cyberlegion. Edit plugin.json, not this file.
-globalThis.__SKILL_SCRIPT__ = {"package":"cyberlegion","bin":"cyberlegion","version":"2.2.0","entry":"skills/manage-inbox/scripts/cyberlegion.mjs","commands":{},"forward":"own"};
+globalThis.__SKILL_SCRIPT__ = {"package":"cyberlegion","bin":"cyberlegion","version":"2.2.1","entry":"skills/manage-inbox/scripts/cyberlegion.mjs","commands":{},"forward":"own"};
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'

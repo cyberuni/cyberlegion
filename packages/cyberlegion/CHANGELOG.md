@@ -1,5 +1,12 @@
 # cyberlegion
 
+## 2.2.1
+
+### Patch Changes
+
+- 0674349: Update runtime dependencies.
+- c11aa6f: Update runtime dependencies.
+
 ## 2.2.0
 
 ### Minor Changes
